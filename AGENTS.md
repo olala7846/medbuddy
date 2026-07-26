@@ -5,6 +5,14 @@
 - Deliver incremental user value and validate assumptions early. Build the smallest user-facing end-to-end proof of concept first; add complex backend systems only after the workflow and value are demonstrated.
 - Avoid over-engineering and speculative abstractions. Prefer simple, reversible decisions that fit the prototype timeline.
 
+## Privacy and Public Repository Hygiene
+
+- Assume repository and submission artifacts may become public. Never commit personally identifiable information (PII), protected or sensitive health information, credentials, or raw interview material that could identify a participant or family.
+- Minimize and anonymize user-research evidence. Preserve the product-relevant event, behavior, and insight while removing names, exact diagnoses, contact details, dates, locations, and distinctive combinations that are not essential to the product decision.
+- Label anonymized, composite, hypothetical, and market-level evidence accurately. Never present a personal anecdote as a general market fact.
+- Obtain explicit user consent before committing any identifiable personal or medical detail, even when the user shared it in chat. Prefer an abstracted or fictionalized example whenever identity is unnecessary.
+- Review staged changes for PII, health information, and secrets before every commit.
+
 ## Development Workflow
 
 - Start every change from an up-to-date `origin/main` in a clean Git worktree and dedicated feature branch.
