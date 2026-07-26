@@ -5,7 +5,8 @@
 - Deliver within 48 hours of receiving the challenge. If the deadline is at risk, flag it and provide an ETA.
 - The main deliverable is a working, runnable prototype with source code.
 - Rough is acceptable; a polished document, prompt, or thin LLM wrapper is not sufficient.
-- Preserve the full commit history. Do not squash commits.
+- Preserve the full commit history. Do not squash, rebase, or rewrite commits; commit history is part of the submission and will be reviewed.
+- Obtain and read the separately referenced prep guide for the prototype, TDD, and panel packet if available; it was not included with the challenge text.
 
 ## Product Context
 
@@ -51,6 +52,8 @@ Go meaningfully deeper in at least one area:
 
 Reviewers will read the PRD and TDD before running and inspecting the prototype.
 
+AI Fund will execute the prototype and test commands before scheduling a panel.
+
 ## Submission Contract
 
 Provide:
@@ -67,10 +70,15 @@ Provide:
 
 Make the repository public or grant reviewer access before the interview. Ensure all document, design, repository, and deployment links are viewable by reviewers.
 
+A ZIP snapshot is only a fallback; advancement pauses until the repository can be verified.
+
 ## AI Interview
 
 - Complete the required 60-minute voice interview after submitting.
 - Start it within 30 minutes of submission.
-- The invitation expires 72 hours after the original challenge email.
+- Plan for submission and the interview as one sitting.
+- The invitation expires 72 hours after the original challenge email, 24 hours after the build deadline.
 - Be ready to explain the prototype, decisions, tradeoffs, debugging, PRD, and TDD using exact files, functions, and commands.
+- Keep the repository open during the interview; answers will be reconciled against the submitted repository.
+- Be prepared to produce a small piece of new logic aloud.
 - AI tools may be used for new questions if their use is narrated, but questions about the submitted work must be answered from personal understanding.
