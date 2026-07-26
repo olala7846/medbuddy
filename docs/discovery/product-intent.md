@@ -8,6 +8,8 @@
 
 **Inputs:** Founder interview, the MedBuddy prototype challenge, the AI Fund candidate preparation guide, and Taiwan/WHO source research
 
+**Traditional Chinese reference:** [product-intent.zh-TW.md](product-intent.zh-TW.md)
+
 > Privacy note: the motivating family experience is intentionally anonymized because this repository may be made public. The event sequence and product insights are preserved without names or a family member's specific diagnosis.
 
 ## Confirmed Intent
