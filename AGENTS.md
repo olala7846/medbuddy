@@ -13,6 +13,13 @@
 - Obtain explicit user consent before committing any identifiable personal or medical detail, even when the user shared it in chat. Prefer an abstracted or fictionalized example whenever identity is unnecessary.
 - Review staged changes for PII, health information, and secrets before every commit.
 
+## Working Language and Context Preservation
+
+- Use English by default for project discussions, documentation, source code, code comments, commit messages, and pull requests.
+- Use Traditional Chinese only for a specific discussion where preserving the exact original context or meaning requires it.
+- When that exception applies, preserve a Traditional Chinese backup of the relevant discussion before translating or summarizing it. The backup must follow the privacy and public-repository rules above.
+- Unless the user explicitly requests otherwise, keep English as the canonical language for resulting documentation and implementation.
+
 ## Development Workflow
 
 - Start every change from an up-to-date `origin/main` in a clean Git worktree and dedicated feature branch.
