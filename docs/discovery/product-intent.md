@@ -1,6 +1,6 @@
 # MedBuddy Taiwan Product Intent
 
-**Status:** Confirmed
+**Status:** Confirmed foundation; first-market wedge partially superseded
 
 **Confirmed:** 2026-07-25
 
@@ -11,6 +11,8 @@
 **Traditional Chinese reference:** [product-intent.zh-TW.md](product-intent.zh-TW.md)
 
 > Privacy note: the motivating family experience is intentionally anonymized because this repository may be made public. The event sequence and product insights are preserved without names or a family member's specific diagnosis.
+
+> **Later decision:** The 2026-07-27 Stage 1 PRD interview retained the instruction capture-and-sharing failure but no longer requires hearing difficulty as the first-market qualifier. See [prd-decision-log.md](prd-decision-log.md). This document remains the historical record of the earlier discovery decision.
 
 ## Confirmed Intent
 
