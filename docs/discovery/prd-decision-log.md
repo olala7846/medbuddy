@@ -1,14 +1,14 @@
 # MedBuddy PRD Decision Log
 
-**Status:** Stage 1 product intent confirmed
+**Status:** Stage 1 product intent and Stage 2 adversarial review confirmed
 
 **Confirmed:** 2026-07-27
 
-**Purpose:** Preserve confirmed PRD interview decisions before adversarial review and PRD drafting
+**Purpose:** Preserve confirmed PRD interview and adversarial-review decisions before PRD drafting
 
 **Inputs:** Prototype challenge, candidate preparation guide, prior product-intent discovery, and the Stage 1 founder interview
 
-> This is a decision log, not the PRD. Stage 2 may refine these decisions through adversarial review. No external target-family feedback has occurred yet.
+> This is a decision log, not the PRD. No external target-family feedback has occurred yet.
 
 ## Evidence Labels
 
@@ -185,15 +185,264 @@ The initial product will not:
 - solve every disability, cultural, memory, or communication problem; or
 - lock the product to LINE or any other delivery channel before evaluation.
 
-## Stage 2 Questions
+## Confirmed Stage 2 Adversarial Review
 
-Stage 2 must challenge, rather than assume:
+### Autonomy and first-market boundary
 
-- whether an adult-child primary user is compatible with an older-adult-controlled product;
-- whether the broader instruction capture-and-sharing wedge is specific enough to support a focused first-market segment;
-- whether structured handoff improves on existing LINE, photo, and call workflows;
-- whether persistent family access creates surveillance or autonomy risks;
-- whether recording or transcription is necessary;
-- whether a shared AI conversation is trusted and understandable;
-- which features address observed pain versus engineering interest; and
-- what would cause matched families to reject or abandon the product.
+**Decision**
+
+- Patient consent is mandatory before any persistent patient-specific record exists.
+- The adult child remains the primary coordinating user but never gains unilateral authority.
+- The first-market segment requires a recurring and consequential post-visit reconstruction failure. It does not require hearing difficulty or any other single cause.
+
+**Rejected alternatives**
+
+- A caregiver privately creating a persistent patient record without patient consent.
+- Targeting all older adults with a possible communication barrier.
+
+**Evidence**
+
+- Confirmed product decision grounded in autonomy, anti-surveillance principles, founder evidence, and the challenge's older-adult-friendly requirement.
+- The recurrence and severity of the qualifying failure remain hypotheses requiring target-family validation.
+
+**Invalidation**
+
+- Matched families experience the qualifying event but do not find it painful or consequential enough to change behavior.
+- Adult children cannot create value without taking control from the older adult.
+
+### Attributed account, not recovered truth
+
+**Decision**
+
+- MedBuddy constructs an attributed post-visit account from available evidence. It never claims to recover a lost clinical conversation.
+- Only an original artifact or contemporaneous capture may be labeled as original clinical instruction.
+- Patient recollection, written instructions, medication-label facts, general reference information, caregiver observations, and reported follow-up remain separately labeled.
+- Conflicting claims remain separately attributed and require human clarification.
+
+**Rejected alternatives**
+
+- Presenting patient recollection or derived medication data as the clinician's original instruction.
+- Selecting the most likely instruction when sources conflict.
+
+**Evidence**
+
+- Binding challenge grounding and medical-safety obligations.
+- Confirmed product decision supporting trust and provenance.
+
+**Invalidation**
+
+- None for the provenance boundary. Better evidence may reduce uncertainty but cannot justify silent source rewriting or autonomous conflict resolution.
+
+### Medication grounding and decision refusal
+
+**Decision**
+
+- General drug references may describe general uses and cautions but never establish the patient's diagnosis, prescribing rationale, timing, or duration.
+- Patient-specific purpose and usage require an attributed report, written instruction, or reported professional follow-up.
+- Medication identity remains unresolved when label or package evidence is insufficient.
+- A medication-decision question receives a deterministic refusal, grounded risk handling, appropriate human escalation, and factual logging.
+- MedBuddy never advises starting, stopping, continuing, or changing medication.
+
+**Rejected alternatives**
+
+- Inferring patient-specific treatment rationale from medication identity.
+- Reassuring a user because no known reference warning was found.
+- Answering whether the person should change or stop medication.
+
+**Evidence**
+
+- Binding challenge safety contract and confirmed product decision.
+
+**Invalidation**
+
+- None. These boundaries remain even if future models or data sources become more capable.
+
+### Shared conversation and canonical handoff
+
+**Decision**
+
+- Conversation is the capture and collaboration surface.
+- A structured, provenance-linked handoff is the canonical review artifact; the raw chat transcript is not the source of truth.
+- A participant explicitly invokes MedBuddy to create or update a handoff.
+- Candidate facts are reviewed together during handoff creation rather than confirmed after every message.
+- Confirmation authority follows provenance: contributors correct their own reports, and conflicting accounts remain separate.
+- The health-information owner approves sharing with new recipients.
+- P0 uses one canonical handoff with a concise conversation view and a denser review/export view. It does not create separate family and clinician products.
+
+**Rejected alternatives**
+
+- Treating the chat transcript as the family record.
+- Interrupting every health-related message with a confirmation task.
+- Allowing one participant to rewrite another participant's account.
+- Building a clinician dashboard, account, inbox, or separate summary system.
+
+**Evidence**
+
+- Confirmed product decision mapped to the current fragmented LINE, photo, and call workflow.
+- Professional presentation remains unvalidated.
+
+**Invalidation**
+
+- Target families prefer the raw conversation and find the structured handoff unnecessary or more confusing.
+- Batch review is too burdensome or review status is routinely misunderstood.
+- Professionals cannot use the factual record even after presentation changes.
+
+### Deterministic MedBuddy participation
+
+**Decision**
+
+- In a fully consented and approved group, MedBuddy passively processes health-related messages.
+- `👀` is the only automated reaction and means "captured for review," never verified, safe, or clinically important.
+- Non-health messages receive no reaction.
+- Textual replies require an explicit `@MedBuddy` mention.
+- A deterministic high-risk trigger is the only exception and may produce an unsolicited safety-escalation message.
+- Confidence-based autonomous participation is deferred.
+
+**Rejected alternatives**
+
+- Letting the model decide when to enter the conversation in the first version.
+- Using multiple semantic, approval-like, or reassuring emoji reactions.
+
+**Evidence**
+
+- Confirmed interaction decision grounded in auditability, predictability, autonomy, and safety.
+
+**Invalidation**
+
+- Participants interpret `👀` as endorsement, cannot predict when MedBuddy will speak, or find passive processing intrusive despite informed consent.
+
+### Owner, participant, and group consent
+
+**Decision**
+
+- Each MedBuddy group has exactly one health-information owner.
+- The owner self-establishes with one of these deterministic commands:
+  - `@MedBuddy 我同意記錄我的健康資訊`
+  - `@MedBuddy I consent to MedBuddy recording my health information`
+- Every participant must consent before MedBuddy processes their messages.
+- Before consent, MedBuddy processes only a recognized consent command; earlier messages are not processed retrospectively.
+- The owner approves sharing with the displayed current-member snapshot using:
+  - `@MedBuddy 我同意群組分享`
+  - `@MedBuddy I consent to group sharing`
+- A membership change invalidates group approval and creates a hard block.
+- While blocked, MedBuddy performs no health-message processing, `👀` reactions, handoffs, patient-specific answers, or health-related escalation.
+- MedBuddy posts one immediate block notice, keeps the block visible, and repeats the notice on MedBuddy interactions or unresolved consent attempts.
+- The block ends only after the owner approves all current members or unapproved members leave.
+- Changing the health-information owner requires a new or reset workspace.
+- Proxy and legal-representative consent are out of scope.
+
+**Rejected alternatives**
+
+- Patient consent alone covering other participants' message processing.
+- A participant's processing consent granting access to the owner's health information.
+- Continuing partial processing while membership approval is incomplete.
+- Requiring a public declaration such as "I am the patient."
+
+**Evidence**
+
+- Confirmed product decision grounded in privacy, autonomy, deterministic behavior, and the limitations of third-party group chat.
+
+**Invalidation**
+
+- The delivery platform cannot reliably identify senders, detect membership changes, or enforce the block.
+- Participants cannot connect the short consent commands to the displayed members and consequences.
+- Target users cannot distinguish MedBuddy access control from third-party chat-history retention.
+
+### Delivery and modality scope
+
+**Decision**
+
+- The P0 prototype demonstrates a patient-caregiver-MedBuddy shared conversation without building a general-purpose chat product.
+- It may reuse an existing messaging surface, embeddable chat primitive, or minimal conversational shell, whichever yields the fastest realistic test.
+- Real LINE integration is P2 after the core workflow is complete.
+- Recording and transcription are optional P2 stretch capabilities only after the complete non-audio workflow works.
+- The product thesis depends on shared coordination, not LINE or voice.
+
+**Rejected alternatives**
+
+- Building a full chat application to avoid LINE integration.
+- Spending P0 on real LINE integration before validating the workflow.
+- Making recording or transcription prerequisites for comprehension and handoff.
+
+**Evidence**
+
+- Confirmed scope decision consistent with the 48-hour constraint and the challenge's accessible-chat option.
+
+**Invalidation**
+
+- The non-audio workflow is unusable for the qualifying segment rather than merely less convenient.
+- The chosen prototype shortcut prevents realistic consent, provenance, or multi-participant testing.
+
+### Longitudinal boundary
+
+**Decision**
+
+- P0 demonstrates one post-visit handoff, one later attributed symptom, adherence report, or caregiver observation, and a history-preserving handoff update.
+- P1 adds a multi-event timeline, filtering, and factual before-visit agenda.
+- P2 or later may explore trend interpretation, cross-visit analytics, or automated pattern detection without asserting unsupported causality.
+
+**Rejected alternative**
+
+- Building a full longitudinal chronic-care product inside the 48-hour prototype.
+
+**Evidence**
+
+- Confirmed scope decision satisfying the challenge's structured-logging requirement while protecting the handoff wedge.
+
+**Invalidation**
+
+- A single later event is insufficient for target families to understand why longitudinal continuity matters.
+
+### Challenge depth and differentiation
+
+**Decision**
+
+- The primary challenge depth area is **Caregiver workflows**.
+- The specific depth thesis is consented caregiver collaboration with a provenance-preserving handoff.
+- Medication grounding, structured logging, accessible chat, reviewable summaries, and safety escalation remain supporting required capabilities.
+- MedBuddy complements authoritative healthcare records; it does not compete as a medication-record database.
+- MedBuddy captures outside-care understanding, behavior, symptoms, observations, uncertainty, and follow-up while keeping authoritative records distinct.
+
+**Rejected alternatives**
+
+- Attempting equal depth across voice, grounding, multilingual speech, caregiver workflow, clinician workflow, safety, and longitudinal analytics.
+- Reproducing My Health Bank or presenting family and AI accounts as more authoritative than clinical records.
+
+**Evidence**
+
+- Confirmed product decision aligned with the challenge's caregiver-workflow depth option.
+- The existence of authoritative Taiwan health records is an authoritative market fact; the value of the complementary family layer is a hypothesis requiring validation.
+
+**Invalidation**
+
+- Families obtain sufficient comprehension and coordination from authoritative records plus existing communication.
+- Families do not value collaborative handoff even when consent and provenance are understandable.
+
+### Validation and rejection criteria
+
+**Decision**
+
+- Voluntary reuse after a second event remains the primary value signal.
+- A successful family result also requires correct understanding of `👀`, provenance, unresolved status, consent scope, revocation limits, professional escalation, and the older adult's authority.
+- Failure on a critical safety-comprehension check blocks a successful validation result even if the family reuses the product.
+- Rejection of passive listening is an interaction-model rejection when the family still values the structured handoff. It triggers testing of explicit forwarding, form-assisted capture, or `@MedBuddy`-only processing.
+- Rejection of both passive capture and the structured handoff because existing calls, photos, and messages are sufficient challenges the core thesis.
+- One matched family's rejection triggers investigation. The same rejection in at least two matched families triggers review of the relevant interaction model or thesis.
+
+**Rejected alternative**
+
+- Treating stated satisfaction, task completion, or reuse alone as sufficient validation.
+
+**Evidence**
+
+- Confirmed evaluation decision. Actual target-family feedback remains pending.
+
+**Invalidation**
+
+- Core thesis: matched families do not gain meaningful clarity from the structured handoff.
+- Interaction model: matched families value the handoff but reject passive AI participation.
+- Consent model: participants cannot understand or safely operate the group-level access controls.
+
+## PRD Readiness
+
+Stage 1 product intent and Stage 2 adversarial review are confirmed. The next gate must restate the complete intended PRD scope, success criteria, constraints, safety boundaries, and non-goals for explicit approval before `docs/PRD.md` is drafted.
