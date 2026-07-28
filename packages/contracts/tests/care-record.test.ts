@@ -56,6 +56,17 @@ describe("care-record contracts", () => {
     ).toThrow();
     expect(() =>
       CorrectionSchema.parse({
+        actorMemberId: fact.contributorMemberId,
+        originalContributorMemberId: fact.contributorMemberId,
+        correctionFact: {
+          ...fact,
+          provenance: "MANUAL_CORRECTION",
+          supersedesFactId: fact.id,
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      CorrectionSchema.parse({
         actorMemberId: "member:caregiver-a",
         originalContributorMemberId: fact.contributorMemberId,
         correctionFact: {
@@ -101,26 +112,31 @@ describe("care-record contracts", () => {
   });
 
   it("requires handoffs to freeze source references and a structured snapshot", () => {
-    expect(
-      HandoffVersionSchema.parse({
-        id: "handoff:v1",
-        workspaceId: fact.workspaceId,
+    const handoff = {
+      id: "handoff:v1",
+      workspaceId: fact.workspaceId,
+      version: 1,
+      createdByMemberId: fact.contributorMemberId,
+      createdAt: fact.enteredAt,
+      sourceMessageIds: [fact.sourceMessageId],
+      sourceFactIds: [fact.id],
+      sourceReviewEventIds: ["review:owner-1"],
+      snapshot: {
         version: 1,
-        createdByMemberId: fact.contributorMemberId,
-        createdAt: fact.enteredAt,
-        sourceMessageIds: [fact.sourceMessageId],
-        sourceFactIds: [fact.id],
-        sourceReviewEventIds: ["review:owner-1"],
-        snapshot: {
-          version: 1,
-          facts: [fact],
-          conflicts: [],
-          medicationSources: [],
-          unresolvedItems: ["Confirm the timing with a pharmacist or clinic."],
-          limitations: ["This handoff preserves reported information and is not medical advice."],
-        },
+        facts: [fact],
+        conflicts: [],
+        medicationSources: [],
+        unresolvedItems: ["Confirm the timing with a pharmacist or clinic."],
+        limitations: ["This handoff preserves reported information and is not medical advice."],
+      },
+    };
+    expect(HandoffVersionSchema.parse(handoff)).toBeTruthy();
+    expect(() =>
+      HandoffVersionSchema.parse({
+        ...handoff,
+        sourceFactIds: ["fact:other"],
       }),
-    ).toBeTruthy();
+    ).toThrow();
   });
 
   it("requires identifiable, dated, limited medication source cards", () => {

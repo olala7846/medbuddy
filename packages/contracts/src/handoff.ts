@@ -31,7 +31,7 @@ export const HandoffVersionSchema = z.object({
   sourceFactIds: z.array(FactIdSchema).min(1),
   sourceReviewEventIds: z.array(ReviewEventIdSchema),
   snapshot: HandoffSnapshotSchema,
-}).superRefine(({ snapshot, sourceFactIds, version }, context) => {
+}).superRefine(({ snapshot, sourceFactIds, version, workspaceId }, context) => {
   if (snapshot.version !== version) {
     context.addIssue({
       code: "custom",
@@ -40,12 +40,29 @@ export const HandoffVersionSchema = z.object({
     });
   }
   const referencedFactIds = new Set(sourceFactIds);
+  const snapshotFactIds = new Set(snapshot.facts.map((fact) => fact.id));
   for (const fact of snapshot.facts) {
     if (!referencedFactIds.has(fact.id)) {
       context.addIssue({
         code: "custom",
         message: "Each frozen fact must retain its source-fact reference.",
         path: ["sourceFactIds"],
+      });
+    }
+    if (fact.workspaceId !== workspaceId) {
+      context.addIssue({
+        code: "custom",
+        message: "A frozen fact must belong to the handoff workspace.",
+        path: ["snapshot", "facts"],
+      });
+    }
+  }
+  for (const conflict of snapshot.conflicts) {
+    if (conflict.workspaceId !== workspaceId || conflict.factIds.some((id) => !snapshotFactIds.has(id))) {
+      context.addIssue({
+        code: "custom",
+        message: "A frozen conflict must belong to the handoff workspace and reference frozen facts.",
+        path: ["snapshot", "conflicts"],
       });
     }
   }

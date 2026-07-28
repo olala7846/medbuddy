@@ -73,6 +73,13 @@ export const CorrectionSchema = z.object({
       path: ["correctionFact", "supersedesFactId"],
     });
   }
+  if (correctionFact.supersedesFactId === correctionFact.id) {
+    context.addIssue({
+      code: "custom",
+      message: "A correction cannot supersede itself.",
+      path: ["correctionFact", "supersedesFactId"],
+    });
+  }
   if (actorMemberId !== originalContributorMemberId || actorMemberId !== correctionFact.contributorMemberId) {
     context.addIssue({
       code: "custom",
