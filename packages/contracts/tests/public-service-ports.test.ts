@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   ActorContextSchema,
+  CreateHandoffInputSchema,
+  HandoffVersionSchema,
   MedicationQuerySchema,
   ReviewEventSchema,
   ReviewInputSchema,
   type CareRecordService,
   type MedicationGrounding,
 } from "../src/index.js";
+import { GoldenScenario } from "../fixtures/golden-scenario.js";
 
 describe("F3 public service ports", () => {
   it("publishes a parseable review request for CareRecordService", async () => {
@@ -28,7 +31,7 @@ describe("F3 public service ports", () => {
         });
       },
       async createHandoff() {
-        throw new Error("The test does not implement handoff behavior.");
+        return HandoffVersionSchema.parse(GoldenScenario.handoffV1);
       },
     };
 
@@ -44,6 +47,13 @@ describe("F3 public service ports", () => {
     });
     await expect(service.applyReview(actor, input)).resolves.toMatchObject({
       action: "MARK_UNCERTAIN",
+    });
+    const handoffInput = CreateHandoffInputSchema.parse({
+      workspaceId: "workspace:demo",
+      sourceFactIds: ["fact:owner-timing"],
+    });
+    await expect(service.createHandoff(actor, handoffInput)).resolves.toMatchObject({
+      id: "handoff:v1",
     });
   });
 
