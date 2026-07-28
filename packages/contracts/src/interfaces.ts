@@ -6,6 +6,9 @@ import type {
   MessagePage,
 } from "./chat.js";
 import type { CaptureJobInput, CaptureOutcome } from "./capture.js";
+import type { ReviewEvent, ReviewInput } from "./care-record.js";
+import type { MedicationQuery, MedicationSourceCard } from "./grounding.js";
+import type { CreateHandoffInput, HandoffVersion } from "./handoff.js";
 import type { MessageId } from "./ids.js";
 
 export interface ChatService {
@@ -37,4 +40,13 @@ export interface ConversationResponder {
 
 export interface CaptureProcessor {
   process(input: CaptureJobInput): Promise<CaptureOutcome>;
+}
+
+export interface CareRecordService {
+  applyReview(actor: ActorContext, input: ReviewInput): Promise<ReviewEvent>;
+  createHandoff(actor: ActorContext, input: CreateHandoffInput): Promise<HandoffVersion>;
+}
+
+export interface MedicationGrounding {
+  lookup(query: MedicationQuery): Promise<MedicationSourceCard[]>;
 }

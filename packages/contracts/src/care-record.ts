@@ -111,6 +111,13 @@ export const ReviewActionSchema = z.enum([
   "WITHDRAW",
 ]);
 
+export const ReviewInputSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  factId: FactIdSchema,
+  action: ReviewActionSchema,
+  note: z.string().trim().min(1).optional(),
+});
+
 export const ReviewEventSchema = z.object({
   id: ReviewEventIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -128,4 +135,5 @@ export type AtomicFact = z.infer<typeof AtomicFactSchema>;
 export type Conflict = z.infer<typeof ConflictSchema>;
 export type Correction = z.infer<typeof CorrectionSchema>;
 export type ReviewAction = z.infer<typeof ReviewActionSchema>;
+export type ReviewInput = z.infer<typeof ReviewInputSchema>;
 export type ReviewEvent = z.infer<typeof ReviewEventSchema>;
