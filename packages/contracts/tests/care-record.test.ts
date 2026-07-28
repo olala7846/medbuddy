@@ -94,6 +94,22 @@ describe("care-record contracts", () => {
     ).toThrow();
   });
 
+  it("rejects a correction that crosses the original fact's workspace", () => {
+    expect(() =>
+      CorrectionSchema.parse({
+        actorMemberId: fact.contributorMemberId,
+        originalFact: fact,
+        correctionFact: {
+          ...fact,
+          id: "fact:cross-workspace-correction",
+          workspaceId: "workspace:other",
+          provenance: "MANUAL_CORRECTION",
+          supersedesFactId: fact.id,
+        },
+      }),
+    ).toThrow();
+  });
+
   it("requires conflicts to retain two distinct attributed facts", () => {
     expect(
       ConflictSchema.parse({
@@ -162,6 +178,12 @@ describe("care-record contracts", () => {
       HandoffVersionSchema.parse({
         ...handoff,
         sourceMessageIds: ["message:other"],
+      }),
+    ).toThrow();
+    expect(() =>
+      HandoffVersionSchema.parse({
+        ...handoff,
+        snapshot: { ...handoff.snapshot, facts: [fact, fact] },
       }),
     ).toThrow();
   });

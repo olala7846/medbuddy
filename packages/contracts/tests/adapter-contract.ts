@@ -81,6 +81,9 @@ export function describeMessageRepositoryContract(
       await expect(repository.getMessage(message.workspaceId, message.id)).resolves.toBeNull();
       await repository.putMessage(message);
       await expect(repository.getMessage(message.workspaceId, message.id)).resolves.toEqual(message);
+      await expect(
+        repository.getMessage(WorkspaceIdSchema.parse("workspace:other"), message.id),
+      ).resolves.toBeNull();
     });
   });
 }
@@ -107,6 +110,13 @@ export function describeAttachmentRepositoryContract(
       await expect(
         repository.getAttachment(attachment.workspaceId, attachment.messageId, attachment.id),
       ).resolves.toEqual(attachment);
+      await expect(
+        repository.getAttachment(
+          WorkspaceIdSchema.parse("workspace:other"),
+          attachment.messageId,
+          attachment.id,
+        ),
+      ).resolves.toBeNull();
     });
   });
 }
@@ -177,6 +187,9 @@ export function describeCareRecordRepositoryContract(
         id: "fact:owner-timing",
         workspaceId: "workspace:demo",
       });
+      await expect(
+        repository.getFact(WorkspaceIdSchema.parse("workspace:other"), fact.id),
+      ).resolves.toBeNull();
     });
 
     it("persists immutable review events and handoff snapshots", async () => {
@@ -222,8 +235,14 @@ export function describeCareRecordRepositoryContract(
 
       await repository.appendReviewEvent(review);
       await expect(repository.listReviewEvents(fact.workspaceId, fact.id)).resolves.toEqual([review]);
+      await expect(
+        repository.listReviewEvents(WorkspaceIdSchema.parse("workspace:other"), fact.id),
+      ).resolves.toEqual([]);
       await repository.createHandoff(handoff);
       await expect(repository.getHandoff(fact.workspaceId, handoff.id)).resolves.toEqual(handoff);
+      await expect(
+        repository.getHandoff(WorkspaceIdSchema.parse("workspace:other"), handoff.id),
+      ).resolves.toBeNull();
     });
   });
 }

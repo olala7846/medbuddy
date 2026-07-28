@@ -90,6 +90,13 @@ export const CorrectionSchema = z.object({
       path: ["actorMemberId"],
     });
   }
+  if (correctionFact.workspaceId !== originalFact.workspaceId) {
+    context.addIssue({
+      code: "custom",
+      message: "A correction must remain in the original fact's workspace.",
+      path: ["correctionFact", "workspaceId"],
+    });
+  }
 });
 
 export const ConflictSchema = z.object({

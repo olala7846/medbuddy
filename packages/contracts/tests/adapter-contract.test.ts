@@ -35,11 +35,11 @@ describeMemberRepositoryContract(() => {
 describeMessageRepositoryContract(() => {
   const messages = new Map();
   return {
-    async getMessage(_workspaceId, messageId) {
-      return messages.get(messageId) ?? null;
+    async getMessage(workspaceId, messageId) {
+      return messages.get(`${workspaceId}:${messageId}`) ?? null;
     },
     async putMessage(message) {
-      messages.set(message.id, message);
+      messages.set(`${message.workspaceId}:${message.id}`, message);
     },
   };
 });
@@ -47,11 +47,14 @@ describeMessageRepositoryContract(() => {
 describeAttachmentRepositoryContract(() => {
   const attachments = new Map();
   return {
-    async getAttachment(_workspaceId, _messageId, attachmentId) {
-      return attachments.get(attachmentId) ?? null;
+    async getAttachment(workspaceId, messageId, attachmentId) {
+      return attachments.get(`${workspaceId}:${messageId}:${attachmentId}`) ?? null;
     },
     async putAttachment(attachment) {
-      attachments.set(attachment.id, attachment);
+      attachments.set(
+        `${attachment.workspaceId}:${attachment.messageId}:${attachment.id}`,
+        attachment,
+      );
     },
   };
 });
@@ -61,23 +64,25 @@ describeCareRecordRepositoryContract(() => {
   const reviews = new Map();
   const handoffs = new Map();
   return {
-    async getFact(_workspaceId, factId) {
-      return facts.get(factId) ?? null;
+    async getFact(workspaceId, factId) {
+      return facts.get(`${workspaceId}:${factId}`) ?? null;
     },
     async putFact(fact) {
-      facts.set(fact.id, fact);
+      facts.set(`${fact.workspaceId}:${fact.id}`, fact);
     },
-    async listReviewEvents(_workspaceId, factId) {
-      return [...reviews.values()].filter((review) => review.factId === factId);
+    async listReviewEvents(workspaceId, factId) {
+      return [...reviews.values()].filter(
+        (review) => review.workspaceId === workspaceId && review.factId === factId,
+      );
     },
     async appendReviewEvent(review) {
       reviews.set(review.id, review);
     },
-    async getHandoff(_workspaceId, handoffVersionId) {
-      return handoffs.get(handoffVersionId) ?? null;
+    async getHandoff(workspaceId, handoffVersionId) {
+      return handoffs.get(`${workspaceId}:${handoffVersionId}`) ?? null;
     },
     async createHandoff(handoff) {
-      handoffs.set(handoff.id, handoff);
+      handoffs.set(`${handoff.workspaceId}:${handoff.id}`, handoff);
     },
   };
 });

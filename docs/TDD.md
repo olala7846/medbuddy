@@ -253,7 +253,7 @@ medicationSources/{sourceCardId}
 
 The workspace document contains mutable configuration and pointers such as `approvalState`, `approvedMembershipHash`, `currentHandoffVersionId`, and timestamps. It must not contain a growing message or fact array.
 
-Collection ownership is explicit: care-record/domain owns `workspaces`, `members`, `facts`, `reviewEvents`, and `handoffVersions`; chat owns `messages`, message processing state, and attachment metadata under the message; intelligence owns only the build-time `medicationSources` contract and returns proposals rather than canonical writes; platform owns Firestore, task, and storage adapters but no domain policy. Attachment bytes remain in private object storage. `agentRuns` is operational metadata only. All collection access is through public repository ports; no workstream imports another package's internal files or accesses Firestore directly.
+Collection ownership is explicit: care-record/domain owns `workspaces`, `members`, `facts`, `reviewEvents`, and `handoffVersions`; chat owns `messages`, message processing state, and attachment metadata under the message; intelligence owns only the build-time `medicationSources` contract and returns proposals rather than canonical writes; platform owns Firestore, task, and storage adapters but no domain policy. Attachment bytes remain in private object storage. `agentRuns` is operational metadata only. Every workspace-owned repository read must be scoped by workspace ID and return no record when the requested workspace does not own it. All collection access is through public repository ports; no workstream imports another package's internal files or accesses Firestore directly.
 
 ### 6.3 Core records
 

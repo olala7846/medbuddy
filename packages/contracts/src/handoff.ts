@@ -45,6 +45,7 @@ export const HandoffVersionSchema = z.object({
   const snapshotMessageIds = new Set(snapshot.facts.map((fact) => fact.sourceMessageId));
   if (
     referencedFactIds.size !== sourceFactIds.length ||
+    snapshotFactIds.size !== snapshot.facts.length ||
     referencedFactIds.size !== snapshotFactIds.size ||
     [...referencedFactIds].some((id) => !snapshotFactIds.has(id))
   ) {
