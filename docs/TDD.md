@@ -74,7 +74,7 @@ Success means the deployed prototype and its tests demonstrate that workflow wit
 - A workspace-scoped database is required for chat persistence and agent-state reconstruction.
 - Workspace approval is a prerequisite for all health functionality. The seeded demo starts after approval to preserve the build cut.
 - Participant messages may remain visible as ordinary conversation before approval, but MedBuddy must not process them, react to them, structure them, or replay them after approval.
-- Authentication is required for every browser request. Approved Google reviewers may select a seeded fictional persona per browser tab; seeded credential accounts stay bound to one fictional participant.
+- Authentication is required for every browser request. Approved Google prototype reviewers may select a seeded fictional persona per browser tab; seeded credential accounts stay bound to one fictional participant.
 - Browser printing is the export surface.
 - One deployment environment is sufficient. GitHub CI is optional and must not delay the prototype.
 - Probabilistic extraction quality is best effort. Deterministic safety, consent, authorization, provenance, and history invariants are release-blocking.
@@ -107,7 +107,7 @@ Package versions other than the selected model are fixed by `package-lock.json` 
 
 Auth.js is the browser authentication boundary. Google sign-in is accepted only when the provider reports a verified email that matches a configured exact-email or domain allowlist. Seeded credential accounts verify password hashes held outside Git and resolve to one fixed fictional member ID. Failed credential attempts use a generic response and never disclose account existence.
 
-An authenticated Google reviewer may select a seeded fictional participant in each browser tab. The browser sends that selection in `X-MedBuddy-Demo-Member`; server-side actor resolution accepts it only when the reviewer is eligible, the member is seeded, and that member belongs to the requested workspace. Credential sessions ignore this header and retain their fixed member. The selected persona is a visible demo simulation, not authorization by itself. Unauthenticated, unmapped, and cross-workspace selections fail before domain code runs.
+An authenticated Google prototype reviewer is an allowlisted evaluator of the fictional prototype who signs in with Google; it is not a product user, a caregiver role, or a claim of affiliation with a particular reviewer organization. They may select a seeded fictional participant in each browser tab. The browser sends that selection in `X-MedBuddy-Demo-Member`; server-side actor resolution accepts it only when the evaluator is eligible, the member is seeded, and that member belongs to the requested workspace. Credential sessions ignore this header and retain their fixed member. The selected persona is a visible demo simulation, not authorization by itself. Unauthenticated, unmapped, and cross-workspace selections fail before domain code runs.
 
 Cloud Tasks does not use a human session. Its internal callback verifies the configured service-account OIDC identity separately.
 

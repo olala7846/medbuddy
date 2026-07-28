@@ -4,7 +4,7 @@ import { AccountIdSchema, MemberIdSchema, WorkspaceIdSchema } from "./ids.js";
 
 export const AuthenticationMethodSchema = z.discriminatedUnion("kind", [
   z.object({
-    kind: z.literal("GOOGLE_REVIEWER"),
+    kind: z.literal("GOOGLE_PROTOTYPE_REVIEWER"),
     accountId: AccountIdSchema,
     email: z.string().email(),
     emailVerified: z.literal(true),
@@ -37,12 +37,12 @@ export const ActorContextSchema = z
     }
 
     if (
-      actor.authentication.kind === "GOOGLE_REVIEWER" &&
+      actor.authentication.kind === "GOOGLE_PROTOTYPE_REVIEWER" &&
       actor.authentication.assumedMemberId !== actor.effectiveMemberId
     ) {
       context.addIssue({
         code: "custom",
-        message: "Google reviewers must use their selected demo member.",
+        message: "Google prototype reviewers must use their selected demo member.",
         path: ["effectiveMemberId"],
       });
     }

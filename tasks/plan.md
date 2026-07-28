@@ -23,8 +23,8 @@ The authentication decision below supersedes the V0 TDD statements that real aut
 
 - Use Auth.js with Google and Credentials providers.
 - Permit Google login only for verified emails matching configured email or domain allowlists.
-- Allow an approved Google reviewer to select any seeded fictional participant independently in each browser tab.
-- Send that selection as `X-MedBuddy-Demo-Member`; server-side actor resolution accepts it only for an eligible Google reviewer and a seeded member.
+- Allow an approved Google prototype reviewer to select any seeded fictional participant independently in each browser tab.
+- Send that selection as `X-MedBuddy-Demo-Member`; server-side actor resolution accepts it only for an eligible Google prototype reviewer and a seeded member.
 - Bind each seeded credential account to exactly one fictional participant. Ignore persona-selection headers from credential accounts.
 - Store only password hashes in Secret Manager or ignored local configuration.
 - Provide no registration, password reset, account management, or public-user workflow.
@@ -229,7 +229,7 @@ Owns:
 Delivers:
 
 - Google and seeded credential login;
-- per-tab fictional persona selection for eligible Google reviewers;
+- per-tab fictional persona selection for eligible Google prototype reviewers;
 - timeline, composer, attachment input, polling, reactions, and retry controls;
 - review and printable handoff screens;
 - fixed conversation and capture adapters for isolated development;
@@ -384,7 +384,7 @@ Still mandatory:
 - Duplicate task idempotency.
 - Provider error and visible retry.
 - Three authenticated tabs with separate credential accounts.
-- Google reviewer with independent per-tab personas.
+- Google prototype reviewer with independent per-tab personas.
 - Image attachment and targeted medication grounding.
 - Print v1, create v2, reopen unchanged v1.
 
