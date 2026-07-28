@@ -440,3 +440,152 @@ These are elapsed estimates, not summed labor. GCP permissions, Google OAuth con
 - Multiple tabs observe shared data through polling; realtime synchronization is not required.
 - Deterministic safety, authorization, provenance, idempotency, and immutable history are never traded for schedule.
 - Implementation starts only after separate approval of these committed planning artifacts.
+
+## 14. GitHub Issue DAG
+
+The implementation is published as a shared contract gate, three independent workstream DAGs, and a convergence DAG. The three workstream DAGs have no edges to one another: they depend only on the external contract gate and meet only after their terminal tickets complete.
+
+Human checkpoint tickets gather feedback after five or six implementation tickets in each workstream. They block subsequent work so feedback can change direction before additional scope is built.
+
+```mermaid
+flowchart TD
+    F1["F1 TDD and workspace foundation"]
+    F2["F2 Auth, chat, and capture contracts"]
+    F3["F3 Care-record, grounding, and persistence contracts"]
+    FH["FH Human contract checkpoint"]
+
+    F1 --> F2
+    F1 --> F3
+    F2 --> FH
+    F3 --> FH
+
+    subgraph D1["DAG 1 — Canonical Domain and Platform"]
+        A1["A1 Workspace authorization"]
+        A2["A2 Attributed facts and conflicts"]
+        A3["A3 Immutable handoff v1/v2"]
+        A4["A4 In-memory repository parity"]
+        A5["A5 Firestore, task, and storage adapters"]
+        AH["AH Human domain checkpoint"]
+        A6["A6 Production composition and seed"]
+
+        A1 --> A2 --> A3
+        A1 --> A4 --> A5
+        A3 --> AH
+        A5 --> AH
+        AH --> A6
+    end
+
+    subgraph D2["DAG 2 — Authenticated Chat App"]
+        B1["B1 Login and effective actor"]
+        B2["B2 Chat service and HTTP interface"]
+        B3["B3 Chat timeline"]
+        B4["B4 Personas, attachments, and retry"]
+        B5["B5 Review and printable handoff"]
+        BH["BH Human Chat App checkpoint"]
+        B6["B6 Apply feedback and freeze browser interface"]
+
+        B1 --> B2 --> B3
+        B3 --> B4
+        B3 --> B5
+        B4 --> BH
+        B5 --> BH
+        BH --> B6
+    end
+
+    subgraph D3["DAG 3 — Intelligence Pipelines"]
+        C1["C1 Medication-decision refusal"]
+        C2["C2 Medication source-card lookup"]
+        C3["C3 Conversational responder"]
+        C4["C4 Passive text capture"]
+        C5["C5 Readable-label image capture"]
+        C6["C6 Failure and injection suite"]
+        CH["CH Human intelligence checkpoint"]
+        C7["C7 Vertex adapters and live smoke"]
+
+        C1 --> C3
+        C2 --> C3
+        C4 --> C5
+        C3 --> C6
+        C5 --> C6
+        C6 --> CH
+        CH --> C7
+    end
+
+    FH --> A1
+    FH --> B1
+    FH --> C1
+    FH --> C2
+    FH --> C4
+
+    subgraph X["Convergence DAG"]
+        X1["X1 In-memory golden-path integration"]
+        XH["XH Human integrated-demo checkpoint"]
+        X2["X2 Deploy and run live golden path"]
+        XF["XF Final human acceptance"]
+
+        X1 --> XH
+        XH --> X2
+        X2 --> XF
+    end
+
+    A6 --> X1
+    B6 --> X1
+    C7 --> X1
+```
+
+### 14.1 Foundation gate
+
+| Key | Ticket | Blocked by |
+| --- | --- | --- |
+| F1 | Establish the documented workspace foundation | None |
+| F2 | Publish auth, chat, and capture contracts | F1 |
+| F3 | Publish care-record, grounding, and persistence contracts | F1 |
+| FH | Human checkpoint: approve the contract gate | F2, F3 |
+
+### 14.2 DAG 1: Canonical domain and platform
+
+| Key | Ticket | Blocked by |
+| --- | --- | --- |
+| A1 | Enforce approved-workspace authority | FH |
+| A2 | Review attributed facts without rewriting contributors | A1 |
+| A3 | Preserve immutable handoff v1 and v2 | A2 |
+| A4 | Run canonical behavior through in-memory persistence | A1 |
+| A5 | Prove Firestore, task, and attachment adapter parity | A4 |
+| AH | Human checkpoint: validate domain history and persistence | A3, A5 |
+| A6 | Compose the production platform and fictional seed | AH |
+
+### 14.3 DAG 2: Authenticated Chat App
+
+| Key | Ticket | Blocked by |
+| --- | --- | --- |
+| B1 | Authenticate reviewers and fixed test participants | FH |
+| B2 | Send and retrieve conversation messages | B1 |
+| B3 | Use the persisted Chat App | B2 |
+| B4 | Switch demo personas and handle attachments and retries | B3 |
+| B5 | Review facts and print immutable handoffs | B3 |
+| BH | Human checkpoint: evaluate the complete fake-backed Chat App | B4, B5 |
+| B6 | Apply Chat App feedback and freeze its interface | BH |
+
+### 14.4 DAG 3: Intelligence pipelines
+
+| Key | Ticket | Blocked by |
+| --- | --- | --- |
+| C1 | Refuse medication decisions deterministically | FH |
+| C2 | Answer from bounded medication source cards | FH |
+| C3 | Respond conversationally without exceeding grounded facts | C1, C2 |
+| C4 | Extract atomic facts from passive text | FH |
+| C5 | Extract facts from readable medication labels | C4 |
+| C6 | Contain provider failures and prompt injection | C3, C5 |
+| CH | Human checkpoint: evaluate conversation and extraction | C6 |
+| C7 | Connect approved intelligence behavior to Vertex AI | CH |
+
+### 14.5 Convergence DAG
+
+| Key | Ticket | Blocked by |
+| --- | --- | --- |
+| X1 | Complete the in-memory MedBuddy golden path | A6, B6, C7 |
+| XH | Human checkpoint: review the integrated prototype | X1 |
+| X2 | Deploy and verify the live golden path | XH |
+| XF | Human checkpoint: accept the prototype | X2 |
+
+GitHub publication uses native `blocked by` relationships. Agent-executable issues receive `ready-for-agent`; FH, AH, BH, CH, XH, and XF receive `human-checkpoint` and deliberately do not receive `ready-for-agent`.
