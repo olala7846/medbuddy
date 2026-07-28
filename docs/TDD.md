@@ -74,7 +74,7 @@ Success means the deployed prototype and its tests demonstrate that workflow wit
 - A workspace-scoped database is required for chat persistence and agent-state reconstruction.
 - Workspace approval is a prerequisite for all health functionality. The seeded demo starts after approval to preserve the build cut.
 - Participant messages may remain visible as ordinary conversation before approval, but MedBuddy must not process them, react to them, structure them, or replay them after approval.
-- The selected persona is not authentication. Every request is labeled as a simulation, and server code still checks the persona against workspace membership and authority.
+- Authentication is required for every browser request. Approved Google reviewers may select a seeded fictional persona per browser tab; seeded credential accounts stay bound to one fictional participant.
 - Browser printing is the export surface.
 - One deployment environment is sufficient. GitHub CI is optional and must not delay the prototype.
 - Probabilistic extraction quality is best effort. Deterministic safety, consent, authorization, provenance, and history invariants are release-blocking.
@@ -88,6 +88,7 @@ Success means the deployed prototype and its tests demonstrate that workflow wit
 | --- | --- | --- |
 | Language/runtime | TypeScript on Node.js 22 | One language across browser, server, schemas, and tests. |
 | Web application | Next.js monolith | UI, route handlers, and background-task handler in one deployable unit. |
+| Authentication | Auth.js with Google and Credentials providers | Allowlisted reviewers can inspect fictional scenarios; seeded credentials support deterministic participant testing. |
 | Deployment | Google Cloud Run | Managed HTTPS service with existing GCP preference and credentials. |
 | Canonical database | Firestore | Low-operations persistence for workspace-scoped chat and domain records. |
 | Attachments | Private Cloud Storage bucket | Keeps binary data outside Firestore's document limit and access surface. |
@@ -101,6 +102,14 @@ Success means the deployed prototype and its tests demonstrate that workflow wit
 | Testing | Vitest plus a browser smoke test | Fast deterministic and integration coverage; minimal end-to-end proof. |
 
 Package versions other than the selected model are fixed by `package-lock.json` when scaffolding begins. Adding a second framework for capabilities already provided by Next.js, LangGraph/LangChain, Zod, or Vitest requires explicit approval.
+
+### 4.1.1 Authentication and effective actor
+
+Auth.js is the browser authentication boundary. Google sign-in is accepted only when the provider reports a verified email that matches a configured exact-email or domain allowlist. Seeded credential accounts verify password hashes held outside Git and resolve to one fixed fictional member ID. Failed credential attempts use a generic response and never disclose account existence.
+
+An authenticated Google reviewer may select a seeded fictional participant in each browser tab. The browser sends that selection in `X-MedBuddy-Demo-Member`; server-side actor resolution accepts it only when the reviewer is eligible, the member is seeded, and that member belongs to the requested workspace. Credential sessions ignore this header and retain their fixed member. The selected persona is a visible demo simulation, not authorization by itself. Unauthenticated, unmapped, and cross-workspace selections fail before domain code runs.
+
+Cloud Tasks does not use a human session. Its internal callback verifies the configured service-account OIDC identity separately.
 
 ### 4.2 Component view
 
@@ -165,7 +174,7 @@ Nearby messages may help disambiguate pronouns or context, but every extracted f
 
 ### 5.1 Browser
 
-The browser may display data, collect input, select a simulated persona, upload an allowed attachment, request review actions, and poll for updates. It must not write Firestore or Cloud Storage directly and must not decide authorization, safety routing, fact eligibility, or handoff content.
+The browser may display data, collect input, select a permitted simulated persona for a Google-reviewer tab, upload an allowed attachment, request review actions, and poll for updates. It must not write Firestore or Cloud Storage directly and must not decide authentication, authorization, safety routing, fact eligibility, or handoff content.
 
 ### 5.2 Conversational agent
 
@@ -242,6 +251,8 @@ medicationSources/{sourceCardId}
 ```
 
 The workspace document contains mutable configuration and pointers such as `approvalState`, `approvedMembershipHash`, `currentHandoffVersionId`, and timestamps. It must not contain a growing message or fact array.
+
+Collection ownership is explicit: care-record/domain owns `workspaces`, `members`, `facts`, `reviewEvents`, and `handoffVersions`; chat owns `messages` and their processing state; intelligence owns only the build-time `medicationSources` contract and returns proposals rather than canonical writes; platform owns Firestore, task, and storage adapters but no domain policy. `agentRuns` is operational metadata only. All collection access is through public repository ports; no workstream imports another package's internal files or accesses Firestore directly.
 
 ### 6.3 Core records
 
@@ -681,20 +692,17 @@ Server authorization and Firestore transactions still protect canonical state.
 
 ## 17. Project Structure
 
-The anticipated implementation layout is:
+The implementation uses one npm-workspace modular monolith. The anticipated layout is:
 
 ```text
-app/
-  api/                         Next.js route handlers
-  workspace/[workspaceId]/     Chat, review, and handoff pages
-src/
-  agent/                       Conversational agent and typed tools
-  capture/                     Async extraction workflow
-  domain/                      Consent, facts, review, conflicts, handoffs
-  grounding/                   Medication source-card lookup
-  infrastructure/              Firestore, Cloud Tasks, Storage, Vertex adapters
-  schemas/                     Shared Zod boundary contracts
-  ui/                          Reusable presentation components
+apps/
+  web/                         Next.js pages, route handlers, Auth.js, and composition
+packages/
+  contracts/                   Shared Zod schemas, IDs, errors, fixtures, and ports
+  chat/                        Messages, polling, reactions, and retries
+  care-record/                 Consent, facts, reviews, conflicts, and handoffs
+  intelligence/                Conversation, capture, and medication grounding
+  platform/                    Firestore, Tasks, Storage, and provider adapters
 scripts/
   build-medication-snapshot.ts Deterministic targeted source import
 fixtures/
@@ -710,6 +718,8 @@ docs/
 ```
 
 Keep domain code independent of Next.js request objects and vendor SDK response shapes. Vendor adapters validate external responses once and return narrow internal types.
+
+Dependencies flow inward through `@medbuddy/contracts`: packages may import that public package entry point and may import another package only through its public entry point. `apps/web` composes packages and translates HTTP; it contains no canonical business policy. `platform` implements I/O seams; it contains no consent, safety, review, or handoff policy. In-memory adapters are first-class test implementations.
 
 ## 18. Code Style
 
