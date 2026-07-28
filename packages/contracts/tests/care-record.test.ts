@@ -38,7 +38,7 @@ describe("care-record contracts", () => {
     expect(
       CorrectionSchema.parse({
         actorMemberId: fact.contributorMemberId,
-        originalContributorMemberId: fact.contributorMemberId,
+        originalFact: fact,
         correctionFact: {
           ...fact,
           id: "fact:owner-corrected-timing",
@@ -50,14 +50,14 @@ describe("care-record contracts", () => {
     expect(() =>
       CorrectionSchema.parse({
         actorMemberId: fact.contributorMemberId,
-        originalContributorMemberId: fact.contributorMemberId,
+        originalFact: fact,
         correctionFact: fact,
       }),
     ).toThrow();
     expect(() =>
       CorrectionSchema.parse({
         actorMemberId: fact.contributorMemberId,
-        originalContributorMemberId: fact.contributorMemberId,
+        originalFact: fact,
         correctionFact: {
           ...fact,
           provenance: "MANUAL_CORRECTION",
@@ -68,12 +68,27 @@ describe("care-record contracts", () => {
     expect(() =>
       CorrectionSchema.parse({
         actorMemberId: "member:caregiver-a",
-        originalContributorMemberId: fact.contributorMemberId,
+        originalFact: fact,
         correctionFact: {
           ...fact,
           id: "fact:cross-person-correction",
           provenance: "MANUAL_CORRECTION",
           supersedesFactId: fact.id,
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a correction that does not supersede the server-loaded original fact", () => {
+    expect(() =>
+      CorrectionSchema.parse({
+        actorMemberId: fact.contributorMemberId,
+        originalFact: fact,
+        correctionFact: {
+          ...fact,
+          id: "fact:wrong-supersession",
+          provenance: "MANUAL_CORRECTION",
+          supersedesFactId: "fact:caregiver-timing",
         },
       }),
     ).toThrow();
@@ -135,6 +150,18 @@ describe("care-record contracts", () => {
       HandoffVersionSchema.parse({
         ...handoff,
         sourceFactIds: ["fact:other"],
+      }),
+    ).toThrow();
+    expect(() =>
+      HandoffVersionSchema.parse({
+        ...handoff,
+        sourceFactIds: [fact.id, "fact:other"],
+      }),
+    ).toThrow();
+    expect(() =>
+      HandoffVersionSchema.parse({
+        ...handoff,
+        sourceMessageIds: ["message:other"],
       }),
     ).toThrow();
   });

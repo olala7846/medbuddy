@@ -337,7 +337,7 @@ Mutable:
 - message processing status and attempt metadata;
 - denormalized current review status on a fact.
 
-A contributor correction creates a new candidate fact with `supersedesFactId`. It never overwrites another person's claim or the original extracted value.
+A contributor correction creates a new candidate fact with `supersedesFactId`. The deterministic domain service loads the original fact and derives its contributor; it never trusts a caller-supplied claim of correction authority, overwrites another person's claim, or changes the original extracted value.
 
 ### 6.5 Transaction boundaries
 
@@ -602,6 +602,8 @@ Each version stores both:
 
 1. references to the exact source messages, facts, and review events; and
 2. a frozen structured `HandoffSnapshot` containing the displayed values, statuses, attribution, conflicts, citations, limitations, and unresolved items.
+
+At the P0 contract boundary, the source fact IDs and source message IDs must exactly equal the facts and source messages represented in that frozen snapshot. This preserves complete evidence traceability even while richer provenance browsing is deferred to P1.
 
 The printable view renders the selected snapshot, never current mutable facts. Therefore v1 remains exactly reproducible after a correction or v2.
 
