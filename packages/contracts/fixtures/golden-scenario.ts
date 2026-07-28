@@ -1,36 +1,36 @@
 const enteredAt = "2026-07-28T10:00:00.000Z";
 
 const ownerTimingFact = {
-  id: "fact-owner-timing",
-  workspaceId: "workspace-demo",
-  sourceMessageId: "message-owner-visit",
-  contributorMemberId: "member-owner",
+  id: "fact:owner-timing",
+  workspaceId: "workspace:demo",
+  sourceMessageId: "message:owner-visit",
+  contributorMemberId: "member:owner",
   kind: "INSTRUCTION" as const,
   value: { instruction: "Take after breakfast." },
   provenance: "OWNER_REPORT" as const,
   reviewStatus: "UNCERTAIN" as const,
   enteredAt,
-  conflictsWithFactIds: ["fact-caregiver-timing"],
+  conflictsWithFactIds: ["fact:caregiver-timing"],
 };
 
 const caregiverTimingFact = {
-  id: "fact-caregiver-timing",
-  workspaceId: "workspace-demo",
-  sourceMessageId: "message-caregiver-visit",
-  contributorMemberId: "member-caregiver-a",
+  id: "fact:caregiver-timing",
+  workspaceId: "workspace:demo",
+  sourceMessageId: "message:caregiver-visit",
+  contributorMemberId: "member:caregiver-a",
   kind: "INSTRUCTION" as const,
   value: { instruction: "Take before breakfast." },
   provenance: "CAREGIVER_OBSERVATION" as const,
   reviewStatus: "UNCERTAIN" as const,
   enteredAt,
-  conflictsWithFactIds: ["fact-owner-timing"],
+  conflictsWithFactIds: ["fact:owner-timing"],
 };
 
 const medicationFact = {
-  id: "fact-medication-label",
-  workspaceId: "workspace-demo",
-  sourceMessageId: "message-owner-label",
-  contributorMemberId: "member-owner",
+  id: "fact:medication-label",
+  workspaceId: "workspace:demo",
+  sourceMessageId: "message:owner-label",
+  contributorMemberId: "member:owner",
   kind: "MEDICATION" as const,
   value: { medicationCode: "DEMO-001", label: "Demo medicine tablet" },
   provenance: "SOURCE_ARTIFACT" as const,
@@ -59,10 +59,10 @@ const medicationSource = {
 };
 
 const medicationChangeFollowUpFact = {
-  id: "fact-medication-change-follow-up",
-  workspaceId: "workspace-demo",
-  sourceMessageId: "message-caregiver-change-question",
-  contributorMemberId: "member-caregiver-b",
+  id: "fact:medication-change-follow-up",
+  workspaceId: "workspace:demo",
+  sourceMessageId: "message:caregiver-change-question",
+  contributorMemberId: "member:caregiver-b",
   kind: "FOLLOW_UP" as const,
   value: {
     question: "Should the owner skip the next dose?",
@@ -76,10 +76,10 @@ const medicationChangeFollowUpFact = {
 };
 
 const laterDizzinessFact = {
-  id: "fact-owner-dizziness",
-  workspaceId: "workspace-demo",
-  sourceMessageId: "message-owner-dizziness",
-  contributorMemberId: "member-owner",
+  id: "fact:owner-dizziness",
+  workspaceId: "workspace:demo",
+  sourceMessageId: "message:owner-dizziness",
+  contributorMemberId: "member:owner",
   kind: "SYMPTOM" as const,
   value: { symptom: "mild dizziness", causalRelationship: "NOT_INFERRED" },
   provenance: "OWNER_REPORT" as const,
@@ -90,10 +90,10 @@ const laterDizzinessFact = {
 };
 
 const handoffV1 = {
-  id: "handoff-v1",
-  workspaceId: "workspace-demo",
+  id: "handoff:v1",
+  workspaceId: "workspace:demo",
   version: 1,
-  createdByMemberId: "member-owner",
+  createdByMemberId: "member:owner",
   createdAt: enteredAt,
   sourceMessageIds: [
     ownerTimingFact.sourceMessageId,
@@ -113,8 +113,8 @@ const handoffV1 = {
     facts: [ownerTimingFact, caregiverTimingFact, medicationFact, medicationChangeFollowUpFact],
     conflicts: [
       {
-        id: "conflict-timing",
-        workspaceId: "workspace-demo",
+        id: "conflict:timing",
+        workspaceId: "workspace:demo",
         factIds: [ownerTimingFact.id, caregiverTimingFact.id],
         createdAt: enteredAt,
       },
@@ -130,7 +130,7 @@ const handoffV1 = {
 
 const handoffV2 = {
   ...handoffV1,
-  id: "handoff-v2",
+  id: "handoff:v2",
   version: 2,
   predecessorVersionId: handoffV1.id,
   createdAt: "2026-07-29T08:10:00.000Z",
@@ -144,7 +144,7 @@ const handoffV2 = {
 };
 
 export const GoldenScenario = {
-  participants: ["member-owner", "member-caregiver-a", "member-caregiver-b"],
+  participants: ["member:owner", "member:caregiver-a", "member:caregiver-b"],
   facts: [ownerTimingFact, caregiverTimingFact, medicationFact, medicationChangeFollowUpFact, laterDizzinessFact],
   medicationSource,
   handoffV1,

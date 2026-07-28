@@ -1,7 +1,7 @@
 export const InvalidScenarios = {
   unattributedFact: {
-    id: "fact-unattributed",
-    workspaceId: "workspace-demo",
+    id: "fact:unattributed",
+    workspaceId: "workspace:demo",
     sourceMessageId: "",
     contributorMemberId: "",
     kind: "SYMPTOM",

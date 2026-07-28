@@ -10,16 +10,16 @@ import { HandoffVersionSchema } from "../src/handoff.js";
 import { MedicationSourceCardSchema } from "../src/grounding.js";
 
 const fact = {
-  id: "fact-owner-timing",
-  workspaceId: "workspace-demo",
-  sourceMessageId: "message-owner-1",
-  contributorMemberId: "member-owner",
+  id: "fact:owner-timing",
+  workspaceId: "workspace:demo",
+  sourceMessageId: "message:owner-1",
+  contributorMemberId: "member:owner",
   kind: "INSTRUCTION",
   value: { instruction: "Take after breakfast." },
   provenance: "OWNER_REPORT",
   reviewStatus: "UNREVIEWED",
   enteredAt: "2026-07-28T10:00:00.000Z",
-  conflictsWithFactIds: ["fact-caregiver-timing"],
+  conflictsWithFactIds: ["fact:caregiver-timing"],
 };
 
 describe("care-record contracts", () => {
@@ -39,7 +39,7 @@ describe("care-record contracts", () => {
       CorrectionSchema.parse({
         correctionFact: {
           ...fact,
-          id: "fact-owner-corrected-timing",
+          id: "fact:owner-corrected-timing",
           provenance: "MANUAL_CORRECTION",
           supersedesFactId: fact.id,
         },
@@ -51,15 +51,15 @@ describe("care-record contracts", () => {
   it("requires conflicts to retain two distinct attributed facts", () => {
     expect(
       ConflictSchema.parse({
-        id: "conflict-timing",
+        id: "conflict:timing",
         workspaceId: fact.workspaceId,
-        factIds: [fact.id, "fact-caregiver-timing"],
+        factIds: [fact.id, "fact:caregiver-timing"],
         createdAt: fact.enteredAt,
       }),
     ).toBeTruthy();
     expect(() =>
       ConflictSchema.parse({
-        id: "conflict-timing",
+        id: "conflict:timing",
         workspaceId: fact.workspaceId,
         factIds: [fact.id, fact.id],
         createdAt: fact.enteredAt,
@@ -70,7 +70,7 @@ describe("care-record contracts", () => {
   it("records immutable review actions with the actor and fact they affect", () => {
     expect(
       ReviewEventSchema.parse({
-        id: "review-owner-1",
+        id: "review:owner-1",
         workspaceId: fact.workspaceId,
         factId: fact.id,
         actorMemberId: fact.contributorMemberId,
@@ -83,14 +83,14 @@ describe("care-record contracts", () => {
   it("requires handoffs to freeze source references and a structured snapshot", () => {
     expect(
       HandoffVersionSchema.parse({
-        id: "handoff-v1",
+        id: "handoff:v1",
         workspaceId: fact.workspaceId,
         version: 1,
         createdByMemberId: fact.contributorMemberId,
         createdAt: fact.enteredAt,
         sourceMessageIds: [fact.sourceMessageId],
         sourceFactIds: [fact.id],
-        sourceReviewEventIds: ["review-owner-1"],
+        sourceReviewEventIds: ["review:owner-1"],
         snapshot: {
           version: 1,
           facts: [fact],

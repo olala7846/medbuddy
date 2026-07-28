@@ -14,10 +14,10 @@ export function describeCareRecordRepositoryContract(
     it("returns null for a missing fact", async () => {
       const repository = createRepository();
       const missingFact = FactDocumentSchema.parse({
-        id: "fact-missing",
-        workspaceId: "workspace-demo",
-        sourceMessageId: "message-owner-1",
-        contributorMemberId: "member-owner",
+        id: "fact:missing",
+        workspaceId: "workspace:demo",
+        sourceMessageId: "message:owner-1",
+        contributorMemberId: "member:owner",
         kind: "INSTRUCTION",
         value: { instruction: "Take after breakfast." },
         provenance: "OWNER_REPORT",
@@ -31,10 +31,10 @@ export function describeCareRecordRepositoryContract(
     it("persists and retrieves an atomic fact by workspace and id", async () => {
       const repository = createRepository();
       const fact = FactDocumentSchema.parse({
-        id: "fact-owner-timing",
-        workspaceId: "workspace-demo",
-        sourceMessageId: "message-owner-1",
-        contributorMemberId: "member-owner",
+        id: "fact:owner-timing",
+        workspaceId: "workspace:demo",
+        sourceMessageId: "message:owner-1",
+        contributorMemberId: "member:owner",
         kind: "INSTRUCTION",
         value: { instruction: "Take after breakfast." },
         provenance: "OWNER_REPORT",
@@ -45,8 +45,8 @@ export function describeCareRecordRepositoryContract(
       await repository.putFact(fact);
 
       await expect(repository.getFact(fact.workspaceId, fact.id)).resolves.toMatchObject({
-        id: "fact-owner-timing",
-        workspaceId: "workspace-demo",
+        id: "fact:owner-timing",
+        workspaceId: "workspace:demo",
       });
     });
   });

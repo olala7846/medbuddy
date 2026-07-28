@@ -24,21 +24,21 @@ describe("persistence contracts", () => {
   it("accepts bounded workspace and fact documents", () => {
     expect(
       WorkspaceDocumentSchema.parse({
-        id: "workspace-demo",
-        ownerMemberId: "member-owner",
+        id: "workspace:demo",
+        ownerMemberId: "member:owner",
         approvalState: "APPROVED",
         approvedMembershipHash: "membership-v1",
-        currentHandoffVersionId: "handoff-v1",
+        currentHandoffVersionId: "handoff:v1",
         createdAt: "2026-07-28T10:00:00.000Z",
         updatedAt: "2026-07-28T10:00:00.000Z",
       }),
     ).toBeTruthy();
     expect(
       FactDocumentSchema.parse({
-        id: "fact-owner-timing",
-        workspaceId: "workspace-demo",
-        sourceMessageId: "message-owner-1",
-        contributorMemberId: "member-owner",
+        id: "fact:owner-timing",
+        workspaceId: "workspace:demo",
+        sourceMessageId: "message:owner-1",
+        contributorMemberId: "member:owner",
         kind: "INSTRUCTION",
         value: { instruction: "Take after breakfast." },
         provenance: "OWNER_REPORT",
@@ -52,10 +52,10 @@ describe("persistence contracts", () => {
   it("rejects a handoff document without its immutable source references", () => {
     expect(() =>
       HandoffVersionDocumentSchema.parse({
-        id: "handoff-v1",
-        workspaceId: "workspace-demo",
+        id: "handoff:v1",
+        workspaceId: "workspace:demo",
         version: 1,
-        createdByMemberId: "member-owner",
+        createdByMemberId: "member:owner",
         createdAt: "2026-07-28T10:00:00.000Z",
         sourceMessageIds: [],
         sourceFactIds: [],
