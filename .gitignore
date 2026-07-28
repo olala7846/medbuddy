@@ -1,0 +1,18 @@
+# Dependencies and generated output
+node_modules/
+coverage/
+dist/
+.next/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+
+# Local tooling
+.DS_Store
+*.log
+.vitest/
