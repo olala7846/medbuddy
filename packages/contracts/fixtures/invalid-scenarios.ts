@@ -1,4 +1,21 @@
 export const InvalidScenarios = {
+  crossContributorCorrection: {
+    actorMemberId: "member:caregiver-a",
+    originalContributorMemberId: "member:owner",
+    correctionFact: {
+      id: "fact:cross-contributor-correction",
+      workspaceId: "workspace:demo",
+      sourceMessageId: "message:caregiver-visit",
+      contributorMemberId: "member:caregiver-a",
+      kind: "INSTRUCTION",
+      value: { instruction: "Take before breakfast." },
+      provenance: "MANUAL_CORRECTION",
+      reviewStatus: "UNREVIEWED",
+      enteredAt: "2026-07-28T10:00:00.000Z",
+      supersedesFactId: "fact:owner-timing",
+      conflictsWithFactIds: [],
+    },
+  },
   unattributedFact: {
     id: "fact:unattributed",
     workspaceId: "workspace:demo",

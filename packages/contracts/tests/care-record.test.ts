@@ -37,6 +37,8 @@ describe("care-record contracts", () => {
   it("requires a correction to append a new fact instead of rewriting a claim", () => {
     expect(
       CorrectionSchema.parse({
+        actorMemberId: fact.contributorMemberId,
+        originalContributorMemberId: fact.contributorMemberId,
         correctionFact: {
           ...fact,
           id: "fact:owner-corrected-timing",
@@ -45,7 +47,25 @@ describe("care-record contracts", () => {
         },
       }),
     ).toMatchObject({ correctionFact: { supersedesFactId: fact.id } });
-    expect(() => CorrectionSchema.parse({ correctionFact: fact })).toThrow();
+    expect(() =>
+      CorrectionSchema.parse({
+        actorMemberId: fact.contributorMemberId,
+        originalContributorMemberId: fact.contributorMemberId,
+        correctionFact: fact,
+      }),
+    ).toThrow();
+    expect(() =>
+      CorrectionSchema.parse({
+        actorMemberId: "member:caregiver-a",
+        originalContributorMemberId: fact.contributorMemberId,
+        correctionFact: {
+          ...fact,
+          id: "fact:cross-person-correction",
+          provenance: "MANUAL_CORRECTION",
+          supersedesFactId: fact.id,
+        },
+      }),
+    ).toThrow();
   });
 
   it("requires conflicts to retain two distinct attributed facts", () => {

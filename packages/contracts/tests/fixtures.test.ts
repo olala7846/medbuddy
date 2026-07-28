@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { GoldenScenario } from "../fixtures/golden-scenario.js";
 import { InvalidScenarios } from "../fixtures/invalid-scenarios.js";
-import { AtomicFactSchema } from "../src/care-record.js";
+import { AtomicFactSchema, CorrectionSchema } from "../src/care-record.js";
 import { MedicationSourceCardSchema } from "../src/grounding.js";
 import { HandoffVersionSchema } from "../src/handoff.js";
 
@@ -24,6 +24,7 @@ describe("F3 golden fixtures", () => {
   });
 
   it("rejects intentionally invalid cross-contributor and grounding fixtures", () => {
+    expect(() => CorrectionSchema.parse(InvalidScenarios.crossContributorCorrection)).toThrow();
     expect(() => AtomicFactSchema.parse(InvalidScenarios.unattributedFact)).toThrow();
     expect(() => MedicationSourceCardSchema.parse(InvalidScenarios.unsupportedMedicationClaim)).toThrow();
   });

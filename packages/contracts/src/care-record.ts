@@ -55,8 +55,10 @@ export const AtomicFactSchema = z.object({
 });
 
 export const CorrectionSchema = z.object({
+  actorMemberId: MemberIdSchema,
+  originalContributorMemberId: MemberIdSchema,
   correctionFact: AtomicFactSchema,
-}).superRefine(({ correctionFact }, context) => {
+}).superRefine(({ actorMemberId, correctionFact, originalContributorMemberId }, context) => {
   if (correctionFact.provenance !== "MANUAL_CORRECTION") {
     context.addIssue({
       code: "custom",
@@ -69,6 +71,13 @@ export const CorrectionSchema = z.object({
       code: "custom",
       message: "A correction must supersede an existing fact.",
       path: ["correctionFact", "supersedesFactId"],
+    });
+  }
+  if (actorMemberId !== originalContributorMemberId || actorMemberId !== correctionFact.contributorMemberId) {
+    context.addIssue({
+      code: "custom",
+      message: "Only the original contributor may correct their claim.",
+      path: ["actorMemberId"],
     });
   }
 });

@@ -31,13 +31,23 @@ export const HandoffVersionSchema = z.object({
   sourceFactIds: z.array(FactIdSchema).min(1),
   sourceReviewEventIds: z.array(ReviewEventIdSchema),
   snapshot: HandoffSnapshotSchema,
-}).superRefine(({ snapshot, version }, context) => {
+}).superRefine(({ snapshot, sourceFactIds, version }, context) => {
   if (snapshot.version !== version) {
     context.addIssue({
       code: "custom",
       message: "The frozen snapshot version must match the handoff version.",
       path: ["snapshot", "version"],
     });
+  }
+  const referencedFactIds = new Set(sourceFactIds);
+  for (const fact of snapshot.facts) {
+    if (!referencedFactIds.has(fact.id)) {
+      context.addIssue({
+        code: "custom",
+        message: "Each frozen fact must retain its source-fact reference.",
+        path: ["sourceFactIds"],
+      });
+    }
   }
 });
 

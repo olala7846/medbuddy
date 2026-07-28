@@ -7,6 +7,7 @@ import {
   FactIdSchema,
   HandoffVersionIdSchema,
   MemberIdSchema,
+  MessageIdSchema,
   WorkspaceIdSchema,
 } from "./ids.js";
 
@@ -45,6 +46,20 @@ export const FactDocumentSchema = AtomicFactSchema;
 export const ReviewEventDocumentSchema = ReviewEventSchema;
 export const HandoffVersionDocumentSchema = HandoffVersionSchema;
 
+export interface WorkspaceRepository {
+  getWorkspace(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+  ): Promise<z.infer<typeof WorkspaceDocumentSchema> | null>;
+  putWorkspace(workspace: z.infer<typeof WorkspaceDocumentSchema>): Promise<void>;
+}
+
+export interface MemberRepository {
+  listMembers(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+  ): Promise<readonly z.infer<typeof MemberDocumentSchema>[]>;
+  putMember(member: z.infer<typeof MemberDocumentSchema>): Promise<void>;
+}
+
 export interface CareRecordRepository {
   getFact(
     workspaceId: z.infer<typeof WorkspaceIdSchema>,
@@ -62,7 +77,12 @@ export interface MedicationSourceRepository {
 }
 
 export interface CaptureDispatcher {
-  dispatch(input: { workspaceId: string; messageId: string }): Promise<void>;
+  dispatch(
+    input: {
+      workspaceId: z.infer<typeof WorkspaceIdSchema>;
+      messageId: z.infer<typeof MessageIdSchema>;
+    },
+  ): Promise<void>;
 }
 
 export type ApprovalState = z.infer<typeof ApprovalStateSchema>;
