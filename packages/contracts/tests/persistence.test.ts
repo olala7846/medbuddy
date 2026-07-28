@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AttachmentDocumentSchema,
   COLLECTION_OWNERSHIP,
   FactDocumentSchema,
   HandoffVersionDocumentSchema,
+  MessageDocumentSchema,
   WorkspaceDocumentSchema,
 } from "../src/persistence.js";
 
@@ -18,7 +20,35 @@ describe("persistence contracts", () => {
       handoffVersions: "care-record",
       medicationSources: "intelligence",
       agentRuns: "platform",
+      attachments: "chat",
     });
+  });
+
+  it("publishes chat-owned message and attachment document schemas", () => {
+    expect(
+      MessageDocumentSchema.parse({
+        id: "message:visit-1",
+        workspaceId: "workspace:demo",
+        authorMemberId: "member:owner",
+        body: "The label says to take this after breakfast.",
+        createdAt: "2026-07-28T10:00:00.000Z",
+        attachmentIds: ["attachment:label-1"],
+        captureIntent: "PASSIVE",
+        processingStatus: "PENDING",
+        processingAttempts: 0,
+      }),
+    ).toBeTruthy();
+    expect(
+      AttachmentDocumentSchema.parse({
+        id: "attachment:label-1",
+        workspaceId: "workspace:demo",
+        messageId: "message:visit-1",
+        mimeType: "image/png",
+        byteSize: 1024,
+        checksum: "a".repeat(64),
+        objectPath: "workspaces/workspace:demo/messages/message:visit-1/attachment:label-1",
+      }),
+    ).toBeTruthy();
   });
 
   it("accepts bounded workspace and fact documents", () => {
