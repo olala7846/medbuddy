@@ -162,7 +162,11 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
         return clone(store.handoffs.get(key(workspaceId, handoffVersionId)) ?? null);
       },
       async createHandoff(version) {
-        await write(() => putImmutable(store.handoffs, key(version.workspaceId, version.id), version));
+        await write(() => {
+          const workspace = store.workspaces.get(version.workspaceId);
+          putImmutable(store.handoffs, key(version.workspaceId, version.id), version);
+          if (workspace) store.workspaces.set(version.workspaceId, { ...clone(workspace), currentHandoffVersionId: version.id, updatedAt: version.createdAt });
+        });
       },
     },
   };
