@@ -3,6 +3,7 @@ import {
   type AttachmentDocument,
   type AttachmentRepository,
   type CareRecordRepository,
+  type CaptureCompletion,
   type FactDocument,
   type HandoffVersionDocument,
   type MemberRepository,
@@ -73,6 +74,9 @@ export class FirestorePersistence {
     this.careRecords = {
       getFact: async (workspaceId, factId) => this.get(this.factRef(workspaceId, factId), FactDocumentSchema),
       putFact: async (fact) => this.createImmutable(this.factRef(fact.workspaceId, fact.id), fact),
+      updateFactReviewStatus: async ({ workspaceId, factId, reviewStatus }) => {
+        await this.factRef(workspaceId, factId).update({ reviewStatus });
+      },
       listReviewEvents: async (workspaceId, factId) => {
         const snapshots = await this.workspaceRef(workspaceId)
           .collection("reviewEvents")
@@ -105,24 +109,24 @@ export class FirestorePersistence {
     return this.firestore.runTransaction(operation);
   }
 
-  async runIdempotent<Result>(idempotencyKey: string, operation: () => Promise<Result>): Promise<Result> {
+  async runIdempotent<Result>(idempotencyKey: string, operation: (repositories: FirestoreRepositories) => Promise<Result>): Promise<Result> {
     const reference = this.firestore.collection("platformOperations").doc(idempotencyKey);
     return this.runTransaction(async (transaction) => {
       const existing = await transaction.get(reference);
       if (existing.exists) return (existing.data() as { result: Result }).result;
-      const result = await operation();
+      const result = await operation({ workspaces: this.workspaces, members: this.members, messages: this.messages, attachments: this.attachments, careRecords: this.careRecords });
       transaction.create(reference, { result });
       return result;
     });
   }
 
   /** Persists candidate facts and the terminal capture state as one transaction. */
-  async completeCapture(input: {
-    workspaceId: string;
-    messageId: string;
-    facts: readonly FactDocument[];
-    processingStatus: "CAPTURED" | "IGNORED" | "NEEDS_MANUAL_REVIEW";
-  }): Promise<void> {
+  async completeCapture(input: CaptureCompletion): Promise<void> {
+    for (const fact of input.facts) {
+      if (fact.workspaceId !== input.workspaceId || fact.sourceMessageId !== input.messageId) {
+        throw new Error("Capture facts must belong to the focal workspace and message.");
+      }
+    }
     await this.runTransaction(async (transaction) => {
       const messageRef = this.messageRef(input.workspaceId, input.messageId);
       const message = await transaction.get(messageRef);

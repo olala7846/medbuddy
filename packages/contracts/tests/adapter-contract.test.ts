@@ -70,6 +70,10 @@ describeCareRecordRepositoryContract(() => {
     async putFact(fact) {
       facts.set(`${fact.workspaceId}:${fact.id}`, fact);
     },
+    async updateFactReviewStatus({ workspaceId, factId, reviewStatus }) {
+      const fact = facts.get(`${workspaceId}:${factId}`);
+      if (fact) facts.set(`${workspaceId}:${factId}`, { ...fact, reviewStatus });
+    },
     async listReviewEvents(workspaceId, factId) {
       return [...reviews.values()].filter(
         (review) => review.workspaceId === workspaceId && review.factId === factId,

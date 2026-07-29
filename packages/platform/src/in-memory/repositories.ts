@@ -2,6 +2,7 @@ import type {
   AttachmentDocument,
   AttachmentRepository,
   CareRecordRepository,
+  CaptureCompletion,
   FactDocument,
   HandoffVersionDocument,
   MemberDocument,
@@ -132,6 +133,12 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
       async putFact(fact) {
         await write(() => store.facts.set(key(fact.workspaceId, fact.id), clone(fact)));
       },
+      async updateFactReviewStatus({ workspaceId, factId, reviewStatus }) {
+        const entryKey = key(workspaceId, factId);
+        const fact = store.facts.get(entryKey);
+        if (!fact) throw new Error("Cannot update a missing fact.");
+        store.facts.set(entryKey, { ...clone(fact), reviewStatus });
+      },
       async listReviewEvents(workspaceId, factId) {
         return [...store.reviews.values()]
           .filter((review) => review.workspaceId === workspaceId && review.factId === factId)
@@ -196,6 +203,22 @@ export class InMemoryPersistence {
       draft.idempotentResults.set(idempotencyKey, clone(result));
       this.#commit(draft);
       return clone(result);
+    });
+  }
+
+  async completeCapture(input: CaptureCompletion): Promise<void> {
+    for (const fact of input.facts) {
+      if (fact.workspaceId !== input.workspaceId || fact.sourceMessageId !== input.messageId) {
+        throw new Error("Capture facts must belong to the focal workspace and message.");
+      }
+    }
+    await this.runIdempotent(`capture:${input.workspaceId}:${input.messageId}`, async (repositories) => {
+      const message = await repositories.messages.getMessage(input.workspaceId, input.messageId);
+      if (!message) throw new Error("Cannot complete capture for a missing message.");
+      for (const fact of input.facts) {
+        await repositories.careRecords.putFact(fact);
+      }
+      await repositories.messages.putMessage({ ...message, processingStatus: input.processingStatus });
     });
   }
 

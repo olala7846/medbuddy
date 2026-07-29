@@ -189,6 +189,20 @@ describe("in-memory persistence", () => {
     await expect(persistence.workspaces.getWorkspace(workspace.id)).resolves.toEqual(workspace);
   });
 
+  it("completes capture atomically and rejects facts outside the focal message workspace", async () => {
+    const persistence = new InMemoryPersistence();
+    const workspace = workspaceFixture();
+    const message = MessageDocumentSchema.parse({ id: "message:visit-1", workspaceId: workspace.id, authorMemberId: workspace.ownerMemberId, body: "Fictional capture.", createdAt: workspace.createdAt, attachmentIds: [], captureIntent: "PASSIVE", processingStatus: "PENDING", processingAttempts: 0 });
+    const fact = factFixture();
+    await persistence.messages.putMessage(message);
+    await persistence.completeCapture({ workspaceId: workspace.id, messageId: message.id, facts: [fact], processingStatus: "CAPTURED" });
+    await persistence.completeCapture({ workspaceId: workspace.id, messageId: message.id, facts: [fact], processingStatus: "CAPTURED" });
+    await expect(persistence.careRecords.getFact(workspace.id, fact.id)).resolves.toEqual(fact);
+    await expect(persistence.messages.getMessage(workspace.id, message.id)).resolves.toMatchObject({ processingStatus: "CAPTURED" });
+    const otherWorkspaceFact = AtomicFactSchema.parse({ ...fact, workspaceId: "workspace:other" });
+    await expect(persistence.completeCapture({ workspaceId: workspace.id, messageId: message.id, facts: [otherWorkspaceFact], processingStatus: "CAPTURED" })).rejects.toThrow("focal workspace");
+  });
+
   it("remembers idempotent operations that return no result", async () => {
     const persistence = new InMemoryPersistence();
     let executions = 0;
