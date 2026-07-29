@@ -36,6 +36,38 @@ describeEmulator("Firestore emulator persistence", () => {
   describeAttachmentRepositoryContract(() => persistence().attachments);
   describeCareRecordRepositoryContract(() => persistence().careRecords);
 
+  it("buffers generic cross-repository transaction writes until all reads complete", async () => {
+    const platform = persistence();
+    const workspace = WorkspaceDocumentSchema.parse({
+      id: "workspace:transactional", ownerMemberId: "member:owner", approvalState: "APPROVED",
+      createdAt: "2026-07-28T10:00:00.000Z", updatedAt: "2026-07-28T10:00:00.000Z",
+    });
+    const message = MessageDocumentSchema.parse({
+      id: "message:transactional", workspaceId: workspace.id, authorMemberId: workspace.ownerMemberId,
+      body: "Fictional transactional message.", createdAt: workspace.createdAt, attachmentIds: [],
+      captureIntent: "PASSIVE", processingStatus: "PENDING", processingAttempts: 0,
+    });
+    const fact = AtomicFactSchema.parse({
+      id: "fact:transactional", workspaceId: workspace.id, sourceMessageId: message.id,
+      contributorMemberId: workspace.ownerMemberId, kind: "INSTRUCTION", value: { instruction: "Fictional." },
+      provenance: "OWNER_REPORT", reviewStatus: "UNREVIEWED", enteredAt: workspace.createdAt, conflictsWithFactIds: [],
+    });
+    const handoff = HandoffVersionDocumentSchema.parse({
+      id: "handoff:transactional", workspaceId: workspace.id, version: 1, createdByMemberId: workspace.ownerMemberId,
+      createdAt: workspace.createdAt, sourceMessageIds: [message.id], sourceFactIds: [fact.id], sourceReviewEventIds: [],
+      snapshot: { version: 1, facts: [fact], conflicts: [], medicationSources: [], unresolvedItems: ["Fictional unresolved item."], limitations: ["Fictional limitation."] },
+    });
+
+    await platform.runTransaction(async (repositories) => {
+      await repositories.workspaces.putWorkspace(workspace);
+      await repositories.messages.putMessage(message);
+      await repositories.careRecords.createHandoff(handoff);
+    });
+
+    await expect(platform.messages.getMessage(workspace.id, message.id)).resolves.toMatchObject({ revision: 1 });
+    await expect(platform.careRecords.getHandoff(workspace.id, handoff.id)).resolves.toEqual(handoff);
+  });
+
   it("publishes a handoff and its current pointer atomically and idempotently", async () => {
     const platform = persistence();
     const workspace = WorkspaceDocumentSchema.parse({

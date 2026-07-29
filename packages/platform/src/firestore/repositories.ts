@@ -35,6 +35,38 @@ export interface FirestoreRepositories {
 
 type FirestoreRecord = Record<string, unknown>;
 
+class TransactionWriteBuffer {
+  #documents = new Map<string, unknown>();
+
+  get(reference: FirebaseFirestore.DocumentReference): unknown | undefined {
+    return this.#documents.get(reference.path);
+  }
+
+  set(reference: FirebaseFirestore.DocumentReference, value: unknown): void {
+    this.#documents.set(reference.path, value);
+    this.#writes.push({ kind: "set", reference, value });
+  }
+
+  create(reference: FirebaseFirestore.DocumentReference, value: unknown): void {
+    this.#documents.set(reference.path, value);
+    this.#writes.push({ kind: "create", reference, value });
+  }
+
+  update(reference: FirebaseFirestore.DocumentReference, value: Record<string, unknown>): void {
+    this.#writes.push({ kind: "update", reference, value });
+  }
+
+  flush(transaction: Transaction): void {
+    for (const entry of this.#writes) {
+      if (entry.kind === "set") transaction.set(entry.reference, entry.value);
+      else if (entry.kind === "create") transaction.create(entry.reference, entry.value);
+      else transaction.update(entry.reference, entry.value as Record<string, unknown>);
+    }
+  }
+
+  #writes: Array<{ kind: "set" | "create" | "update"; reference: FirebaseFirestore.DocumentReference; value: unknown }> = [];
+}
+
 function data(document: unknown): FirestoreRecord {
   return document as FirestoreRecord;
 }
@@ -113,7 +145,12 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
   }
 
   async runTransaction<Result>(operation: (repositories: PersistenceRepositories) => Promise<Result>): Promise<Result> {
-    return this.firestore.runTransaction((transaction) => operation(this.transactionRepositories(transaction)));
+    return this.firestore.runTransaction(async (transaction) => {
+      const writes = new TransactionWriteBuffer();
+      const result = await operation(this.transactionRepositories(transaction, writes));
+      writes.flush(transaction);
+      return result;
+    });
   }
 
   /** Atomically changes a reviewer mapping together with its fictional workspace. */
@@ -136,8 +173,10 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
         const marker = existing.data() as { hasResult: boolean; result?: Result };
         return (marker.hasResult ? marker.result : undefined) as Result;
       }
-      const result = await operation(this.transactionRepositories(transaction));
-      transaction.create(reference, result === undefined ? { hasResult: false } : { hasResult: true, result });
+      const writes = new TransactionWriteBuffer();
+      const result = await operation(this.transactionRepositories(transaction, writes));
+      writes.create(reference, result === undefined ? { hasResult: false } : { hasResult: true, result });
+      writes.flush(transaction);
       return result;
     });
   }
@@ -175,25 +214,29 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
     return this.firestore.runTransaction(operation);
   }
 
-  private transactionRepositories(transaction: Transaction): FirestoreRepositories {
+  private transactionRepositories(transaction: Transaction, writes?: TransactionWriteBuffer): FirestoreRepositories {
     const get = async <Output>(reference: FirebaseFirestore.DocumentReference, schema: { parse(value: unknown): Output }) => {
+      const buffered = writes?.get(reference);
+      if (buffered !== undefined) return schema.parse(buffered);
       const snapshot = await transaction.get(reference);
       return snapshot.exists ? schema.parse(data(snapshot.data())) : null;
     };
+    const set = (reference: FirebaseFirestore.DocumentReference, value: unknown) => writes ? writes.set(reference, value) : transaction.set(reference, value);
+    const update = (reference: FirebaseFirestore.DocumentReference, value: Record<string, unknown>) => writes ? writes.update(reference, value) : transaction.update(reference, value);
     return {
-      workspaces: { getWorkspace: (id) => get(this.workspaceRef(id), WorkspaceDocumentSchema), putWorkspace: async (value) => { transaction.set(this.workspaceRef(value.id), value); } },
-      members: { listMembers: async (id) => (await transaction.get(this.workspaceRef(id).collection("members"))).docs.map((doc) => MemberDocumentSchema.parse(data(doc.data()))), putMember: async (value) => { transaction.set(this.memberRef(value.workspaceId, value.id), value); } },
-      messages: { getMessage: (workspaceId, messageId) => get(this.messageRef(workspaceId, messageId), MessageDocumentSchema), listMessages: async (workspaceId) => (await transaction.get(this.workspaceRef(workspaceId).collection("messages").orderBy("revision"))).docs.map((doc) => MessageDocumentSchema.parse(data(doc.data()))), putMessage: async (value) => this.putMessageWithNextRevision(transaction, value) },
-      attachments: { getAttachment: (workspaceId, messageId, attachmentId) => get(this.attachmentRef(workspaceId, messageId, attachmentId), AttachmentDocumentSchema), putAttachment: async (value) => this.putImmutable(transaction, this.attachmentRef(value.workspaceId, value.messageId, value.id), value) },
+      workspaces: { getWorkspace: (id) => get(this.workspaceRef(id), WorkspaceDocumentSchema), putWorkspace: async (value) => { set(this.workspaceRef(value.id), value); } },
+      members: { listMembers: async (id) => (await transaction.get(this.workspaceRef(id).collection("members"))).docs.map((doc) => MemberDocumentSchema.parse(data(doc.data()))), putMember: async (value) => { set(this.memberRef(value.workspaceId, value.id), value); } },
+      messages: { getMessage: (workspaceId, messageId) => get(this.messageRef(workspaceId, messageId), MessageDocumentSchema), listMessages: async (workspaceId) => (await transaction.get(this.workspaceRef(workspaceId).collection("messages").orderBy("revision"))).docs.map((doc) => MessageDocumentSchema.parse(data(doc.data()))), putMessage: async (value) => this.putMessageWithNextRevision(transaction, value, writes) },
+      attachments: { getAttachment: (workspaceId, messageId, attachmentId) => get(this.attachmentRef(workspaceId, messageId, attachmentId), AttachmentDocumentSchema), putAttachment: async (value) => this.putImmutable(transaction, this.attachmentRef(value.workspaceId, value.messageId, value.id), value, writes) },
       careRecords: {
         getFact: (workspaceId, factId) => get(this.factRef(workspaceId, factId), FactDocumentSchema),
-        putFact: async (value) => this.putImmutable(transaction, this.factRef(value.workspaceId, value.id), value),
-        updateFactReviewStatus: async ({ workspaceId, factId, reviewStatus }) => { transaction.update(this.factRef(workspaceId, factId), { reviewStatus }); },
-        applyReview: async (event, reviewStatus) => { const fact = await transaction.get(this.factRef(event.workspaceId, event.factId)); if (!fact.exists) throw new Error("Cannot review a missing fact."); await this.putImmutable(transaction, this.reviewRef(event.workspaceId, event.id), event); transaction.update(this.factRef(event.workspaceId, event.factId), { reviewStatus }); },
+        putFact: async (value) => this.putImmutable(transaction, this.factRef(value.workspaceId, value.id), value, writes),
+        updateFactReviewStatus: async ({ workspaceId, factId, reviewStatus }) => { update(this.factRef(workspaceId, factId), { reviewStatus }); },
+        applyReview: async (event, reviewStatus) => { const fact = await transaction.get(this.factRef(event.workspaceId, event.factId)); if (!fact.exists) throw new Error("Cannot review a missing fact."); await this.putImmutable(transaction, this.reviewRef(event.workspaceId, event.id), event, writes); update(this.factRef(event.workspaceId, event.factId), { reviewStatus }); },
         listReviewEvents: async (workspaceId, factId) => (await transaction.get(this.workspaceRef(workspaceId).collection("reviewEvents").where("factId", "==", factId))).docs.map((doc) => ReviewEventDocumentSchema.parse(data(doc.data()))),
-        appendReviewEvent: async (value) => this.putImmutable(transaction, this.reviewRef(value.workspaceId, value.id), value),
+        appendReviewEvent: async (value) => this.putImmutable(transaction, this.reviewRef(value.workspaceId, value.id), value, writes),
         getHandoff: (workspaceId, id) => get(this.handoffRef(workspaceId, id), HandoffVersionDocumentSchema),
-        createHandoff: async (value) => this.createHandoffInTransaction(transaction, value),
+        createHandoff: async (value) => this.createHandoffInTransaction(transaction, value, writes),
       },
     };
   }
@@ -247,13 +290,22 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
     transaction: Transaction,
     reference: FirebaseFirestore.DocumentReference,
     value: AttachmentDocument | FactDocument | HandoffVersionDocument | MessageDocument | ReviewEventDocument,
+    writes?: TransactionWriteBuffer,
   ): Promise<void> {
-    const existing = await transaction.get(reference);
-    if (!existing.exists) {
-      transaction.create(reference, value);
+    const buffered = writes?.get(reference);
+    if (buffered === undefined) {
+      const existing = await transaction.get(reference);
+      if (!existing.exists) {
+        if (writes) writes.create(reference, value);
+        else transaction.create(reference, value);
+        return;
+      }
+      if (JSON.stringify(existing.data()) !== JSON.stringify(value)) {
+        throw new Error("An immutable record already exists with a different value.");
+      }
       return;
     }
-    if (JSON.stringify(existing.data()) !== JSON.stringify(value)) {
+    if (JSON.stringify(buffered) !== JSON.stringify(value)) {
       throw new Error("An immutable record already exists with a different value.");
     }
   }
@@ -268,60 +320,85 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
   private async putMessageWithNextRevision(
     transaction: Transaction | undefined,
     message: Parameters<MessageRepository["putMessage"]>[0],
+    writes?: TransactionWriteBuffer,
   ): Promise<MessageDocument> {
     if (!transaction) {
       return this.runRawTransaction((activeTransaction) => this.putMessageWithNextRevision(activeTransaction, message));
     }
     const reference = this.messageRef(message.workspaceId, message.id);
-    const existing = await transaction.get(reference);
-    if (existing.exists) {
-      const persisted = MessageDocumentSchema.parse(data(existing.data()));
+    const buffered = writes?.get(reference);
+    const snapshot = buffered === undefined ? await transaction.get(reference) : undefined;
+    if (buffered !== undefined || snapshot?.exists) {
+      const persisted = MessageDocumentSchema.parse(buffered ?? data(snapshot?.data()));
       if (!this.hasSameImmutableMessage(persisted, message)) {
         throw new Error("An immutable record already exists with a different value.");
       }
       if (JSON.stringify(MessageWriteSchema.parse(persisted)) === JSON.stringify(MessageWriteSchema.parse(message))) {
         return persisted;
       }
-      const counter = await transaction.get(this.messageRevisionCounterRef(message.workspaceId));
+      const counterReference = this.messageRevisionCounterRef(message.workspaceId);
+      const bufferedCounter = writes?.get(counterReference);
+      const counter = bufferedCounter === undefined ? await transaction.get(counterReference) : undefined;
       const revision = Math.max(
         persisted.revision,
-        counter.exists ? this.nextMessageRevision(counter.data()) : 0,
+        bufferedCounter !== undefined ? this.nextMessageRevision(bufferedCounter) : counter?.exists ? this.nextMessageRevision(counter.data()) : 0,
       ) + 1;
       const updated = MessageDocumentSchema.parse({ ...message, revision });
-      transaction.set(reference, updated);
-      transaction.set(this.messageRevisionCounterRef(message.workspaceId), { nextRevision: revision });
+      if (writes) {
+        writes.set(reference, updated);
+        writes.set(counterReference, { nextRevision: revision });
+      } else {
+        transaction.set(reference, updated);
+        transaction.set(counterReference, { nextRevision: revision });
+      }
       return updated;
     }
-    const counter = await transaction.get(this.messageRevisionCounterRef(message.workspaceId));
-    const revision = counter.exists ? this.nextMessageRevision(counter.data()) + 1 : 1;
+    const counterReference = this.messageRevisionCounterRef(message.workspaceId);
+    const bufferedCounter = writes?.get(counterReference);
+    const counter = bufferedCounter === undefined ? await transaction.get(counterReference) : undefined;
+    const revision = bufferedCounter !== undefined ? this.nextMessageRevision(bufferedCounter) + 1 : counter?.exists ? this.nextMessageRevision(counter.data()) + 1 : 1;
     const persisted = MessageDocumentSchema.parse({ ...message, revision });
-    transaction.create(reference, persisted);
-    transaction.set(this.messageRevisionCounterRef(message.workspaceId), { nextRevision: revision });
+    if (writes) {
+      writes.create(reference, persisted);
+      writes.set(counterReference, { nextRevision: revision });
+    } else {
+      transaction.create(reference, persisted);
+      transaction.set(counterReference, { nextRevision: revision });
+    }
     return persisted;
   }
 
   private async createHandoffInTransaction(
     transaction: Transaction,
     version: HandoffVersionDocument,
+    writes?: TransactionWriteBuffer,
   ): Promise<void> {
     const handoffReference = this.handoffRef(version.workspaceId, version.id);
     const workspaceReference = this.workspaceRef(version.workspaceId);
+    const bufferedHandoff = writes?.get(handoffReference);
+    const bufferedWorkspace = writes?.get(workspaceReference);
     const [existingHandoff, workspace] = await Promise.all([
-      transaction.get(handoffReference),
-      transaction.get(workspaceReference),
+      bufferedHandoff === undefined ? transaction.get(handoffReference) : undefined,
+      bufferedWorkspace === undefined ? transaction.get(workspaceReference) : undefined,
     ]);
-    if (!workspace.exists) throw new Error("Cannot publish a handoff for a missing workspace.");
-    if (existingHandoff.exists) {
-      if (JSON.stringify(data(existingHandoff.data())) !== JSON.stringify(version)) {
+    if (bufferedWorkspace === undefined && !workspace?.exists) throw new Error("Cannot publish a handoff for a missing workspace.");
+    if (bufferedHandoff !== undefined || existingHandoff?.exists) {
+      if (JSON.stringify(bufferedHandoff ?? data(existingHandoff?.data())) !== JSON.stringify(version)) {
         throw new Error("An immutable record already exists with a different value.");
       }
       return;
     }
-    transaction.create(handoffReference, version);
-    transaction.update(workspaceReference, {
+    const workspaceUpdate = {
       currentHandoffVersionId: version.id,
       updatedAt: version.createdAt,
-    });
+    };
+    if (writes) {
+      writes.create(handoffReference, version);
+      writes.update(workspaceReference, workspaceUpdate);
+    } else {
+      transaction.create(handoffReference, version);
+      transaction.update(workspaceReference, workspaceUpdate);
+    }
   }
 
   private nextMessageRevision(value: unknown): number {
