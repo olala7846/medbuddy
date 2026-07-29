@@ -4,7 +4,7 @@ Application shell: authentication, actor resolution, HTTP/route adapters, and co
 
 ## Public entry
 
-- `.` → browser-safe chat/persona/review helpers
+- `.` → browser-safe chat/persona/attachment-input/review helpers
 - `./server` → server-only auth, attachment admission, composition (do not import from client bundles)
 
 ## Depends on

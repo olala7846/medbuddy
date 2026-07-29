@@ -64,16 +64,15 @@ tasks/                         Plan and executable checklist
 docs/                          PRD, TDD, INDEX, engineering/ARCHITECTURE, ops notes
 ```
 
-Dependency direction:
+Dependency direction (arrow points from dependent to dependency; corrected to match as-built `package.json` wiring — chat also depends on care-record, and platform depends only on contracts):
 
 ```text
-                         contracts
-                   ↗        ↑        ↖
-                chat    care-record   intelligence
-                   ↖        ↑        ↗
-                    platform adapters
-                           ↑
-                        apps/web
+apps/web ──→ contracts
+        ──→ chat ──→ care-record ──→ contracts
+        ──→ care-record
+        ──→ platform adapters ──→ contracts
+
+intelligence ──→ contracts   (not yet wired into apps/web)
 ```
 
 Rules:

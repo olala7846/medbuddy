@@ -27,17 +27,18 @@ infra/                    Terraform prototype foundation
 tasks/                    Execution plan and checklist (not product specs)
 ```
 
-Dependency direction:
+Dependency direction (arrow points from dependent to dependency):
 
 ```text
-                     contracts
-               ↗        ↑        ↖
-            chat   care-record   intelligence
-               ↖        ↑        ↗
-                  platform
-                     ↑
-                  apps/web
+apps/web ──→ contracts
+        ──→ chat ──→ care-record ──→ contracts
+        ──→ care-record
+        ──→ platform ──→ contracts
+
+intelligence ──→ contracts   (not yet wired into apps/web)
 ```
+
+`platform` depends only on `contracts` (+ GCP SDKs); domain policy never lives in adapters.
 
 ## Commands
 

@@ -6,7 +6,7 @@
 
 ## Shape
 
-One npm-workspace **modular monolith**: one lockfile, packages for domain and adapters, one deployable web app (composition shell today; Next.js UI routes still to land).
+One npm-workspace **modular monolith**: one lockfile, packages for domain and adapters, one web app package (composition shell today — no runtime entrypoint or Next.js UI routes yet).
 
 Designed for ≤100 users. No microservices.
 
@@ -23,15 +23,18 @@ Designed for ≤100 users. No microservices.
 
 ## Dependency direction
 
+Arrow points from dependent to dependency:
+
 ```text
-                     @medbuddy/contracts
-                ↗            ↑            ↖
-        @medbuddy/chat  care-record  intelligence
-                ↖            ↑            ↗
-                   @medbuddy/platform
-                             ↑
-                      @medbuddy/web
+@medbuddy/web ──→ contracts
+            ──→ chat ──→ care-record ──→ contracts
+            ──→ care-record
+            ──→ platform ──→ contracts
+
+@medbuddy/intelligence ──→ contracts   (not yet wired into web)
 ```
+
+`platform` depends only on `contracts` and GCP SDKs.
 
 Rules:
 

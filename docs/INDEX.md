@@ -56,6 +56,6 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | [../tasks/plan.md](../tasks/plan.md) | Parallel implementation plan |
 | [../tasks/todo.md](../tasks/todo.md) | Checklist and verify commands |
 
-## As-built vs older diagrams
+## As-built vs deferred target paths
 
-Some sections of [TDD.md](./TDD.md) and [tasks/plan.md](../tasks/plan.md) still describe a target layout (`fixtures/` at repo root, root `tests/`, Next.js `app/`). The **as-built** tree is in [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) and the root [README.md](../README.md). Prefer as-built when navigating the repo; treat unmatched target paths as deferred, not missing by accident.
+The **as-built** tree is in [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) and the root [README.md](../README.md). [TDD.md](./TDD.md) §17.2 and [tasks/plan.md](../tasks/plan.md) list deferred target paths (`fixtures/` at repo root, root `tests/`, Next.js `app/`) that are not in the tree yet — treat those as deferred, not missing by accident. Note that TDD §19 command list is partially aspirational: only `npm ci`, `npm test`, and `npm run check` exist in root `package.json` today.
