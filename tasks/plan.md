@@ -111,6 +111,12 @@ interface ConversationResponder {
   respond(input: ConversationRequest): Promise<ConversationResult>;
 }
 
+interface ConversationRequest {
+  actor: ActorContext;
+  messageId: MessageId;
+  context: ConversationContext; // bounded canonical messages from Chat
+}
+
 interface DemoWorkspaceProvisioner {
   getOrCreate(accountId: AccountId): Promise<DemoWorkspaceMapping>;
   reset(input: DemoWorkspaceResetInput): Promise<DemoWorkspaceMapping>;
@@ -163,7 +169,7 @@ The intelligence module does not write Firestore. It returns typed proposals. Ca
 4. Capture returns a typed focal-message result.
 5. Care-record code validates and stores candidate facts idempotently.
 6. Chat marks the message `CAPTURED` and exposes `👀` only after that transaction succeeds.
-7. When the message mentions `@MedBuddy`, Chat invokes `ConversationResponder`.
+7. When the message mentions `@MedBuddy`, Chat constructs bounded `ConversationContext` from canonical messages in that workspace and invokes `ConversationResponder`.
 8. The response is appended through the same server-side message writer used for all MedBuddy messages.
 
 The Chat workstream uses fixed adapters for steps 2–8. The intelligence workstream tests those interfaces without a browser or Firestore.

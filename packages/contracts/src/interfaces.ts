@@ -2,6 +2,7 @@ import type { ActorContext } from "./auth.js";
 import type {
   AppendMessageInput,
   AppendMessageResult,
+  ConversationContext,
   MessageCursorQuery,
   MessagePage,
 } from "./chat.js";
@@ -27,6 +28,7 @@ export interface ChatService {
 export interface ConversationRequest {
   actor: ActorContext;
   messageId: MessageId;
+  context: ConversationContext;
 }
 
 export interface ConversationResult {
