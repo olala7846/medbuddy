@@ -3,6 +3,7 @@ import {
   AtomicFactSchema,
   HandoffVersionDocumentSchema,
   MessageDocumentSchema,
+  MessageWriteSchema,
   ReviewEventDocumentSchema,
   WorkspaceDocumentSchema,
 } from "@medbuddy/contracts";
@@ -71,6 +72,57 @@ describe("in-memory persistence", () => {
   describeMessageRepositoryContract(() => new InMemoryPersistence().messages);
   describeAttachmentRepositoryContract(() => new InMemoryPersistence().attachments);
   describeCareRecordRepositoryContract(() => new InMemoryPersistence().careRecords);
+
+  it("assigns a new workspace revision to each persisted message mutation", async () => {
+    const persistence = new InMemoryPersistence();
+    const message = MessageDocumentSchema.parse({
+      id: "message:revision-1",
+      workspaceId: "workspace:demo",
+      authorMemberId: "member:owner",
+      body: "Take the fictional tablet after breakfast.",
+      createdAt: "2026-07-28T10:00:00.000Z",
+      attachmentIds: [],
+      captureIntent: "PASSIVE",
+      processingStatus: "PENDING",
+      processingAttempts: 0,
+    });
+
+    const first = await persistence.messages.putMessage(MessageWriteSchema.parse(message));
+    const second = await persistence.messages.putMessage(MessageWriteSchema.parse({
+      ...first,
+      processingStatus: "CAPTURED",
+    }));
+
+    expect(first.revision).toBe(1);
+    expect(second.revision).toBe(2);
+    await expect(persistence.messages.getMessage(message.workspaceId, message.id)).resolves.toEqual(second);
+  });
+
+  it("serializes concurrent message writes within a workspace", async () => {
+    const persistence = new InMemoryPersistence();
+    const message = MessageDocumentSchema.parse({
+      id: "message:concurrent-1",
+      workspaceId: "workspace:demo",
+      authorMemberId: "member:owner",
+      body: "First fictional message.",
+      createdAt: "2026-07-28T10:00:00.000Z",
+      attachmentIds: [],
+      captureIntent: "PASSIVE",
+      processingStatus: "PENDING",
+      processingAttempts: 0,
+    });
+
+    const storedMessages = await Promise.all([
+      persistence.messages.putMessage(MessageWriteSchema.parse(message)),
+      persistence.messages.putMessage(MessageWriteSchema.parse({
+        ...message,
+        id: "message:concurrent-2",
+        body: "Second fictional message.",
+      })),
+    ]);
+
+    expect(storedMessages.map((storedMessage) => storedMessage.revision).sort()).toEqual([1, 2]);
+  });
 
   it("commits all repository writes together after a successful transaction", async () => {
     const persistence = new InMemoryPersistence();
