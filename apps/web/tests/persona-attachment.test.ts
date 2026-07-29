@@ -12,11 +12,7 @@ import { InMemoryPersistence } from "@medbuddy/platform";
 
 import {
   MEDBUDDY_DEMO_MEMBER_HEADER,
-  createAuthenticatedChatRoute,
-  createServerAttachmentAdmission,
-  MAX_ATTACHMENT_BYTES,
   createPersistedChatTimeline,
-  createServerAttachmentMetadata,
   createTabPersonaSelection,
   mountAuthenticatedChatApp,
   type ChatBrowserForm,
@@ -24,6 +20,13 @@ import {
   type ChatBrowserRoot,
   type ChatBrowserTextArea,
 } from "../src/index.js";
+import * as BrowserApi from "../src/index.js";
+import { createAuthenticatedChatRoute } from "../src/authenticated-chat-route.js";
+import {
+  createServerAttachmentAdmission,
+  createServerAttachmentMetadata,
+  MAX_ATTACHMENT_BYTES,
+} from "../src/attachment-admission.server.js";
 
 class FakeSessionStorage {
   #values = new Map<string, string>();
@@ -74,6 +77,11 @@ class StaticBrowserRoot implements ChatBrowserRoot {
 const workspaceId = WorkspaceIdSchema.parse("workspace:reviewer-demo");
 
 describe("per-tab reviewer personas", () => {
+  it("keeps server attachment admission out of the browser public entry point", () => {
+    expect(BrowserApi).not.toHaveProperty("createServerAttachmentAdmission");
+    expect(BrowserApi).not.toHaveProperty("createAuthenticatedChatRoute");
+  });
+
   it("stores each Google reviewer's selected fictional participant in session storage and creates the approved header", () => {
     const firstTab = createTabPersonaSelection({ workspaceId, storage: new FakeSessionStorage(), isGoogleReviewer: true });
     const secondTab = createTabPersonaSelection({ workspaceId, storage: new FakeSessionStorage(), isGoogleReviewer: true });
@@ -151,6 +159,7 @@ describe("workspace requests and capture retry", () => {
     };
     const route = createAuthenticatedChatRoute({
       chatService,
+      attachmentAdmission: createServerAttachmentAdmission(),
       async resolveServerActor(_workspaceId, demoMemberHeader) {
         resolvedHeaders.push(demoMemberHeader);
         return actor;

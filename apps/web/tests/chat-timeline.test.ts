@@ -10,7 +10,6 @@ import {
 
 import {
   createPersistedChatTimeline,
-  createAuthenticatedChatRoute,
   mountPersistedChatApp,
   renderLoginPage,
   type ChatBrowserForm,
@@ -19,6 +18,8 @@ import {
   type ChatBrowserTextArea,
   type PersistedChatApi,
 } from "../src/index.js";
+import { createAuthenticatedChatRoute } from "../src/authenticated-chat-route.js";
+import { createServerAttachmentAdmission } from "../src/attachment-admission.server.js";
 
 const actor = ActorContextSchema.parse({
   accountId: "account:credential-owner",
@@ -180,6 +181,7 @@ describe("login and persisted chat timeline", () => {
     };
     const route = createAuthenticatedChatRoute({
       chatService,
+      attachmentAdmission: createServerAttachmentAdmission(),
       async resolveServerActor(workspaceId) {
         expect(workspaceId).toBe("workspace:demo");
         return actor;

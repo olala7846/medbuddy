@@ -10,10 +10,9 @@ import type {
 
 import type { PersistedChatApi } from "./persisted-chat.js";
 import {
-  createServerAttachmentAdmission,
   type AttachmentAdmissionRequest,
   type ServerAttachmentAdmission,
-} from "./persona-attachment.js";
+} from "./attachment-admission.server.js";
 
 /** Server-only seam: resolve the current authenticated session into an actor. */
 export type ResolveServerActor = (
@@ -24,7 +23,7 @@ export type ResolveServerActor = (
 export interface AuthenticatedChatRouteOptions {
   chatService: ChatService;
   resolveServerActor: ResolveServerActor;
-  attachmentAdmission?: ServerAttachmentAdmission;
+  attachmentAdmission: ServerAttachmentAdmission;
 }
 
 /**
@@ -32,7 +31,7 @@ export interface AuthenticatedChatRouteOptions {
  * this adapter resolves it from the authenticated server session first.
  */
 export function createAuthenticatedChatRoute(options: AuthenticatedChatRouteOptions): PersistedChatApi {
-  const attachmentAdmission = options.attachmentAdmission ?? createServerAttachmentAdmission();
+  const attachmentAdmission = options.attachmentAdmission;
   const resolveActor = (workspaceId: WorkspaceId, request?: { headers?: Readonly<Record<string, string>> }) =>
     options.resolveServerActor(workspaceId, request?.headers?.["X-MedBuddy-Demo-Member"]);
   return {

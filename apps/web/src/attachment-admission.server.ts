@@ -2,7 +2,6 @@ import {
   ActorContextSchema,
   AttachmentIdSchema,
   AttachmentSchema,
-  MemberIdSchema,
   MessageIdSchema,
   WorkspaceIdSchema,
   type Attachment,
@@ -16,66 +15,7 @@ import {
 import { createDeterministicMessageId } from "@medbuddy/chat";
 import { InMemoryPersistence } from "@medbuddy/platform";
 
-/** The sole browser-to-server persona hint accepted by actor resolution. */
-export const MEDBUDDY_DEMO_MEMBER_HEADER = "X-MedBuddy-Demo-Member";
-
-export interface SessionStorageLike {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-}
-
-export interface TabPersonaSelectionOptions {
-  workspaceId: WorkspaceId;
-  storage: SessionStorageLike;
-  /** Only allowlisted Google prototype-reviewer sessions may assume a persona. */
-  isGoogleReviewer: boolean;
-}
-
-function personaStorageKey(workspaceId: WorkspaceId): string {
-  return `medbuddy:demo-member:${workspaceId}`;
-}
-
-/**
- * Holds the simulation-only persona for one browser tab. sessionStorage is
- * deliberately used instead of localStorage so separate reviewer tabs can
- * exercise separate fictional participants.
- */
-export class TabPersonaSelection {
-  readonly #workspaceId: WorkspaceId;
-  readonly #storage: SessionStorageLike;
-  readonly #isGoogleReviewer: boolean;
-
-  constructor(options: TabPersonaSelectionOptions) {
-    this.#workspaceId = WorkspaceIdSchema.parse(options.workspaceId);
-    this.#storage = options.storage;
-    this.#isGoogleReviewer = options.isGoogleReviewer;
-  }
-
-  get memberId(): MemberId | undefined {
-    if (!this.#isGoogleReviewer) return undefined;
-    const parsed = MemberIdSchema.safeParse(this.#storage.getItem(personaStorageKey(this.#workspaceId)));
-    return parsed.success ? parsed.data : undefined;
-  }
-
-  select(memberId: string): void {
-    if (!this.#isGoogleReviewer) return;
-    this.#storage.setItem(personaStorageKey(this.#workspaceId), MemberIdSchema.parse(memberId));
-  }
-
-  clear(): void {
-    this.#storage.removeItem(personaStorageKey(this.#workspaceId));
-  }
-
-  requestHeaders(): Readonly<Record<string, string>> {
-    const memberId = this.memberId;
-    return memberId === undefined ? {} : { [MEDBUDDY_DEMO_MEMBER_HEADER]: memberId };
-  }
-}
-
-export function createTabPersonaSelection(options: TabPersonaSelectionOptions): TabPersonaSelection {
-  return new TabPersonaSelection(options);
-}
+import type { BrowserAttachmentUpload } from "./attachment-input.js";
 
 export interface ServerAttachmentMetadataInput {
   attachmentId: AttachmentId;
@@ -84,18 +24,12 @@ export interface ServerAttachmentMetadataInput {
   mimeType: string;
   byteSize: number;
   checksum: string;
-  /** Rejected: object paths are server-derived, never accepted from the browser. */
   objectPath?: string;
 }
 
-/**
- * Server-side attachment admission. The caller supplies file facts only; this
- * boundary derives the contract-required private object path before storage.
- */
+/** Derives the private object path; browser-supplied paths are never accepted. */
 export function createServerAttachmentMetadata(input: ServerAttachmentMetadataInput): Attachment {
-  if (input.objectPath !== undefined) {
-    throw new Error("Attachment object paths are assigned by the server.");
-  }
+  if (input.objectPath !== undefined) throw new Error("Attachment object paths are assigned by the server.");
   const attachmentId = AttachmentIdSchema.parse(input.attachmentId);
   const workspaceId = WorkspaceIdSchema.parse(input.workspaceId);
   const messageId = MessageIdSchema.parse(input.messageId);
@@ -108,11 +42,6 @@ export function createServerAttachmentMetadata(input: ServerAttachmentMetadataIn
     checksum: input.checksum,
     objectPath: `workspaces/${workspaceId}/messages/${messageId}/${attachmentId}`,
   });
-}
-
-export interface BrowserAttachmentUpload {
-  mimeType: string;
-  bytes: Uint8Array;
 }
 
 export interface AttachmentAdmissionRequest extends BrowserAttachmentUpload {
@@ -153,11 +82,7 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * Fake-backed server admission for the browser prototype. It receives bytes
- * through the route boundary, derives metadata itself, and binds every
- * attachment to one actor and one deterministic idempotent message.
- */
+/** Fixed server-only store used by the fictional in-memory prototype. */
 export function createServerAttachmentAdmission(options: ServerAttachmentAdmissionOptions = {}): ServerAttachmentAdmission {
   const attachmentRepository = options.attachmentRepository ?? new InMemoryPersistence().attachments;
   const admitted = new Map<string, { memberId: MemberId }>();
@@ -174,15 +99,11 @@ export function createServerAttachmentAdmission(options: ServerAttachmentAdmissi
       if (input.idempotencyKey.trim().length === 0 || input.idempotencyKey.length > 128) {
         throw new Error("Attachment uploads require a valid idempotency key.");
       }
-      if (input.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-        throw new Error("Attachment bytes exceed the 5 MiB limit.");
-      }
+      if (input.bytes.byteLength > MAX_ATTACHMENT_BYTES) throw new Error("Attachment bytes exceed the 5 MiB limit.");
       const messageId = createDeterministicMessageId({ workspaceId, idempotencyKey: input.idempotencyKey, author: "HUMAN" });
       const countKey = `${workspaceId}\u0000${messageId}`;
       const nextCount = perMessageCount.get(countKey) ?? 0;
       if (nextCount >= 5) throw new Error("A message can have at most five attachments.");
-      // Reserve before the async digest so concurrent browser uploads cannot
-      // receive the same attachment ID.
       perMessageCount.set(countKey, nextCount + 1);
       const attachmentId = AttachmentIdSchema.parse(`attachment:${stableHash(`${input.idempotencyKey}:${nextCount}`)}`);
       const attachment = createServerAttachmentMetadata({

@@ -7,7 +7,8 @@ import type {
 } from "@medbuddy/contracts";
 import { MessageIdSchema } from "@medbuddy/contracts";
 
-import type { BrowserAttachmentUpload, TabPersonaSelection } from "./persona-attachment.js";
+import type { BrowserAttachmentUpload } from "./attachment-input.js";
+import type { TabPersonaSelection } from "./persona.js";
 
 export interface PersistedChatApi {
   listMessages(query: MessageCursorQuery, request?: BrowserRequestMetadata): Promise<MessagePage>;
