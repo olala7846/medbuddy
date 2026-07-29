@@ -9,3 +9,4 @@ export * from "./handoff.js";
 export * from "./ids.js";
 export * from "./interfaces.js";
 export * from "./persistence.js";
+export { GoldenScenario } from "../fixtures/golden-scenario.js";
