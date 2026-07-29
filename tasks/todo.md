@@ -240,7 +240,7 @@
 
 ### S2.6 — Implement review and printable handoff views
 
-- [ ] **Owner:** Stream 2
+- [x] **Owner:** Stream 2
 - **Dependencies:** S2.5
 - **Acceptance:**
   - Batch review exposes attribution, provenance, conflicts, and statuses.
