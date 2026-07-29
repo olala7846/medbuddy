@@ -13,7 +13,7 @@ import { type MedicationLookupRenderResult } from "../grounding/render.js";
 import { routeMedicationDecision } from "../safety/route.js";
 import { lookupMedication } from "./tools.js";
 
-const ConversationInstructionSchema = z.union([
+export const ConversationInstructionSchema = z.union([
   z.object({ kind: z.literal("ACKNOWLEDGE") }).strict(),
   z.object({
     kind: z.literal("LOOKUP_MEDICATION"),
