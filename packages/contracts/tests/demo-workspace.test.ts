@@ -19,6 +19,7 @@ describe("prototype reviewer demo workspace contracts", () => {
   });
 
   it("requires an idempotency key when a reviewer explicitly resets their demo", async () => {
+    const resetMappings = new Map<string, ReturnType<typeof DemoWorkspaceMappingSchema.parse>>();
     const provisioner: DemoWorkspaceProvisioner = {
       async getOrCreate() {
         return DemoWorkspaceMappingSchema.parse({
@@ -28,14 +29,20 @@ describe("prototype reviewer demo workspace contracts", () => {
           createdAt: "2026-07-28T10:00:00.000Z",
         });
       },
-      async reset() {
-        return DemoWorkspaceMappingSchema.parse({
+      async reset(input) {
+        const existing = resetMappings.get(input.idempotencyKey);
+        if (existing) {
+          return existing;
+        }
+        const replacement = DemoWorkspaceMappingSchema.parse({
           accountId: "account:prototype-reviewer-1",
           workspaceId: "workspace:reviewer-demo-2",
           templateVersion: "golden-v1",
           createdAt: "2026-07-28T10:05:00.000Z",
           replacedWorkspaceId: "workspace:reviewer-demo-1",
         });
+        resetMappings.set(input.idempotencyKey, replacement);
+        return replacement;
       },
     };
 
@@ -45,8 +52,10 @@ describe("prototype reviewer demo workspace contracts", () => {
     });
     const previous = await provisioner.getOrCreate(resetInput.accountId);
     const replacement = await provisioner.reset(resetInput);
+    const repeatedReset = await provisioner.reset(resetInput);
 
     expect(replacement.workspaceId).not.toBe(previous.workspaceId);
     expect(replacement.replacedWorkspaceId).toBe(previous.workspaceId);
+    expect(repeatedReset).toEqual(replacement);
   });
 });
