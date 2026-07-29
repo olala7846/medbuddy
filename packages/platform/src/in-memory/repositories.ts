@@ -13,6 +13,7 @@ import type {
   WorkspaceDocument,
   WorkspaceRepository,
 } from "@medbuddy/contracts";
+import { MessageDocumentSchema } from "@medbuddy/contracts";
 import { InMemoryTransactionQueue } from "./transactions.js";
 
 interface InMemoryStore {
@@ -109,8 +110,22 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
       async getMessage(workspaceId, messageId) {
         return clone(store.messages.get(key(workspaceId, messageId)) ?? null);
       },
+      async listMessages(workspaceId) {
+        return [...store.messages.values()]
+          .filter((message) => message.workspaceId === workspaceId)
+          .sort((left, right) => left.revision - right.revision)
+          .map(clone);
+      },
       async putMessage(message) {
-        await write(() => store.messages.set(key(message.workspaceId, message.id), clone(message)));
+        const nextRevision = Math.max(
+          0,
+          ...[...store.messages.values()]
+            .filter((entry) => entry.workspaceId === message.workspaceId)
+            .map((entry) => entry.revision),
+        ) + 1;
+        const persisted = MessageDocumentSchema.parse({ ...message, revision: nextRevision });
+        await write(() => store.messages.set(key(message.workspaceId, message.id), clone(persisted)));
+        return persisted;
       },
     },
     attachments: {

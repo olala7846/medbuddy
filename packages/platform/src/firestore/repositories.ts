@@ -20,7 +20,9 @@ import {
   MessageDocumentSchema,
   ReviewEventDocumentSchema,
   WorkspaceDocumentSchema,
+  DemoWorkspaceMappingSchema,
 } from "@medbuddy/contracts";
+import type { DemoWorkspaceMappingRepository, DemoWorkspacePersistence, DemoWorkspaceTransaction } from "../demo-workspace/persistence.js";
 
 export interface FirestoreRepositories {
   workspaces: WorkspaceRepository;
@@ -40,7 +42,7 @@ function data(document: unknown): FirestoreRecord {
  * Platform-only Firestore adapter. Collection paths follow the public
  * persistence contract; callers still choose all domain transitions.
  */
-export class FirestorePersistence implements TransactionalPersistence {
+export class FirestorePersistence implements TransactionalPersistence, DemoWorkspacePersistence {
   readonly workspaces: WorkspaceRepository;
   readonly members: MemberRepository;
   readonly messages: MessageRepository;
@@ -66,7 +68,15 @@ export class FirestorePersistence implements TransactionalPersistence {
     this.messages = {
       getMessage: async (workspaceId, messageId) =>
         this.get(this.messageRef(workspaceId, messageId), MessageDocumentSchema),
-      putMessage: async (message) => this.createImmutable(this.messageRef(message.workspaceId, message.id), message),
+      listMessages: async (workspaceId) => {
+        const snapshots = await this.workspaceRef(workspaceId).collection("messages").orderBy("revision").get();
+        return snapshots.docs.map((snapshot) => MessageDocumentSchema.parse(data(snapshot.data())));
+      },
+      putMessage: async (message) => {
+        const persisted = MessageDocumentSchema.parse({ ...message, revision: 1 });
+        await this.createImmutable(this.messageRef(persisted.workspaceId, persisted.id), persisted);
+        return persisted;
+      },
     };
     this.attachments = {
       getAttachment: async (workspaceId, messageId, attachmentId) =>
@@ -117,6 +127,16 @@ export class FirestorePersistence implements TransactionalPersistence {
     return this.firestore.runTransaction((transaction) => operation(this.transactionRepositories(transaction)));
   }
 
+  /** Atomically changes a reviewer mapping together with its fictional workspace. */
+  async runDemoWorkspaceTransaction<Result>(
+    operation: (transaction: DemoWorkspaceTransaction) => Promise<Result>,
+  ): Promise<Result> {
+    return this.firestore.runTransaction(async (transaction) => operation({
+      repositories: this.transactionRepositories(transaction),
+      mappings: this.mappingRepository(transaction),
+    }));
+  }
+
   async runIdempotent<Result>(idempotencyKey: string, operation: (repositories: FirestoreRepositories) => Promise<Result>): Promise<Result> {
     const reference = this.firestore.collection("platformOperations").doc(idempotencyKey);
     return this.firestore.runTransaction(async (transaction) => {
@@ -163,7 +183,7 @@ export class FirestorePersistence implements TransactionalPersistence {
     return {
       workspaces: { getWorkspace: (id) => get(this.workspaceRef(id), WorkspaceDocumentSchema), putWorkspace: async (value) => { transaction.set(this.workspaceRef(value.id), value); } },
       members: { listMembers: async (id) => (await transaction.get(this.workspaceRef(id).collection("members"))).docs.map((doc) => MemberDocumentSchema.parse(data(doc.data()))), putMember: async (value) => { transaction.set(this.memberRef(value.workspaceId, value.id), value); } },
-      messages: { getMessage: (workspaceId, messageId) => get(this.messageRef(workspaceId, messageId), MessageDocumentSchema), putMessage: async (value) => this.putImmutable(transaction, this.messageRef(value.workspaceId, value.id), value) },
+      messages: { getMessage: (workspaceId, messageId) => get(this.messageRef(workspaceId, messageId), MessageDocumentSchema), listMessages: async (workspaceId) => (await transaction.get(this.workspaceRef(workspaceId).collection("messages").orderBy("revision"))).docs.map((doc) => MessageDocumentSchema.parse(data(doc.data()))), putMessage: async (value) => { const persisted = MessageDocumentSchema.parse({ ...value, revision: 1 }); await this.putImmutable(transaction, this.messageRef(persisted.workspaceId, persisted.id), persisted); return persisted; } },
       attachments: { getAttachment: (workspaceId, messageId, attachmentId) => get(this.attachmentRef(workspaceId, messageId, attachmentId), AttachmentDocumentSchema), putAttachment: async (value) => this.putImmutable(transaction, this.attachmentRef(value.workspaceId, value.messageId, value.id), value) },
       careRecords: {
         getFact: (workspaceId, factId) => get(this.factRef(workspaceId, factId), FactDocumentSchema),
@@ -174,6 +194,18 @@ export class FirestorePersistence implements TransactionalPersistence {
         appendReviewEvent: async (value) => this.putImmutable(transaction, this.reviewRef(value.workspaceId, value.id), value),
         getHandoff: (workspaceId, id) => get(this.handoffRef(workspaceId, id), HandoffVersionDocumentSchema),
         createHandoff: async (value) => { await this.putImmutable(transaction, this.handoffRef(value.workspaceId, value.id), value); const workspace = await transaction.get(this.workspaceRef(value.workspaceId)); if (!workspace.exists) throw new Error("Cannot publish a handoff for a missing workspace."); transaction.update(this.workspaceRef(value.workspaceId), { currentHandoffVersionId: value.id, updatedAt: value.createdAt }); },
+      },
+    };
+  }
+
+  private mappingRepository(transaction: Transaction): DemoWorkspaceMappingRepository {
+    return {
+      get: async (accountId) => {
+        const snapshot = await transaction.get(this.demoMappingRef(accountId));
+        return snapshot.exists ? DemoWorkspaceMappingSchema.parse(data(snapshot.data())) : null;
+      },
+      put: async (mapping) => {
+        transaction.set(this.demoMappingRef(mapping.accountId), DemoWorkspaceMappingSchema.parse(mapping));
       },
     };
   }
@@ -231,5 +263,9 @@ export class FirestorePersistence implements TransactionalPersistence {
 
   private handoffRef(workspaceId: string, handoffId: string) {
     return this.workspaceRef(workspaceId).collection("handoffVersions").doc(handoffId);
+  }
+
+  private demoMappingRef(accountId: string) {
+    return this.firestore.collection("demoWorkspaceMappings").doc(accountId);
   }
 }

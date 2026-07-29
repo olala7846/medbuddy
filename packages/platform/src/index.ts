@@ -4,3 +4,5 @@ export * from "./firestore/repositories.js";
 export * from "./cloud-tasks/dispatcher.js";
 export * from "./cloud-tasks/verify.js";
 export * from "./storage/attachments.js";
+export * from "./demo-workspace/persistence.js";
+export * from "./production.js";
