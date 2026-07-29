@@ -33,6 +33,8 @@ export interface InMemoryRepositories {
   careRecords: CareRecordRepository;
 }
 
+type WriteOperation = (operation: () => void) => Promise<void>;
+
 function clone<Value>(value: Value): Value {
   return structuredClone(value);
 }
@@ -71,14 +73,25 @@ function cloneStore(source: InMemoryStore): InMemoryStore {
   };
 }
 
-function repositoriesFor(store: InMemoryStore): InMemoryRepositories {
+function putImmutable<Value>(store: Map<string, Value>, entryKey: string, value: Value): void {
+  const existing = store.get(entryKey);
+  if (existing === undefined) {
+    store.set(entryKey, clone(value));
+    return;
+  }
+  if (JSON.stringify(existing) !== JSON.stringify(value)) {
+    throw new Error("An immutable record already exists with a different value.");
+  }
+}
+
+function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryRepositories {
   return {
     workspaces: {
       async getWorkspace(workspaceId) {
         return clone(store.workspaces.get(workspaceId) ?? null);
       },
       async putWorkspace(workspace) {
-        store.workspaces.set(workspace.id, clone(workspace));
+        await write(() => store.workspaces.set(workspace.id, clone(workspace)));
       },
     },
     members: {
@@ -88,7 +101,7 @@ function repositoriesFor(store: InMemoryStore): InMemoryRepositories {
           .map(clone);
       },
       async putMember(member) {
-        store.members.set(key(member.workspaceId, member.id), clone(member));
+        await write(() => store.members.set(key(member.workspaceId, member.id), clone(member)));
       },
     },
     messages: {
@@ -96,7 +109,7 @@ function repositoriesFor(store: InMemoryStore): InMemoryRepositories {
         return clone(store.messages.get(key(workspaceId, messageId)) ?? null);
       },
       async putMessage(message) {
-        store.messages.set(key(message.workspaceId, message.id), clone(message));
+        await write(() => store.messages.set(key(message.workspaceId, message.id), clone(message)));
       },
     },
     attachments: {
@@ -104,10 +117,12 @@ function repositoriesFor(store: InMemoryStore): InMemoryRepositories {
         return clone(store.attachments.get(key(workspaceId, messageId, attachmentId)) ?? null);
       },
       async putAttachment(attachment) {
-        store.attachments.set(
-          key(attachment.workspaceId, attachment.messageId, attachment.id),
-          clone(attachment),
-        );
+        await write(() => {
+          store.attachments.set(
+            key(attachment.workspaceId, attachment.messageId, attachment.id),
+            clone(attachment),
+          );
+        });
       },
     },
     careRecords: {
@@ -115,7 +130,7 @@ function repositoriesFor(store: InMemoryStore): InMemoryRepositories {
         return clone(store.facts.get(key(workspaceId, factId)) ?? null);
       },
       async putFact(fact) {
-        store.facts.set(key(fact.workspaceId, fact.id), clone(fact));
+        await write(() => store.facts.set(key(fact.workspaceId, fact.id), clone(fact)));
       },
       async listReviewEvents(workspaceId, factId) {
         return [...store.reviews.values()]
@@ -123,13 +138,13 @@ function repositoriesFor(store: InMemoryStore): InMemoryRepositories {
           .map(clone);
       },
       async appendReviewEvent(event) {
-        store.reviews.set(key(event.workspaceId, event.id), clone(event));
+        await write(() => putImmutable(store.reviews, key(event.workspaceId, event.id), event));
       },
       async getHandoff(workspaceId, handoffVersionId) {
         return clone(store.handoffs.get(key(workspaceId, handoffVersionId)) ?? null);
       },
       async createHandoff(version) {
-        store.handoffs.set(key(version.workspaceId, version.id), clone(version));
+        await write(() => putImmutable(store.handoffs, key(version.workspaceId, version.id), version));
       },
     },
   };
@@ -139,7 +154,9 @@ export class InMemoryPersistence {
   #store = createStore();
   #transactions = new InMemoryTransactionQueue();
 
-  readonly repositories: InMemoryRepositories = repositoriesFor(this.#store);
+  readonly repositories: InMemoryRepositories = repositoriesFor(this.#store, async (operation) => {
+    await this.#transactions.run(async () => operation());
+  });
   readonly workspaces = this.repositories.workspaces;
   readonly members = this.repositories.members;
   readonly messages = this.repositories.messages;
@@ -155,7 +172,7 @@ export class InMemoryPersistence {
   ): Promise<Result> {
     return this.#transactions.run(async () => {
       const draft = cloneStore(this.#store);
-      const result = await operation(repositoriesFor(draft));
+      const result = await operation(repositoriesFor(draft, async (write) => write()));
       this.#commit(draft);
       return result;
     });
@@ -175,7 +192,7 @@ export class InMemoryPersistence {
       }
 
       const draft = cloneStore(this.#store);
-      const result = await operation(repositoriesFor(draft));
+      const result = await operation(repositoriesFor(draft, async (write) => write()));
       draft.idempotentResults.set(idempotencyKey, clone(result));
       this.#commit(draft);
       return clone(result);
