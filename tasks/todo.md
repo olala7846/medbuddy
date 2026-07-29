@@ -107,6 +107,7 @@
 - [ ] F0–F6 are committed and merged.
 - [ ] `npm ci --ignore-scripts`
 - [ ] `npm run check`
+- [ ] `npm run check:boundaries`
 - [ ] `npm test`
 - [ ] Shared fixtures and public interfaces receive human review.
 - [ ] Streams 1–3 branch from the merged checkpoint.
@@ -325,7 +326,7 @@
 - [ ] Stream 3 pipeline suite passes without browser or Firestore.
 - [ ] `npm run check`
 - [ ] `npm test`
-- [ ] No stream imports another stream's internal files.
+- [ ] `npm run check:boundaries` proves no stream imports another stream's internal files or violates the approved dependency direction.
 
 ## Phase 2: Cross-module Integration
 
@@ -365,6 +366,7 @@
 ## Checkpoint C — Cross-module
 
 - [ ] `npm run check`
+- [ ] `npm run check:boundaries`
 - [ ] `npm test`
 - [ ] `npm run build`
 - [ ] Golden path passes without live cloud dependencies.

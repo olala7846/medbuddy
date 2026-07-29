@@ -727,7 +727,9 @@ docs/
 
 Keep domain code independent of Next.js request objects and vendor SDK response shapes. Vendor adapters validate external responses once and return narrow internal types.
 
-Dependencies flow inward through `@medbuddy/contracts`: packages may import that public package entry point and may import another package only through its public entry point. `apps/web` composes packages and translates HTTP; it contains no canonical business policy. `platform` implements I/O seams; it contains no consent, safety, review, or handoff policy. In-memory adapters are first-class test implementations.
+Dependencies flow inward through `@medbuddy/contracts`: packages may import that public package entry point and may import another package only through its public entry point. `contracts` imports no MedBuddy package; `chat`, `care-record`, and `intelligence` import only `contracts`; `platform` may import those packages through their public entry points; and `apps/web` and root composition code may import every approved package through its public entry point. `apps/web` composes packages and translates HTTP; it contains no canonical business policy. `platform` implements I/O seams; it contains no consent, safety, review, or handoff policy. In-memory adapters are first-class test implementations.
+
+`npm run check:boundaries` enforces this graph, rejects cross-package relative paths and package subpath imports, requires workspace dependencies in package manifests, and fails closed when a new package has no explicit policy. The aggregate `npm run check` command includes this architecture gate.
 
 ## 18. Code Style
 
@@ -763,8 +765,11 @@ npm ci
 # Run locally using Application Default Credentials
 npm run dev
 
-# Type-check and lint
+# Type-check, lint, and enforce module boundaries
 npm run check
+
+# Run only the module-boundary gate
+npm run check:boundaries
 
 # Run deterministic and integration tests
 npm test
@@ -910,7 +915,7 @@ The cut estimate assumes a smooth scaffold, already-working GCP access, seeded d
 - Keep canonical mutations server-only.
 - Add or update deterministic tests with every safety or authorization rule.
 - Use fictional data and review staged changes for health information, PII, and secrets.
-- Run `npm run check`, `npm test`, and the relevant browser scenario before a commit.
+- Run `npm run check` (including module boundaries), `npm test`, and the relevant browser scenario before a commit.
 - Update this document first when a locked design decision changes.
 
 ### Ask first

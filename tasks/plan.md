@@ -79,6 +79,8 @@ Rules:
 
 - Every module may import `contracts`.
 - Modules import only another module's public package entry point, never its internal files.
+- `contracts` imports no MedBuddy package; `chat`, `care-record`, and `intelligence` import only `contracts`; `platform` may import those modules through public entry points; and app/root composition may import all approved public entry points.
+- `npm run check:boundaries` rejects forbidden dependency directions, package subpaths, cross-module relative imports, undeclared workspace dependencies, and packages without an explicit policy. It runs as part of `npm run check`.
 - `apps/web` performs composition and HTTP translation; it contains no canonical business policy.
 - `platform` implements I/O seams; it contains no consent, safety, review, or handoff policy.
 - In-memory adapters are first-class test implementations, not disposable mocks.
@@ -306,7 +308,7 @@ Checkpoints:
 
 | Checkpoint | Required proof |
 | --- | --- |
-| A: Contract gate | Contract tests, package boundaries, and fixtures pass. |
+| A: Contract gate | Contract tests, `npm run check:boundaries`, and fixtures pass. |
 | B: Independent modules | Chat works with fakes; intelligence works headlessly; care record works in memory. |
 | C: Cross-module | Message → capture → fact → `👀` → review → handoff v1 passes. |
 | D: External adapters | Emulator tests and one live provider/storage/task smoke test pass. |
