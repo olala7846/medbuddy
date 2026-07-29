@@ -12,6 +12,8 @@ import {
   ProcessingStatusSchema,
   ReactionSchema,
   RetryRequestSchema,
+  ReadableLabelExtractionResponseSchema,
+  TextExtractionResponseSchema,
 } from "../src/index.js";
 import {
   invalidCaptureOutcomes,
@@ -174,5 +176,26 @@ describe("capture contracts", () => {
   it("keeps processing states explicit", () => {
     expect(ProcessingStatusSchema.safeParse("CAPTURED").success).toBe(true);
     expect(ProcessingStatusSchema.safeParse("COMPLETE").success).toBe(false);
+  });
+
+  it("defines strict public schemas for model proposals before Intelligence uses them", () => {
+    expect(TextExtractionResponseSchema.safeParse({
+      kind: "PROPOSALS",
+      proposals: [{
+        kind: "SYMPTOM",
+        value: { symptom: "fictional dizziness" },
+        extractionUncertainty: "LOW",
+      }],
+    }).success).toBe(true);
+    expect(TextExtractionResponseSchema.safeParse({ kind: "EMPTY", tool: "writeFact" }).success).toBe(false);
+    expect(ReadableLabelExtractionResponseSchema.safeParse({
+      kind: "READABLE_PRINTED_LABEL",
+      labelText: "Example medicine 250 mg",
+    }).success).toBe(true);
+    expect(ReadableLabelExtractionResponseSchema.safeParse({
+      kind: "READABLE_PRINTED_LABEL",
+      labelText: "Example medicine 250 mg",
+      tool: "writeFact",
+    }).success).toBe(false);
   });
 });

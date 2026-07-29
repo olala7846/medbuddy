@@ -5,6 +5,7 @@ import {
   type TextCaptureExtractor,
   type TextCaptureRequest,
 } from "./processor.js";
+import { ModelProviderError } from "../adapters/fixed-model.js";
 import type {
   ReadableLabelCaptureRequest,
   ReadableLabelExtractor,
@@ -23,6 +24,9 @@ export class FixedTextCaptureExtractor implements TextCaptureExtractor {
     const result = this.results.get(input.focalMessage.id) ?? { kind: "EMPTY" as const };
     if (result instanceof CaptureTechnicalError) {
       throw result;
+    }
+    if (result instanceof ModelProviderError) {
+      throw new CaptureTechnicalError(result.code, true);
     }
 
     return result;
@@ -45,6 +49,9 @@ export class FixedReadableLabelExtractor implements ReadableLabelExtractor {
     const result = this.results.get(attachment.id) ?? { kind: "UNREADABLE" as const };
     if (result instanceof CaptureTechnicalError) {
       throw result;
+    }
+    if (result instanceof ModelProviderError) {
+      throw new CaptureTechnicalError(result.code, true);
     }
 
     return result;

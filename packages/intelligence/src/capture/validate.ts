@@ -1,43 +1,13 @@
 import {
   CaptureOutcomeSchema,
   CaptureProposalSchema,
+  TextExtractionResponseSchema,
   type CaptureOutcome,
   type CaptureProposalKind,
-  type ExtractionUncertainty,
   type Message,
 } from "@medbuddy/contracts";
-import { z } from "zod";
 
-export type UnattributedCaptureProposal = {
-  kind: CaptureProposalKind;
-  value: Record<string, unknown>;
-  eventTime?: string;
-  extractionUncertainty: ExtractionUncertainty;
-};
-
-export const TextExtractionResponseSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("PROPOSALS"),
-    proposals: z.array(z.object({
-      kind: z.enum(["MEDICATION", "SYMPTOM", "ADHERENCE", "INSTRUCTION", "FOLLOW_UP"]),
-      value: z.record(z.string(), z.unknown()),
-      eventTime: z.string().datetime({ offset: true }).optional(),
-      extractionUncertainty: z.enum(["LOW", "MEDIUM", "HIGH"]),
-    }).strict()),
-  }).strict(),
-  z.object({ kind: z.literal("EMPTY") }).strict(),
-  z.object({
-    kind: z.literal("UNCERTAIN"),
-    reason: z.enum([
-      "AMBIGUOUS_CONTENT",
-      "UNREADABLE_LABEL",
-      "SCHEMA_INVALID",
-      "UNSUPPORTED_MEDICATION_CLAIM",
-    ]),
-  }).strict(),
-]);
-
-export type TextExtractionResponse = z.infer<typeof TextExtractionResponseSchema>;
+export type { TextExtractionResponse } from "@medbuddy/contracts";
 
 const atomicValueKeys: Readonly<Record<CaptureProposalKind, string>> = {
   MEDICATION: "labelText",

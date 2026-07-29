@@ -4,13 +4,14 @@ import {
   CaptureOutcomeSchema,
   CaptureProposalSchema,
   MessageSchema,
+  ReadableLabelExtractionResponseSchema,
   type Attachment,
   type CaptureJobInput,
   type CaptureOutcome,
   type CaptureProcessor,
   type Message,
+  type ReadableLabelExtractionResponse,
 } from "@medbuddy/contracts";
-import { z } from "zod";
 
 import { CaptureTechnicalError } from "./processor.js";
 
@@ -37,17 +38,7 @@ export interface ReadableLabelExtractor {
   ): Promise<unknown>;
 }
 
-export const ReadableLabelExtractionResponseSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("READABLE_PRINTED_LABEL"),
-    labelText: z.string(),
-  }).strict(),
-  z.object({ kind: z.literal("UNREADABLE") }).strict(),
-  z.object({ kind: z.literal("HANDWRITING") }).strict(),
-  z.object({ kind: z.literal("PILL_APPEARANCE") }).strict(),
-]);
-
-export type ReadableLabelExtractionResponse = z.infer<typeof ReadableLabelExtractionResponseSchema>;
+export type { ReadableLabelExtractionResponse } from "@medbuddy/contracts";
 
 const printedLabelCharacters = /^[\p{Script=Han}A-Za-z0-9\s.,:;()\-/%+]+$/u;
 

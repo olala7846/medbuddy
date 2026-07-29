@@ -8,6 +8,7 @@ import {
 
 import {
   FixedReadableLabelExtractor,
+  ModelProviderError,
   createReadableLabelCaptureProcessor,
   type ImageCaptureMessageContext,
   type ImageCaptureMessageLoader,
@@ -131,6 +132,19 @@ describe("readable-label capture processor", () => {
       kind: "UNCERTAIN",
       reason: "SCHEMA_INVALID",
       captureIntent: "EXPLICIT",
+    });
+  });
+
+  it("maps a fixed-adapter provider failure to a typed technical failure", async () => {
+    const processor = createReadableLabelCaptureProcessor(
+      createLoader({ focalMessage, attachments: [readableLabel] }),
+      new FixedReadableLabelExtractor(new Map([[readableLabel.id, new ModelProviderError("PROVIDER_ERROR")]])),
+    );
+
+    await expect(processor.process(input)).resolves.toEqual({
+      kind: "TECHNICAL_FAILURE",
+      code: "PROVIDER_ERROR",
+      retryable: true,
     });
   });
 });
