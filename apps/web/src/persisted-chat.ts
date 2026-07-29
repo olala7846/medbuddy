@@ -147,6 +147,8 @@ export function createPersistedChatTimeline(options: PersistedChatTimelineOption
 
 export interface ChatBrowserRoot {
   innerHTML: string;
+  activeElement?: unknown;
+  ownerDocument?: { activeElement: unknown };
   querySelector(selector: "form"): ChatBrowserForm | null;
   querySelector(selector: "textarea"): ChatBrowserTextArea | null;
 }
@@ -157,6 +159,7 @@ export interface ChatBrowserForm {
 
 export interface ChatBrowserTextArea {
   value: string;
+  focus?(): void;
 }
 
 export interface MountedPersistedChatApp {
@@ -170,23 +173,42 @@ export async function mountPersistedChatApp(
   timeline: PersistedChatTimeline,
   options: { pollIntervalMs?: number } = {},
 ): Promise<MountedPersistedChatApp> {
-  const render = () => {
-    root.innerHTML = timeline.render();
+  let statusMessage: string | undefined;
+  const render = (options: { draft?: string; restoreFocus?: boolean } = {}) => {
+    const previousTextArea = root.querySelector("textarea");
+    const draft = options.draft ?? previousTextArea?.value ?? "";
+    const composerWasFocused = previousTextArea !== null &&
+      (root.activeElement === previousTextArea || root.ownerDocument?.activeElement === previousTextArea);
+    const shouldRestoreFocus = (options.restoreFocus ?? false) && composerWasFocused;
+    root.innerHTML = `${statusMessage === undefined ? "" : `<p role="alert">${statusMessage}</p>`}${timeline.render()}`;
     const form = root.querySelector("form");
     const textarea = root.querySelector("textarea");
     if (!form || !textarea) throw new Error("Persisted chat markup is missing its composer.");
+    textarea.value = draft;
+    if (shouldRestoreFocus) textarea.focus?.();
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const body = textarea.value.trim();
       if (!body) return;
-      void timeline.send(body).then(() => {
-        render();
-      });
+      void timeline.send(body)
+        .then(() => {
+          statusMessage = undefined;
+          render();
+        })
+        .catch(() => {
+          statusMessage = "Message was not sent. Your draft is still here; try again.";
+          render({ draft: body, restoreFocus: true });
+        });
     });
   };
   const poll = async () => {
-    await timeline.poll();
-    render();
+    try {
+      await timeline.poll();
+      statusMessage = undefined;
+    } catch {
+      statusMessage = "Messages could not refresh. Your draft is still here; try again.";
+    }
+    render({ restoreFocus: true });
   };
 
   await timeline.load();

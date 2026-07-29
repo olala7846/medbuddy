@@ -198,6 +198,36 @@ describe("login and persisted chat timeline", () => {
     expect(seenActors).toEqual(["member:owner", "member:owner", "member:owner"]);
     app.unmount();
   });
+
+  it("preserves the focused draft and reports detached send and poll failures", async () => {
+    const api: PersistedChatApi = {
+      async listMessages(query) {
+        if (query.afterRevision !== undefined) throw new Error("temporary failure");
+        return { messages: [], nextRevision: 0 };
+      },
+      async sendMessage() {
+        throw new Error("temporary failure");
+      },
+    };
+    const root = new FakeBrowserRoot();
+    const timeline = createPersistedChatTimeline({ workspaceId: actor.workspaceId, api, idempotencyKey: () => "send-1" });
+    const app = await mountPersistedChatApp(root, timeline, { pollIntervalMs: 60_000 });
+
+    const sendFailed = root.nextRender();
+    root.submit("draft message");
+    await sendFailed;
+    expect(root.innerHTML).toContain("Message was not sent. Your draft is still here; try again.");
+    expect(root.draft).toBe("draft message");
+    expect(root.composerIsFocused).toBe(true);
+
+    root.setDraft("still writing");
+    root.focusComposer();
+    await app.poll();
+    expect(root.innerHTML).toContain("Messages could not refresh. Your draft is still here; try again.");
+    expect(root.draft).toBe("still writing");
+    expect(root.composerIsFocused).toBe(true);
+    app.unmount();
+  });
 });
 
 class FakeBrowserForm implements ChatBrowserForm {
@@ -215,8 +245,9 @@ class FakeBrowserForm implements ChatBrowserForm {
 class FakeBrowserRoot implements ChatBrowserRoot {
   #html = "";
   #form = new FakeBrowserForm();
-  #textarea: ChatBrowserTextArea = { value: "" };
+  #textarea = new FakeBrowserTextArea(() => { this.#composerIsFocused = true; });
   #nextRender: (() => void) | undefined;
+  #composerIsFocused = false;
 
   get innerHTML(): string {
     return this.#html;
@@ -225,7 +256,8 @@ class FakeBrowserRoot implements ChatBrowserRoot {
   set innerHTML(value: string) {
     this.#html = value;
     this.#form = new FakeBrowserForm();
-    this.#textarea = { value: "" };
+    this.#textarea = new FakeBrowserTextArea(() => { this.#composerIsFocused = true; });
+    this.#composerIsFocused = false;
     this.#nextRender?.();
     this.#nextRender = undefined;
   }
@@ -238,12 +270,43 @@ class FakeBrowserRoot implements ChatBrowserRoot {
 
   submit(value: string): void {
     this.#textarea.value = value;
+    this.#textarea.focus();
     this.#form.submit();
+  }
+
+  get draft(): string {
+    return this.#textarea.value;
+  }
+
+  get composerIsFocused(): boolean {
+    return this.#composerIsFocused;
+  }
+
+  get activeElement(): unknown {
+    return this.#composerIsFocused ? this.#textarea : undefined;
+  }
+
+  setDraft(value: string): void {
+    this.#textarea.value = value;
+  }
+
+  focusComposer(): void {
+    this.#textarea.focus();
   }
 
   nextRender(): Promise<void> {
     return new Promise((resolve) => {
       this.#nextRender = resolve;
     });
+  }
+}
+
+class FakeBrowserTextArea implements ChatBrowserTextArea {
+  value = "";
+
+  constructor(private readonly onFocus: () => void) {}
+
+  focus(): void {
+    this.onFocus();
   }
 }
