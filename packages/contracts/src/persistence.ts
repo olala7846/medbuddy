@@ -98,6 +98,8 @@ export interface CareRecordRepository {
     factId: z.infer<typeof FactIdSchema>,
   ): Promise<z.infer<typeof FactDocumentSchema> | null>;
   putFact(fact: z.infer<typeof FactDocumentSchema>): Promise<void>;
+  updateFactReviewStatus(input: { workspaceId: z.infer<typeof WorkspaceIdSchema>; factId: z.infer<typeof FactIdSchema>; reviewStatus: z.infer<typeof AtomicFactSchema>["reviewStatus"] }): Promise<void>;
+  applyReview(event: z.infer<typeof ReviewEventDocumentSchema>, reviewStatus: z.infer<typeof AtomicFactSchema>["reviewStatus"]): Promise<void>;
   listReviewEvents(
     workspaceId: z.infer<typeof WorkspaceIdSchema>,
     factId: z.infer<typeof FactIdSchema>,
@@ -123,6 +125,31 @@ export interface CaptureDispatcher {
       messageId: z.infer<typeof MessageIdSchema>;
     },
   ): Promise<void>;
+}
+
+/**
+ * The public persistence seam for work that must commit together and ignore a
+ * repeated delivery. Platform adapters own mechanics; callers own policy.
+ */
+export interface TransactionalPersistence {
+  runTransaction<Result>(operation: (repositories: PersistenceRepositories) => Promise<Result>): Promise<Result>;
+  runIdempotent<Result>(idempotencyKey: string, operation: (repositories: PersistenceRepositories) => Promise<Result>): Promise<Result>;
+  completeCapture(input: CaptureCompletion): Promise<void>;
+}
+
+export interface PersistenceRepositories {
+  workspaces: WorkspaceRepository;
+  members: MemberRepository;
+  messages: MessageRepository;
+  attachments: AttachmentRepository;
+  careRecords: CareRecordRepository;
+}
+
+export interface CaptureCompletion {
+  workspaceId: z.infer<typeof WorkspaceIdSchema>;
+  messageId: z.infer<typeof MessageIdSchema>;
+  facts: readonly z.infer<typeof FactDocumentSchema>[];
+  processingStatus: "CAPTURED" | "IGNORED" | "NEEDS_MANUAL_REVIEW";
 }
 
 export type ApprovalState = z.infer<typeof ApprovalStateSchema>;
