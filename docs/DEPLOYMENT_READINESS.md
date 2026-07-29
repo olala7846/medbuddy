@@ -10,9 +10,10 @@ provisioned or claimed.
   active user has owner access for the prototype foundation apply.
 - The selected prototype region is `us-west1`. Firestore, Cloud Tasks, Cloud
   Run, and Cloud Storage will remain co-located there where supported.
-- The local environment has no Java runtime, so the Firestore emulator suites
-  are present but skipped. The final test run had 146 passing tests and 19
-  environment-gated skips (Firestore emulator and Vertex-related tests).
+- Java 17 is installed locally, but the current Google Cloud Firestore emulator
+  requires a Java 21+ JRE. A local emulator start was attempted on 2026-07-29
+  and was rejected before tests ran; the Firestore persistence suite therefore
+  remains blocked rather than treated as a passing skip.
 - `npm audit --omit=dev` reports 5 high and 5 moderate transitive advisories
   in the current compatible Google client dependency paths. This is a
   documented prototype exception, not a clean production audit.
@@ -35,7 +36,7 @@ provisioned or claimed.
    project and deployment architecture before any policy change.
 4. Accept or remediate the production dependency audit finding before handling
    real health information. It must be re-run immediately before deployment.
-5. Provide a Java runtime on the development/CI host, then execute the
+5. Provide a Java 21+ JRE on the development/CI host, then execute the
    Firestore emulator suite rather than treating its skips as proof of parity.
 
 ## What an agent can safely do now with the existing `gcloud` login
