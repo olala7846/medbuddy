@@ -14,6 +14,7 @@ import {
   describeMessageRepositoryContract,
   describeWorkspaceRepositoryContract,
 } from "@medbuddy/contracts/adapter-contract-tests";
+import { describeTransactionalPersistenceContract } from "@medbuddy/contracts/transaction-contract-tests";
 import { InMemoryPersistence } from "../src/index.js";
 
 function workspaceFixture() {
@@ -64,6 +65,7 @@ function handoffFixture() {
 }
 
 describe("in-memory persistence", () => {
+  describeTransactionalPersistenceContract(() => { const persistence = new InMemoryPersistence(); return { persistence, workspaces: persistence.workspaces }; });
   describeWorkspaceRepositoryContract(() => new InMemoryPersistence().workspaces);
   describeMemberRepositoryContract(() => new InMemoryPersistence().members);
   describeMessageRepositoryContract(() => new InMemoryPersistence().messages);
@@ -189,6 +191,20 @@ describe("in-memory persistence", () => {
     await expect(persistence.workspaces.getWorkspace(workspace.id)).resolves.toEqual(workspace);
   });
 
+  it("completes capture atomically and rejects facts outside the focal message workspace", async () => {
+    const persistence = new InMemoryPersistence();
+    const workspace = workspaceFixture();
+    const message = MessageDocumentSchema.parse({ id: "message:visit-1", workspaceId: workspace.id, authorMemberId: workspace.ownerMemberId, body: "Fictional capture.", createdAt: workspace.createdAt, attachmentIds: [], captureIntent: "PASSIVE", processingStatus: "PENDING", processingAttempts: 0 });
+    const fact = factFixture();
+    await persistence.messages.putMessage(message);
+    await persistence.completeCapture({ workspaceId: workspace.id, messageId: message.id, facts: [fact], processingStatus: "CAPTURED" });
+    await persistence.completeCapture({ workspaceId: workspace.id, messageId: message.id, facts: [fact], processingStatus: "CAPTURED" });
+    await expect(persistence.careRecords.getFact(workspace.id, fact.id)).resolves.toEqual(fact);
+    await expect(persistence.messages.getMessage(workspace.id, message.id)).resolves.toMatchObject({ processingStatus: "CAPTURED" });
+    const otherWorkspaceFact = AtomicFactSchema.parse({ ...fact, workspaceId: "workspace:other" });
+    await expect(persistence.completeCapture({ workspaceId: workspace.id, messageId: message.id, facts: [otherWorkspaceFact], processingStatus: "CAPTURED" })).rejects.toThrow("focal workspace");
+  });
+
   it("remembers idempotent operations that return no result", async () => {
     const persistence = new InMemoryPersistence();
     let executions = 0;
@@ -201,6 +217,47 @@ describe("in-memory persistence", () => {
     });
 
     expect(executions).toBe(1);
+  });
+
+  it("assigns unique workspace-scoped revisions for serial and concurrent appends", async () => {
+    const persistence = new InMemoryPersistence();
+    const createMessage = (id: string) => MessageDocumentSchema.parse({
+      id,
+      workspaceId: "workspace:revisions",
+      authorMemberId: "member:owner",
+      body: `Fictional message ${id}.`,
+      createdAt: "2026-07-28T10:00:00.000Z",
+      attachmentIds: [],
+      captureIntent: "PASSIVE",
+      processingStatus: "PENDING",
+      processingAttempts: 0,
+    });
+
+    const first = await persistence.messages.putMessage(createMessage("message:revision-1"));
+    const duplicate = await persistence.messages.putMessage(createMessage("message:revision-1"));
+    const captured = await persistence.messages.putMessage({
+      ...createMessage("message:revision-1"),
+      processingStatus: "CAPTURED",
+    });
+    const concurrent = await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        persistence.messages.putMessage(createMessage(`message:revision-${index + 2}`)),
+      ),
+    );
+
+    expect(first.revision).toBe(1);
+    expect(duplicate).toEqual(first);
+    expect(captured).toMatchObject({ processingStatus: "CAPTURED", revision: 2 });
+    expect(concurrent.map((message) => message.revision).sort((left, right) => left - right)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 3),
+    );
+    await expect(persistence.messages.putMessage({ ...createMessage("message:revision-1"), body: "Changed." })).rejects.toThrow("immutable");
+    const messages = await persistence.messages.listMessages(first.workspaceId);
+    expect(messages.slice(0, 3)).toMatchObject([
+      { id: "message:revision-1", revision: 2 },
+      { id: "message:revision-2", revision: 3 },
+      { id: "message:revision-3", revision: 4 },
+    ]);
   });
 
   it("preserves immutable review events and handoff versions on conflicting retries", async () => {
@@ -223,6 +280,8 @@ describe("in-memory persistence", () => {
         limitations: ["Changed content must not overwrite this immutable version."],
       },
     });
+
+    await persistence.workspaces.putWorkspace(workspaceFixture());
 
     await persistence.careRecords.appendReviewEvent(review);
     await persistence.careRecords.appendReviewEvent(review);

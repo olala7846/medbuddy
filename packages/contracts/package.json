@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./adapter-contract-tests": "./tests/adapter-contract.ts"
+    "./adapter-contract-tests": "./tests/adapter-contract.ts",
+    "./transaction-contract-tests": "./tests/transaction-contract.ts"
   },
   "scripts": {
     "test": "vitest run --root ../.. --config vitest.config.ts"

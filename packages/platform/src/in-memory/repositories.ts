@@ -2,6 +2,7 @@ import type {
   AttachmentDocument,
   AttachmentRepository,
   CareRecordRepository,
+  CaptureCompletion,
   FactDocument,
   HandoffVersionDocument,
   MemberDocument,
@@ -12,6 +13,7 @@ import type {
   WorkspaceDocument,
   WorkspaceRepository,
 } from "@medbuddy/contracts";
+import { MessageDocumentSchema, MessageWriteSchema } from "@medbuddy/contracts";
 import { InMemoryTransactionQueue } from "./transactions.js";
 
 interface InMemoryStore {
@@ -33,7 +35,7 @@ export interface InMemoryRepositories {
   careRecords: CareRecordRepository;
 }
 
-type WriteOperation = (operation: () => void) => Promise<void>;
+type WriteOperation = <Result>(operation: () => Result) => Promise<Result>;
 
 function clone<Value>(value: Value): Value {
   return structuredClone(value);
@@ -108,8 +110,52 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
       async getMessage(workspaceId, messageId) {
         return clone(store.messages.get(key(workspaceId, messageId)) ?? null);
       },
+      async listMessages(workspaceId) {
+        return [...store.messages.values()]
+          .filter((message) => message.workspaceId === workspaceId)
+          .sort((left, right) => left.revision - right.revision)
+          .map(clone);
+      },
       async putMessage(message) {
-        await write(() => store.messages.set(key(message.workspaceId, message.id), clone(message)));
+        return write(() => {
+          const entryKey = key(message.workspaceId, message.id);
+          const existing = store.messages.get(entryKey);
+          if (existing) {
+            const immutableShape = (value: typeof message) => {
+              const parsed = MessageWriteSchema.parse(value);
+              return {
+                id: parsed.id,
+                workspaceId: parsed.workspaceId,
+                authorMemberId: parsed.authorMemberId,
+                body: parsed.body,
+                createdAt: parsed.createdAt,
+                attachmentIds: parsed.attachmentIds,
+                captureIntent: parsed.captureIntent,
+              };
+            };
+            if (JSON.stringify(immutableShape(existing)) !== JSON.stringify(immutableShape(message))) {
+              throw new Error("An immutable record already exists with a different value.");
+            }
+            if (JSON.stringify(MessageWriteSchema.parse(existing)) === JSON.stringify(MessageWriteSchema.parse(message))) {
+              return clone(existing);
+            }
+            const persisted = MessageDocumentSchema.parse({
+              ...message,
+              revision: existing.revision + 1,
+            });
+            store.messages.set(entryKey, clone(persisted));
+            return persisted;
+          }
+          const nextRevision = Math.max(
+            0,
+            ...[...store.messages.values()]
+              .filter((entry) => entry.workspaceId === message.workspaceId)
+              .map((entry) => entry.revision),
+          ) + 1;
+          const persisted = MessageDocumentSchema.parse({ ...message, revision: nextRevision });
+          store.messages.set(entryKey, clone(persisted));
+          return persisted;
+        });
       },
     },
     attachments: {
@@ -132,6 +178,23 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
       async putFact(fact) {
         await write(() => store.facts.set(key(fact.workspaceId, fact.id), clone(fact)));
       },
+      async updateFactReviewStatus({ workspaceId, factId, reviewStatus }) {
+        await write(() => {
+          const entryKey = key(workspaceId, factId);
+          const fact = store.facts.get(entryKey);
+          if (!fact) throw new Error("Cannot update a missing fact.");
+          store.facts.set(entryKey, { ...clone(fact), reviewStatus });
+        });
+      },
+      async applyReview(event, reviewStatus) {
+        await write(() => {
+          const factKey = key(event.workspaceId, event.factId);
+          const fact = store.facts.get(factKey);
+          if (!fact) throw new Error("Cannot review a missing fact.");
+          putImmutable(store.reviews, key(event.workspaceId, event.id), event);
+          store.facts.set(factKey, { ...clone(fact), reviewStatus });
+        });
+      },
       async listReviewEvents(workspaceId, factId) {
         return [...store.reviews.values()]
           .filter((review) => review.workspaceId === workspaceId && review.factId === factId)
@@ -144,7 +207,12 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
         return clone(store.handoffs.get(key(workspaceId, handoffVersionId)) ?? null);
       },
       async createHandoff(version) {
-        await write(() => putImmutable(store.handoffs, key(version.workspaceId, version.id), version));
+        await write(() => {
+          const workspace = store.workspaces.get(version.workspaceId);
+          if (!workspace) throw new Error("Cannot publish a handoff for a missing workspace.");
+          putImmutable(store.handoffs, key(version.workspaceId, version.id), version);
+          store.workspaces.set(version.workspaceId, { ...clone(workspace), currentHandoffVersionId: version.id, updatedAt: version.createdAt });
+        });
       },
     },
   };
@@ -155,7 +223,7 @@ export class InMemoryPersistence {
   #transactions = new InMemoryTransactionQueue();
 
   readonly repositories: InMemoryRepositories = repositoriesFor(this.#store, async (operation) => {
-    await this.#transactions.run(async () => operation());
+    return this.#transactions.run(async () => operation());
   });
   readonly workspaces = this.repositories.workspaces;
   readonly members = this.repositories.members;
@@ -196,6 +264,22 @@ export class InMemoryPersistence {
       draft.idempotentResults.set(idempotencyKey, clone(result));
       this.#commit(draft);
       return clone(result);
+    });
+  }
+
+  async completeCapture(input: CaptureCompletion): Promise<void> {
+    for (const fact of input.facts) {
+      if (fact.workspaceId !== input.workspaceId || fact.sourceMessageId !== input.messageId) {
+        throw new Error("Capture facts must belong to the focal workspace and message.");
+      }
+    }
+    await this.runIdempotent(`capture:${input.workspaceId}:${input.messageId}`, async (repositories) => {
+      const message = await repositories.messages.getMessage(input.workspaceId, input.messageId);
+      if (!message) throw new Error("Cannot complete capture for a missing message.");
+      for (const fact of input.facts) {
+        await repositories.careRecords.putFact(fact);
+      }
+      await repositories.messages.putMessage({ ...message, processingStatus: input.processingStatus });
     });
   }
 
