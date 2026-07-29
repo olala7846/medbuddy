@@ -8,11 +8,13 @@ import {
   WorkspaceIdSchema,
   type ChatService,
 } from "@medbuddy/contracts";
+import { InMemoryPersistence } from "@medbuddy/platform";
 
 import {
   MEDBUDDY_DEMO_MEMBER_HEADER,
   createAuthenticatedChatRoute,
   createServerAttachmentAdmission,
+  MAX_ATTACHMENT_BYTES,
   createPersistedChatTimeline,
   createServerAttachmentMetadata,
   createTabPersonaSelection,
@@ -208,9 +210,10 @@ describe("workspace requests and capture retry", () => {
       async listMessages() { return { messages: [], nextRevision: 0 }; },
       async requestCaptureRetry() {},
     };
+    const attachmentAdmission = createServerAttachmentAdmission();
     const route = createAuthenticatedChatRoute({
       chatService,
-      attachmentAdmission: createServerAttachmentAdmission(),
+      attachmentAdmission,
       async resolveServerActor(_workspaceId, demoMemberHeader) {
         resolvedHeaders.push(demoMemberHeader);
         return actor;
@@ -225,11 +228,50 @@ describe("workspace requests and capture retry", () => {
       idempotencyKey: () => "send-1",
     });
 
-    await mounted.timeline.send("Fictional label image.", [{ mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]) }]);
+    await mounted.timeline.send("Fictional label images.", [
+      { mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]) },
+      { mimeType: "image/jpeg", bytes: new Uint8Array([4, 5, 6]) },
+    ]);
     await mounted.timeline.poll();
 
-    expect(resolvedHeaders).toEqual(["member:owner", "member:owner", "member:owner", "member:owner"]);
+    expect(resolvedHeaders).toEqual(["member:owner", "member:owner", "member:owner", "member:owner", "member:owner"]);
     expect(sentAttachmentIds).toHaveLength(1);
-    expect(sentAttachmentIds[0]?.[0]).toMatch(/^attachment:/);
+    expect(sentAttachmentIds[0]).toHaveLength(2);
+    expect(new Set(sentAttachmentIds[0]).size).toBe(2);
+    for (const attachmentId of sentAttachmentIds[0] ?? []) expect(attachmentId).toMatch(/^attachment:/);
+  });
+
+  it("persists contract-valid metadata and retains bytes in the server-only fixed store", async () => {
+    const persistence = new InMemoryPersistence();
+    const attachmentAdmission = createServerAttachmentAdmission({ attachmentRepository: persistence.attachments });
+    const attachment = await attachmentAdmission.admit(actor, {
+      workspaceId,
+      idempotencyKey: "fixed-store-1",
+      mimeType: "image/webp",
+      bytes: new Uint8Array([7, 8, 9]),
+    });
+
+    await expect(
+      persistence.attachments.getAttachment(attachment.workspaceId, attachment.messageId, attachment.id),
+    ).resolves.toEqual(attachment);
+    expect(attachmentAdmission.readServerBytes(attachment)).toEqual(new Uint8Array([7, 8, 9]));
+  });
+
+  it("rejects an oversized upload before calculating its digest", async () => {
+    let digestCalls = 0;
+    const attachmentAdmission = createServerAttachmentAdmission({
+      async digest() {
+        digestCalls += 1;
+        return "a".repeat(64);
+      },
+    });
+
+    await expect(attachmentAdmission.admit(actor, {
+      workspaceId,
+      idempotencyKey: "too-large-1",
+      mimeType: "image/png",
+      bytes: new Uint8Array(MAX_ATTACHMENT_BYTES + 1),
+    })).rejects.toThrow("5 MiB");
+    expect(digestCalls).toBe(0);
   });
 });

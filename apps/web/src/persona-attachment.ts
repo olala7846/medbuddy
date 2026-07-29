@@ -7,12 +7,14 @@ import {
   WorkspaceIdSchema,
   type Attachment,
   type AttachmentId,
+  type AttachmentRepository,
   type ActorContext,
   type MemberId,
   type MessageId,
   type WorkspaceId,
 } from "@medbuddy/contracts";
 import { createDeterministicMessageId } from "@medbuddy/chat";
+import { InMemoryPersistence } from "@medbuddy/platform";
 
 /** The sole browser-to-server persona hint accepted by actor resolution. */
 export const MEDBUDDY_DEMO_MEMBER_HEADER = "X-MedBuddy-Demo-Member";
@@ -124,7 +126,16 @@ export interface ServerAttachmentAdmission {
     actor: ActorContext,
     input: { workspaceId: WorkspaceId; idempotencyKey: string; attachmentIds: readonly AttachmentId[] },
   ): Promise<void>;
+  /** Server-only fixed-store read; it is intentionally absent from browser routes. */
+  readServerBytes(attachment: Attachment): Uint8Array | null;
 }
+
+export interface ServerAttachmentAdmissionOptions {
+  attachmentRepository?: AttachmentRepository;
+  digest?: (bytes: Uint8Array) => Promise<string>;
+}
+
+export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 function stableHash(value: string): string {
   let hash = 2166136261;
@@ -147,8 +158,10 @@ async function sha256(bytes: Uint8Array): Promise<string> {
  * through the route boundary, derives metadata itself, and binds every
  * attachment to one actor and one deterministic idempotent message.
  */
-export function createServerAttachmentAdmission(): ServerAttachmentAdmission {
-  const admitted = new Map<string, { attachment: Attachment; memberId: MemberId }>();
+export function createServerAttachmentAdmission(options: ServerAttachmentAdmissionOptions = {}): ServerAttachmentAdmission {
+  const attachmentRepository = options.attachmentRepository ?? new InMemoryPersistence().attachments;
+  const admitted = new Map<string, { memberId: MemberId }>();
+  const storedBytes = new Map<string, Uint8Array>();
   const perMessageCount = new Map<string, number>();
   const key = (workspaceId: WorkspaceId, messageId: MessageId, attachmentId: AttachmentId) =>
     `${workspaceId}\u0000${messageId}\u0000${attachmentId}`;
@@ -161,10 +174,16 @@ export function createServerAttachmentAdmission(): ServerAttachmentAdmission {
       if (input.idempotencyKey.trim().length === 0 || input.idempotencyKey.length > 128) {
         throw new Error("Attachment uploads require a valid idempotency key.");
       }
+      if (input.bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+        throw new Error("Attachment bytes exceed the 5 MiB limit.");
+      }
       const messageId = createDeterministicMessageId({ workspaceId, idempotencyKey: input.idempotencyKey, author: "HUMAN" });
       const countKey = `${workspaceId}\u0000${messageId}`;
       const nextCount = perMessageCount.get(countKey) ?? 0;
       if (nextCount >= 5) throw new Error("A message can have at most five attachments.");
+      // Reserve before the async digest so concurrent browser uploads cannot
+      // receive the same attachment ID.
+      perMessageCount.set(countKey, nextCount + 1);
       const attachmentId = AttachmentIdSchema.parse(`attachment:${stableHash(`${input.idempotencyKey}:${nextCount}`)}`);
       const attachment = createServerAttachmentMetadata({
         attachmentId,
@@ -172,10 +191,14 @@ export function createServerAttachmentAdmission(): ServerAttachmentAdmission {
         messageId,
         mimeType: input.mimeType,
         byteSize: input.bytes.byteLength,
-        checksum: await sha256(input.bytes),
+        checksum: await (options.digest ?? sha256)(input.bytes),
       });
-      admitted.set(key(workspaceId, messageId, attachmentId), { attachment, memberId: actor.effectiveMemberId });
-      perMessageCount.set(countKey, nextCount + 1);
+      await attachmentRepository.putAttachment(attachment);
+      const bytes = new Uint8Array(input.bytes.byteLength);
+      bytes.set(input.bytes);
+      const attachmentKey = key(workspaceId, messageId, attachmentId);
+      admitted.set(attachmentKey, { memberId: actor.effectiveMemberId });
+      storedBytes.set(attachmentKey, bytes);
       return attachment;
     },
     async assertAdmittedForMessage(actorInput, input) {
@@ -186,11 +209,19 @@ export function createServerAttachmentAdmission(): ServerAttachmentAdmission {
       }
       const messageId = createDeterministicMessageId({ workspaceId, idempotencyKey: input.idempotencyKey, author: "HUMAN" });
       for (const attachmentId of input.attachmentIds) {
-        const entry = admitted.get(key(workspaceId, messageId, attachmentId));
-        if (!entry || entry.memberId !== actor.effectiveMemberId) {
+        const attachmentKey = key(workspaceId, messageId, attachmentId);
+        const [entry, metadata] = await Promise.all([
+          Promise.resolve(admitted.get(attachmentKey)),
+          attachmentRepository.getAttachment(workspaceId, messageId, attachmentId),
+        ]);
+        if (!entry || !metadata || entry.memberId !== actor.effectiveMemberId) {
           throw new Error("Attachment was not admitted for this message.");
         }
       }
+    },
+    readServerBytes(attachment) {
+      const bytes = storedBytes.get(key(attachment.workspaceId, attachment.messageId, attachment.id));
+      return bytes === undefined ? null : new Uint8Array(bytes);
     },
   };
 }
