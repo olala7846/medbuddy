@@ -72,7 +72,7 @@ describe("text capture processor", () => {
     });
   });
 
-  it("does not let nearby context become the contributor or source of a focal extraction", async () => {
+  it("rejects a proposal whose value appears only in nearby context", async () => {
     const extractor = new FixedTextCaptureExtractor(new Map([[focalMessage.id, {
       kind: "PROPOSALS",
       proposals: [{ kind: "MEDICATION", value: { labelText: "fictional tablet" }, extractionUncertainty: "HIGH" }],
@@ -84,9 +84,10 @@ describe("text capture processor", () => {
 
     const outcome = await processor.process(input);
 
-    expect(outcome).toMatchObject({
-      kind: "CAPTURED",
-      proposals: [{ contributorMemberId: focalMessage.authorMemberId, sourceMessageId: focalMessage.id }],
+    expect(outcome).toEqual({
+      kind: "UNCERTAIN",
+      reason: "SCHEMA_INVALID",
+      captureIntent: "PASSIVE",
     });
     expect(extractor.requests[0]?.nearbyMessages).toEqual([nearbyMessage]);
   });
@@ -133,6 +134,30 @@ describe("text capture processor", () => {
       new FixedTextCaptureExtractor(new Map([[focalMessage.id, {
         kind: "PROPOSALS",
         proposals: [{ kind: "SYMPTOM", value: {}, extractionUncertainty: "LOW" }],
+      }]])),
+    );
+
+    await expect(processor.process(input)).resolves.toEqual({
+      kind: "UNCERTAIN",
+      reason: "SCHEMA_INVALID",
+      captureIntent: "PASSIVE",
+    });
+  });
+
+  it("rejects a non-atomic value that includes a causal or medication-decision assertion", async () => {
+    const processor = createTextCaptureProcessor(
+      createLoader({ focalMessage, nearbyMessages: [] }),
+      new FixedTextCaptureExtractor(new Map([[focalMessage.id, {
+        kind: "PROPOSALS",
+        proposals: [{
+          kind: "SYMPTOM",
+          value: {
+            symptom: "fictional mild dizziness",
+            cause: "medicine",
+            instruction: "stop it",
+          },
+          extractionUncertainty: "LOW",
+        }],
       }]])),
     );
 

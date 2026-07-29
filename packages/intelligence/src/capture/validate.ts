@@ -26,9 +26,36 @@ export type TextExtractionResponse =
         | "UNSUPPORTED_MEDICATION_CLAIM";
     };
 
+const atomicValueKeys: Readonly<Record<CaptureProposalKind, string>> = {
+  MEDICATION: "labelText",
+  SYMPTOM: "symptom",
+  ADHERENCE: "adherence",
+  INSTRUCTION: "instruction",
+  FOLLOW_UP: "question",
+};
+
+function isAtomicFocalValue(
+  kind: CaptureProposalKind,
+  value: Record<string, unknown>,
+  focalBody: string,
+): boolean {
+  const expectedKey = atomicValueKeys[kind];
+  if (Object.keys(value).length !== 1 || Object.keys(value)[0] !== expectedKey) {
+    return false;
+  }
+
+  const text = value[expectedKey];
+  return (
+    typeof text === "string" &&
+    text.trim().length > 0 &&
+    focalBody.toLocaleLowerCase("en-US").includes(text.trim().toLocaleLowerCase("en-US"))
+  );
+}
+
 /**
- * Applies server-owned attribution after extraction. Extractors receive no
- * contributor or source fields, so context can never become a proposal source.
+ * Applies server-owned attribution after extraction. Each value must be one
+ * allowed atomic field found in the focal text, so nearby context cannot
+ * introduce a fact or become its implicit source.
  */
 export function validateTextExtraction(
   response: TextExtractionResponse,
@@ -55,7 +82,10 @@ export function validateTextExtraction(
     sourceMessageId: focalMessage.id,
   }));
   const validProposals = proposals.every((proposal) => {
-    if (proposal.contributorMemberId === "MEDBUDDY" || Object.keys(proposal.value).length === 0) {
+    if (
+      proposal.contributorMemberId === "MEDBUDDY" ||
+      !isAtomicFocalValue(proposal.kind, proposal.value, focalMessage.body)
+    ) {
       return false;
     }
 
