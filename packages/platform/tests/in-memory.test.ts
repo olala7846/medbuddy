@@ -234,14 +234,21 @@ describe("in-memory persistence", () => {
     });
 
     const first = await persistence.messages.putMessage(createMessage("message:revision-1"));
-    const [second, third] = await Promise.all([
-      persistence.messages.putMessage(createMessage("message:revision-2")),
-      persistence.messages.putMessage(createMessage("message:revision-3")),
-    ]);
+    const duplicate = await persistence.messages.putMessage(createMessage("message:revision-1"));
+    const concurrent = await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        persistence.messages.putMessage(createMessage(`message:revision-${index + 2}`)),
+      ),
+    );
 
     expect(first.revision).toBe(1);
-    expect(new Set([second.revision, third.revision])).toEqual(new Set([2, 3]));
-    await expect(persistence.messages.listMessages(first.workspaceId)).resolves.toMatchObject([
+    expect(duplicate).toEqual(first);
+    expect(concurrent.map((message) => message.revision).sort((left, right) => left - right)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 2),
+    );
+    await expect(persistence.messages.putMessage({ ...createMessage("message:revision-1"), body: "Changed." })).rejects.toThrow("immutable");
+    const messages = await persistence.messages.listMessages(first.workspaceId);
+    expect(messages.slice(0, 3)).toMatchObject([
       { id: "message:revision-1", revision: 1 },
       { revision: 2 },
       { revision: 3 },

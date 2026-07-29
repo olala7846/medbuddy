@@ -65,7 +65,10 @@ function templateMessages(workspaceId: WorkspaceId) {
       }));
     }
   }
-  return [...byId.values()];
+  return [...byId.values()].map((message, index) => MessageDocumentSchema.parse({
+    ...message,
+    revision: index + 1,
+  }));
 }
 
 function handoffForWorkspace(

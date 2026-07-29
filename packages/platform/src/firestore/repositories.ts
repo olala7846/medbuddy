@@ -18,6 +18,7 @@ import {
   HandoffVersionDocumentSchema,
   MemberDocumentSchema,
   MessageDocumentSchema,
+  MessageWriteSchema,
   ReviewEventDocumentSchema,
   WorkspaceDocumentSchema,
   DemoWorkspaceMappingSchema,
@@ -107,17 +108,7 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
       getHandoff: async (workspaceId, handoffVersionId) =>
         this.get(this.handoffRef(workspaceId, handoffVersionId), HandoffVersionDocumentSchema),
       createHandoff: async (version) =>
-        this.runRawTransaction(async (transaction) => {
-          await this.putImmutable(transaction, this.handoffRef(version.workspaceId, version.id), version);
-          const workspace = await transaction.get(this.workspaceRef(version.workspaceId));
-          if (!workspace.exists) {
-            throw new Error("Cannot publish a handoff for a missing workspace.");
-          }
-          transaction.update(this.workspaceRef(version.workspaceId), {
-            currentHandoffVersionId: version.id,
-            updatedAt: version.createdAt,
-          });
-        }),
+        this.runRawTransaction((transaction) => this.createHandoffInTransaction(transaction, version)),
     };
   }
 
@@ -164,8 +155,17 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
       if (!message.exists) throw new Error("Cannot complete capture for a missing message.");
       const current = MessageDocumentSchema.parse(data(message.data()));
       if (["CAPTURED", "IGNORED", "NEEDS_MANUAL_REVIEW"].includes(current.processingStatus)) return;
-      for (const fact of input.facts) {
-        await this.putImmutable(transaction, this.factRef(fact.workspaceId, fact.id), fact);
+      const facts = await Promise.all(input.facts.map(async (fact) => ({
+        fact,
+        existing: await transaction.get(this.factRef(fact.workspaceId, fact.id)),
+      })));
+      for (const { fact, existing } of facts) {
+        if (existing.exists && JSON.stringify(data(existing.data())) !== JSON.stringify(fact)) {
+          throw new Error("An immutable record already exists with a different value.");
+        }
+      }
+      for (const { fact, existing } of facts) {
+        if (!existing.exists) transaction.create(this.factRef(fact.workspaceId, fact.id), fact);
       }
       transaction.update(messageRef, { processingStatus: input.processingStatus, processingLeaseExpiresAt: undefined });
     });
@@ -193,7 +193,7 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
         listReviewEvents: async (workspaceId, factId) => (await transaction.get(this.workspaceRef(workspaceId).collection("reviewEvents").where("factId", "==", factId))).docs.map((doc) => ReviewEventDocumentSchema.parse(data(doc.data()))),
         appendReviewEvent: async (value) => this.putImmutable(transaction, this.reviewRef(value.workspaceId, value.id), value),
         getHandoff: (workspaceId, id) => get(this.handoffRef(workspaceId, id), HandoffVersionDocumentSchema),
-        createHandoff: async (value) => { await this.putImmutable(transaction, this.handoffRef(value.workspaceId, value.id), value); const workspace = await transaction.get(this.workspaceRef(value.workspaceId)); if (!workspace.exists) throw new Error("Cannot publish a handoff for a missing workspace."); transaction.update(this.workspaceRef(value.workspaceId), { currentHandoffVersionId: value.id, updatedAt: value.createdAt }); },
+        createHandoff: async (value) => this.createHandoffInTransaction(transaction, value),
       },
     };
   }
@@ -233,6 +233,9 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
     for (const message of seed.messages) transaction.create(this.messageRef(message.workspaceId, message.id), message);
     for (const fact of seed.facts) transaction.create(this.factRef(fact.workspaceId, fact.id), fact);
     for (const handoff of seed.handoffs) transaction.create(this.handoffRef(handoff.workspaceId, handoff.id), handoff);
+    transaction.set(this.messageRevisionCounterRef(seed.workspace.id), {
+      nextRevision: Math.max(0, ...seed.messages.map((message) => message.revision)),
+    });
   }
 
   private async get<Output>(reference: FirebaseFirestore.DocumentReference, schema: { parse(value: unknown): Output }): Promise<Output | null> {
@@ -272,20 +275,50 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
     const reference = this.messageRef(message.workspaceId, message.id);
     const existing = await transaction.get(reference);
     if (existing.exists) {
-      const persisted = MessageDocumentSchema.parse({
-        ...message,
-        revision: MessageDocumentSchema.parse(data(existing.data())).revision + 1,
-      });
-      transaction.set(reference, persisted);
+      const persisted = MessageDocumentSchema.parse(data(existing.data()));
+      if (JSON.stringify(MessageWriteSchema.parse(persisted)) !== JSON.stringify(MessageWriteSchema.parse(message))) {
+        throw new Error("An immutable record already exists with a different value.");
+      }
       return persisted;
     }
-    const latest = await transaction.get(
-      this.workspaceRef(message.workspaceId).collection("messages").orderBy("revision", "desc").limit(1),
-    );
-    const revision = (latest.docs[0] ? MessageDocumentSchema.parse(data(latest.docs[0].data())).revision : 0) + 1;
+    const counter = await transaction.get(this.messageRevisionCounterRef(message.workspaceId));
+    const revision = counter.exists ? this.nextMessageRevision(counter.data()) + 1 : 1;
     const persisted = MessageDocumentSchema.parse({ ...message, revision });
     transaction.create(reference, persisted);
+    transaction.set(this.messageRevisionCounterRef(message.workspaceId), { nextRevision: revision });
     return persisted;
+  }
+
+  private async createHandoffInTransaction(
+    transaction: Transaction,
+    version: HandoffVersionDocument,
+  ): Promise<void> {
+    const handoffReference = this.handoffRef(version.workspaceId, version.id);
+    const workspaceReference = this.workspaceRef(version.workspaceId);
+    const [existingHandoff, workspace] = await Promise.all([
+      transaction.get(handoffReference),
+      transaction.get(workspaceReference),
+    ]);
+    if (!workspace.exists) throw new Error("Cannot publish a handoff for a missing workspace.");
+    if (existingHandoff.exists) {
+      if (JSON.stringify(data(existingHandoff.data())) !== JSON.stringify(version)) {
+        throw new Error("An immutable record already exists with a different value.");
+      }
+      return;
+    }
+    transaction.create(handoffReference, version);
+    transaction.update(workspaceReference, {
+      currentHandoffVersionId: version.id,
+      updatedAt: version.createdAt,
+    });
+  }
+
+  private nextMessageRevision(value: unknown): number {
+    const nextRevision = data(value).nextRevision;
+    if (typeof nextRevision !== "number" || !Number.isSafeInteger(nextRevision) || nextRevision < 0) {
+      throw new Error("Message revision counter is invalid.");
+    }
+    return nextRevision;
   }
 
   private workspaceRef(workspaceId: string) {
@@ -298,6 +331,10 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
 
   private messageRef(workspaceId: string, messageId: string) {
     return this.workspaceRef(workspaceId).collection("messages").doc(messageId);
+  }
+
+  private messageRevisionCounterRef(workspaceId: string) {
+    return this.workspaceRef(workspaceId).collection("platformCounters").doc("messages");
   }
 
   private attachmentRef(workspaceId: string, messageId: string, attachmentId: string) {

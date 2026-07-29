@@ -112,14 +112,21 @@ describeEmulator("Firestore emulator persistence", () => {
     });
 
     const first = await platform.messages.putMessage(createMessage("message:revision-1"));
-    const [second, third] = await Promise.all([
-      platform.messages.putMessage(createMessage("message:revision-2")),
-      platform.messages.putMessage(createMessage("message:revision-3")),
-    ]);
+    const duplicate = await platform.messages.putMessage(createMessage("message:revision-1"));
+    const concurrent = await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        platform.messages.putMessage(createMessage(`message:revision-${index + 2}`)),
+      ),
+    );
 
     expect(first.revision).toBe(1);
-    expect(new Set([second.revision, third.revision])).toEqual(new Set([2, 3]));
-    await expect(platform.messages.listMessages(first.workspaceId)).resolves.toMatchObject([
+    expect(duplicate).toEqual(first);
+    expect(concurrent.map((message) => message.revision).sort((left, right) => left - right)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 2),
+    );
+    await expect(platform.messages.putMessage({ ...createMessage("message:revision-1"), body: "Changed." })).rejects.toThrow("immutable");
+    const messages = await platform.messages.listMessages(first.workspaceId);
+    expect(messages.slice(0, 3)).toMatchObject([
       { id: "message:revision-1", revision: 1 },
       { revision: 2 },
       { revision: 3 },

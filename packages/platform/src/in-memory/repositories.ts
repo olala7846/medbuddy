@@ -13,7 +13,7 @@ import type {
   WorkspaceDocument,
   WorkspaceRepository,
 } from "@medbuddy/contracts";
-import { MessageDocumentSchema } from "@medbuddy/contracts";
+import { MessageDocumentSchema, MessageWriteSchema } from "@medbuddy/contracts";
 import { InMemoryTransactionQueue } from "./transactions.js";
 
 interface InMemoryStore {
@@ -119,6 +119,33 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
       async putMessage(message) {
         return write(() => {
           const entryKey = key(message.workspaceId, message.id);
+          const existing = store.messages.get(entryKey);
+          if (existing) {
+            const immutableShape = (value: typeof message) => {
+              const parsed = MessageWriteSchema.parse(value);
+              return {
+                id: parsed.id,
+                workspaceId: parsed.workspaceId,
+                authorMemberId: parsed.authorMemberId,
+                body: parsed.body,
+                createdAt: parsed.createdAt,
+                attachmentIds: parsed.attachmentIds,
+                captureIntent: parsed.captureIntent,
+              };
+            };
+            if (JSON.stringify(immutableShape(existing)) !== JSON.stringify(immutableShape(message))) {
+              throw new Error("An immutable record already exists with a different value.");
+            }
+            if (JSON.stringify(MessageWriteSchema.parse(existing)) === JSON.stringify(MessageWriteSchema.parse(message))) {
+              return clone(existing);
+            }
+            const persisted = MessageDocumentSchema.parse({
+              ...message,
+              revision: existing.revision + 1,
+            });
+            store.messages.set(entryKey, clone(persisted));
+            return persisted;
+          }
           const nextRevision = Math.max(
             0,
             ...[...store.messages.values()]
