@@ -38,29 +38,30 @@ Updating the TDD to record this decision is the first implementation task and mu
 
 Build one modular monolith with one npm-workspace lockfile, one Next.js application, and one Cloud Run deployment. Parallelism comes from stable module interfaces and replaceable adapters, not independently deployed services.
 
+As-built navigation: root [`README.md`](../README.md) and [`docs/engineering/ARCHITECTURE.md`](../docs/engineering/ARCHITECTURE.md). Doc catalog: [`docs/INDEX.md`](../docs/INDEX.md).
+
 ```text
 apps/
   web/
-    app/                       Next.js pages and thin route handlers
-    src/auth/                  Auth.js configuration and actor resolution
-    src/composition/           In-memory and production wiring
+    src/auth/                  Auth configuration and actor resolution
+    src/composition/           Demo and production wiring
+    # app/                     Deferred: Next.js pages and thin route handlers
 
 packages/
-  contracts/                   Zod schemas, branded IDs, errors, fixtures
+  contracts/                   Zod schemas, branded IDs, errors, fixtures (colocated)
   chat/                        Messages, polling, reactions, retries
   care-record/                 Facts, reviews, conflicts, handoffs
-  intelligence/               Conversation, capture, image analysis, grounding
-  platform/                    Firestore, Vertex, Tasks, Storage, auth adapters
+  intelligence/                Conversation, capture, image analysis, grounding
+  platform/                    Firestore, Tasks, Storage, in-memory adapters
 
-fixtures/
-  scenarios/                   Fictional three-participant workflow
-  medication/                  Targeted official-source snapshots
+# Deferred target paths (not in tree yet; fixtures live under packages today):
+# fixtures/                    Repo-root scenarios and medication snapshots
+# scripts/                     Seed and medication-snapshot utilities
+# tests/integration|e2e        Cross-module and browser golden path
 
-scripts/                       Seed and medication-snapshot utilities
-tests/integration/             Cross-module workflow tests
-tests/e2e/                     Authenticated browser golden path
-infra/                         GCP setup and deployment notes
+infra/                         GCP Terraform foundation
 tasks/                         Plan and executable checklist
+docs/                          PRD, TDD, INDEX, engineering/ARCHITECTURE, ops notes
 ```
 
 Dependency direction:

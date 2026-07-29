@@ -5,6 +5,19 @@
 - Deliver incremental user value and validate assumptions early. Build the smallest user-facing end-to-end proof of concept first; add complex backend systems only after the workflow and value are demonstrated.
 - Avoid over-engineering and speculative abstractions. Prefer simple, reversible decisions that fit the prototype timeline.
 
+## Documentation discovery (progressive disclosure)
+
+Load documentation in this order. Stop when the task has enough context.
+
+1. `PROTOTYPE_CHALLENGE.md` — delivery and medical-safety contract
+2. This file — always-on project rules
+3. `README.md` — purpose, repo map, commands
+4. `docs/INDEX.md` — choose the next doc by task type
+5. Package or app `README.md` only when editing that package
+6. `docs/engineering/ARCHITECTURE.md` for package boundaries and as-built layout
+
+Do **not** load full `docs/PRD.md` or `docs/TDD.md` by default. Open specific sections only when product requirements or deep design detail are required. Prefer as-built maps in `README.md` and `docs/engineering/ARCHITECTURE.md` over older target trees inside the TDD or `tasks/plan.md`.
+
 ## Privacy and Public Repository Hygiene
 
 - Assume repository and submission artifacts may become public. Never commit personally identifiable information (PII), protected or sensitive health information, credentials, or raw interview material that could identify a participant or family.
