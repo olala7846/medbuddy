@@ -31,7 +31,7 @@ export const HandoffVersionSchema = z.object({
   sourceFactIds: z.array(FactIdSchema).min(1),
   sourceReviewEventIds: z.array(ReviewEventIdSchema),
   snapshot: HandoffSnapshotSchema,
-}).superRefine(({ snapshot, sourceFactIds, version, workspaceId }, context) => {
+}).superRefine(({ snapshot, sourceFactIds, sourceMessageIds, version, workspaceId }, context) => {
   if (snapshot.version !== version) {
     context.addIssue({
       code: "custom",
@@ -41,6 +41,31 @@ export const HandoffVersionSchema = z.object({
   }
   const referencedFactIds = new Set(sourceFactIds);
   const snapshotFactIds = new Set(snapshot.facts.map((fact) => fact.id));
+  const referencedMessageIds = new Set(sourceMessageIds);
+  const snapshotMessageIds = new Set(snapshot.facts.map((fact) => fact.sourceMessageId));
+  if (
+    referencedFactIds.size !== sourceFactIds.length ||
+    snapshotFactIds.size !== snapshot.facts.length ||
+    referencedFactIds.size !== snapshotFactIds.size ||
+    [...referencedFactIds].some((id) => !snapshotFactIds.has(id))
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Source facts must exactly match the frozen snapshot facts.",
+      path: ["sourceFactIds"],
+    });
+  }
+  if (
+    referencedMessageIds.size !== sourceMessageIds.length ||
+    referencedMessageIds.size !== snapshotMessageIds.size ||
+    [...referencedMessageIds].some((id) => !snapshotMessageIds.has(id))
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Source messages must exactly match the frozen snapshot facts' messages.",
+      path: ["sourceMessageIds"],
+    });
+  }
   for (const fact of snapshot.facts) {
     if (!referencedFactIds.has(fact.id)) {
       context.addIssue({
