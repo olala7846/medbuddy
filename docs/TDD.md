@@ -700,29 +700,39 @@ Server authorization and Firestore transactions still protect canonical state.
 
 ## 17. Project Structure
 
-The implementation uses one npm-workspace modular monolith. The anticipated layout is:
+The implementation uses one npm-workspace modular monolith. For navigation and agent context, prefer the as-built map in [`engineering/ARCHITECTURE.md`](./engineering/ARCHITECTURE.md) and the root [`README.md`](../README.md).
+
+### 17.1 As-built layout
 
 ```text
 apps/
-  web/                         Next.js pages, route handlers, Auth.js, and composition
+  web/                         Auth, composition, route adapters (Next.js app/ deferred)
 packages/
-  contracts/                   Shared Zod schemas, IDs, errors, fixtures, and ports
+  contracts/                   Shared Zod schemas, IDs, errors, ports; fixtures/ colocated
   chat/                        Messages, polling, reactions, and retries
   care-record/                 Consent, facts, reviews, conflicts, and handoffs
-  intelligence/                Conversation, capture, and medication grounding
-  platform/                    Firestore, Tasks, Storage, and provider adapters
-scripts/
-  build-medication-snapshot.ts Deterministic targeted source import
-fixtures/
-  medication/                  Committed fictional/official-source snapshot
-  scenarios/                   Three-person golden-path data
-tests/
-  unit/                        Deterministic domain tests
-  integration/                 Mocked-provider workflow tests
-  e2e/                         Minimal browser golden path
+  intelligence/                Conversation, capture, grounding; medication fixtures colocated
+  platform/                    Firestore, Tasks, Storage, and in-memory adapters
 docs/
+  INDEX.md                     Documentation catalog (progressive disclosure)
+  engineering/ARCHITECTURE.md  Short package and trust-boundary map
   PRD.md
   TDD.md
+infra/                         Terraform prototype foundation
+tasks/                         Execution plan and checklist
+```
+
+Tests live next to each package (`packages/*/tests`, `apps/web/tests`).
+
+### 17.2 Deferred target paths
+
+These remain valid design targets but are **not** present in the tree yet. Do not treat them as missing files when browsing the repo:
+
+```text
+apps/web/app/                  Next.js pages and thin route handlers
+scripts/build-medication-snapshot.ts
+fixtures/                      (repo-root; fixtures currently live under packages)
+tests/unit|integration|e2e     (repo-root cross-cutting suites)
 ```
 
 Keep domain code independent of Next.js request objects and vendor SDK response shapes. Vendor adapters validate external responses once and return narrow internal types.
