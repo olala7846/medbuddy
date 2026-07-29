@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@medbuddy/care-record": "0.0.0",
+    "@medbuddy/chat": "0.0.0",
     "@medbuddy/contracts": "0.0.0",
     "@medbuddy/platform": "0.0.0"
   }

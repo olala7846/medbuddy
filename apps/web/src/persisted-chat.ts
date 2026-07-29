@@ -7,9 +7,12 @@ import type {
 } from "@medbuddy/contracts";
 import { MessageIdSchema } from "@medbuddy/contracts";
 
+import type { BrowserAttachmentUpload, TabPersonaSelection } from "./persona-attachment.js";
+
 export interface PersistedChatApi {
   listMessages(query: MessageCursorQuery, request?: BrowserRequestMetadata): Promise<MessagePage>;
   sendMessage(input: AppendMessageInput, request?: BrowserRequestMetadata): Promise<Message>;
+  uploadAttachment?(input: { workspaceId: WorkspaceId; idempotencyKey: string } & BrowserAttachmentUpload, request?: BrowserRequestMetadata): Promise<{ id: Message["attachmentIds"][number] }>;
   requestCaptureRetry?(workspaceId: WorkspaceId, messageId: Message["id"], request?: BrowserRequestMetadata): Promise<void>;
 }
 
@@ -88,13 +91,15 @@ export class PersistedChatTimeline {
     } while (after !== undefined);
   }
 
-  async send(body: string, attachmentIds: AppendMessageInput["attachmentIds"] = []): Promise<Message> {
+  async send(body: string, attachments: readonly BrowserAttachmentUpload[] = []): Promise<Message> {
+    const idempotencyKey = this.#idempotencyKey();
+    const attachmentIds = await this.#uploadAttachments(idempotencyKey, attachments);
     const message = await this.#api.sendMessage({
       workspaceId: this.#workspaceId,
       body,
       attachmentIds,
       captureIntent: "PASSIVE",
-      idempotencyKey: this.#idempotencyKey(),
+      idempotencyKey,
     }, this.#requestMetadata());
     this.#replaceMessages([message]);
     this.#revision = Math.max(this.#revision, message.revision);
@@ -152,6 +157,23 @@ export class PersistedChatTimeline {
   #requestMetadata(): BrowserRequestMetadata {
     return { headers: this.#requestHeaders() };
   }
+
+  async #uploadAttachments(
+    idempotencyKey: string,
+    attachments: readonly BrowserAttachmentUpload[],
+  ): Promise<AppendMessageInput["attachmentIds"]> {
+    if (attachments.length === 0) return [];
+    if (attachments.length > 5) throw new Error("A message can have at most five attachments.");
+    if (!this.#api.uploadAttachment) throw new Error("Attachment upload is unavailable.");
+    return Promise.all(attachments.map(async (attachment) => {
+      const admitted = await this.#api.uploadAttachment?.(
+        { workspaceId: this.#workspaceId, idempotencyKey, ...attachment },
+        this.#requestMetadata(),
+      );
+      if (!admitted) throw new Error("Attachment upload is unavailable.");
+      return admitted.id;
+    }));
+  }
 }
 
 function renderMessage(message: Message): string {
@@ -177,6 +199,7 @@ export interface ChatBrowserRoot {
   ownerDocument?: { activeElement: unknown };
   querySelector(selector: "form"): ChatBrowserForm | null;
   querySelector(selector: "textarea"): ChatBrowserTextArea | null;
+  querySelector(selector: "input"): ChatBrowserAttachmentInput | null;
   querySelectorAll?(selector: "[data-retry-message-id]"): readonly ChatBrowserRetryButton[];
 }
 
@@ -194,6 +217,10 @@ export interface ChatBrowserRetryButton {
   addEventListener(type: "click", listener: () => void): void;
 }
 
+export interface ChatBrowserAttachmentInput {
+  files(): readonly BrowserAttachmentUpload[];
+}
+
 export interface MountedPersistedChatApp {
   poll(): Promise<void>;
   unmount(): void;
@@ -206,23 +233,24 @@ export async function mountPersistedChatApp(
   options: { pollIntervalMs?: number } = {},
 ): Promise<MountedPersistedChatApp> {
   let statusMessage: string | undefined;
-  const render = (options: { draft?: string; restoreFocus?: boolean } = {}) => {
+  const render = (renderOptions: { draft?: string; restoreFocus?: boolean } = {}) => {
     const previousTextArea = root.querySelector("textarea");
-    const draft = options.draft ?? previousTextArea?.value ?? "";
+    const draft = renderOptions.draft ?? previousTextArea?.value ?? "";
     const composerWasFocused = previousTextArea !== null &&
       (root.activeElement === previousTextArea || root.ownerDocument?.activeElement === previousTextArea);
-    const shouldRestoreFocus = (options.restoreFocus ?? false) && composerWasFocused;
+    const shouldRestoreFocus = (renderOptions.restoreFocus ?? false) && composerWasFocused;
     root.innerHTML = `${statusMessage === undefined ? "" : `<p role="alert">${statusMessage}</p>`}${timeline.render()}`;
     const form = root.querySelector("form");
     const textarea = root.querySelector("textarea");
-    if (!form || !textarea) throw new Error("Persisted chat markup is missing its composer.");
+    const attachmentInput = root.querySelector("input");
+    if (!form || !textarea || !attachmentInput) throw new Error("Persisted chat markup is missing its composer.");
     textarea.value = draft;
     if (shouldRestoreFocus) textarea.focus?.();
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const body = textarea.value.trim();
       if (!body) return;
-      void timeline.send(body)
+      void timeline.send(body, attachmentInput.files())
         .then(() => {
           statusMessage = undefined;
           render();
@@ -267,6 +295,31 @@ export async function mountPersistedChatApp(
       clearInterval(timer);
     },
   };
+}
+
+export interface AuthenticatedChatAppOptions {
+  workspaceId: WorkspaceId;
+  api: PersistedChatApi;
+  personaSelection: TabPersonaSelection;
+  idempotencyKey?: () => string;
+  pollIntervalMs?: number;
+}
+
+/** Creates the mounted browser composition with its tab-scoped persona headers. */
+export async function mountAuthenticatedChatApp(
+  root: ChatBrowserRoot,
+  options: AuthenticatedChatAppOptions,
+): Promise<MountedPersistedChatApp & { timeline: PersistedChatTimeline }> {
+  const timeline = createPersistedChatTimeline({
+    workspaceId: options.workspaceId,
+    api: options.api,
+    ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
+    requestHeaders: () => options.personaSelection.requestHeaders(),
+  });
+  const mounted = await mountPersistedChatApp(root, timeline, {
+    ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
+  });
+  return { ...mounted, timeline };
 }
 
 export function renderLoginPage(): string {

@@ -12,9 +12,15 @@ import {
 import {
   MEDBUDDY_DEMO_MEMBER_HEADER,
   createAuthenticatedChatRoute,
+  createServerAttachmentAdmission,
   createPersistedChatTimeline,
   createServerAttachmentMetadata,
   createTabPersonaSelection,
+  mountAuthenticatedChatApp,
+  type ChatBrowserForm,
+  type ChatBrowserAttachmentInput,
+  type ChatBrowserRoot,
+  type ChatBrowserTextArea,
 } from "../src/index.js";
 
 class FakeSessionStorage {
@@ -30,6 +36,36 @@ class FakeSessionStorage {
 
   removeItem(key: string): void {
     this.#values.delete(key);
+  }
+}
+
+class StaticBrowserForm implements ChatBrowserForm {
+  addEventListener(): void {}
+}
+
+class StaticBrowserTextArea implements ChatBrowserTextArea {
+  value = "";
+}
+
+class StaticBrowserAttachmentInput implements ChatBrowserAttachmentInput {
+  files(): readonly [] {
+    return [];
+  }
+}
+
+class StaticBrowserRoot implements ChatBrowserRoot {
+  innerHTML = "";
+  #form = new StaticBrowserForm();
+  #textarea = new StaticBrowserTextArea();
+  #attachmentInput = new StaticBrowserAttachmentInput();
+
+  querySelector(selector: "form"): ChatBrowserForm | null;
+  querySelector(selector: "textarea"): ChatBrowserTextArea | null;
+  querySelector(selector: "input"): ChatBrowserAttachmentInput | null;
+  querySelector(selector: "form" | "textarea" | "input"): ChatBrowserForm | ChatBrowserTextArea | ChatBrowserAttachmentInput | null {
+    if (selector === "form") return this.#form;
+    if (selector === "textarea") return this.#textarea;
+    return this.#attachmentInput;
   }
 }
 
@@ -156,5 +192,44 @@ describe("workspace requests and capture retry", () => {
     expect(timeline.render()).toContain('accept="image/jpeg,image/png,image/webp"');
     expect(timeline.render()).toContain("Retry capture");
     await expect(timeline.retry(MessageIdSchema.parse("message:failed"))).resolves.toBeUndefined();
+  });
+
+  it("mounts a selected tab persona into every route request and submits server-admitted attachment IDs", async () => {
+    const resolvedHeaders: Array<string | undefined> = [];
+    const sentAttachmentIds: string[][] = [];
+    const chatService: ChatService = {
+      async appendMessage(_actor, input) {
+        sentAttachmentIds.push([...input.attachmentIds]);
+        return {
+          message: MessageSchema.parse({ id: "message:human-8gxeav", workspaceId, authorMemberId: "member:owner", body: input.body, createdAt: "2026-07-29T12:00:00.000Z", attachmentIds: input.attachmentIds, captureIntent: "PASSIVE", processingStatus: "PENDING", processingAttempts: 0, revision: 1 }),
+          captureQueued: true,
+        };
+      },
+      async listMessages() { return { messages: [], nextRevision: 0 }; },
+      async requestCaptureRetry() {},
+    };
+    const route = createAuthenticatedChatRoute({
+      chatService,
+      attachmentAdmission: createServerAttachmentAdmission(),
+      async resolveServerActor(_workspaceId, demoMemberHeader) {
+        resolvedHeaders.push(demoMemberHeader);
+        return actor;
+      },
+    });
+    const persona = createTabPersonaSelection({ workspaceId, storage: new FakeSessionStorage(), isGoogleReviewer: true });
+    persona.select("member:owner");
+    const mounted = await mountAuthenticatedChatApp(new StaticBrowserRoot(), {
+      workspaceId,
+      api: route,
+      personaSelection: persona,
+      idempotencyKey: () => "send-1",
+    });
+
+    await mounted.timeline.send("Fictional label image.", [{ mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]) }]);
+    await mounted.timeline.poll();
+
+    expect(resolvedHeaders).toEqual(["member:owner", "member:owner", "member:owner", "member:owner"]);
+    expect(sentAttachmentIds).toHaveLength(1);
+    expect(sentAttachmentIds[0]?.[0]).toMatch(/^attachment:/);
   });
 });

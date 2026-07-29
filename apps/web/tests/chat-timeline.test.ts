@@ -14,6 +14,7 @@ import {
   mountPersistedChatApp,
   renderLoginPage,
   type ChatBrowserForm,
+  type ChatBrowserAttachmentInput,
   type ChatBrowserRoot,
   type ChatBrowserTextArea,
   type PersistedChatApi,
@@ -246,6 +247,7 @@ class FakeBrowserRoot implements ChatBrowserRoot {
   #html = "";
   #form = new FakeBrowserForm();
   #textarea = new FakeBrowserTextArea(() => { this.#composerIsFocused = true; });
+  #attachmentInput = new FakeBrowserAttachmentInput();
   #nextRender: (() => void) | undefined;
   #composerIsFocused = false;
 
@@ -257,6 +259,7 @@ class FakeBrowserRoot implements ChatBrowserRoot {
     this.#html = value;
     this.#form = new FakeBrowserForm();
     this.#textarea = new FakeBrowserTextArea(() => { this.#composerIsFocused = true; });
+    this.#attachmentInput = new FakeBrowserAttachmentInput();
     this.#composerIsFocused = false;
     this.#nextRender?.();
     this.#nextRender = undefined;
@@ -264,8 +267,11 @@ class FakeBrowserRoot implements ChatBrowserRoot {
 
   querySelector(selector: "form"): ChatBrowserForm | null;
   querySelector(selector: "textarea"): ChatBrowserTextArea | null;
-  querySelector(selector: "form" | "textarea"): ChatBrowserForm | ChatBrowserTextArea | null {
-    return selector === "form" ? this.#form : this.#textarea;
+  querySelector(selector: "input"): ChatBrowserAttachmentInput | null;
+  querySelector(selector: "form" | "textarea" | "input"): ChatBrowserForm | ChatBrowserTextArea | ChatBrowserAttachmentInput | null {
+    if (selector === "form") return this.#form;
+    if (selector === "textarea") return this.#textarea;
+    return this.#attachmentInput;
   }
 
   submit(value: string): void {
@@ -308,5 +314,11 @@ class FakeBrowserTextArea implements ChatBrowserTextArea {
 
   focus(): void {
     this.onFocus();
+  }
+}
+
+class FakeBrowserAttachmentInput implements ChatBrowserAttachmentInput {
+  files(): readonly [] {
+    return [];
   }
 }

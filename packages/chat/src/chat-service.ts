@@ -36,7 +36,15 @@ function stableHash(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function defaultMessageId(input: { workspaceId: string; idempotencyKey: string; author: "HUMAN" | "MEDBUDDY" }): MessageId {
+/**
+ * Shared by server-side attachment admission and ChatService so an attachment
+ * is admitted only for the exact idempotent human message that will persist.
+ */
+export function createDeterministicMessageId(input: {
+  workspaceId: string;
+  idempotencyKey: string;
+  author: "HUMAN" | "MEDBUDDY";
+}): MessageId {
   return MessageIdSchema.parse(`message:${input.author.toLowerCase()}-${stableHash(`${input.workspaceId}:${input.idempotencyKey}`)}`);
 }
 
@@ -52,7 +60,7 @@ export class ChatService implements ChatServicePort {
     const input = AppendMessageInputSchema.parse(inputValue);
     await this.requireEligibleActor(actor, input.workspaceId);
 
-    const createMessageId = this.dependencies.createMessageId ?? defaultMessageId;
+    const createMessageId = this.dependencies.createMessageId ?? createDeterministicMessageId;
     const messageId = createMessageId({ workspaceId: input.workspaceId, idempotencyKey: input.idempotencyKey, author: "HUMAN" });
     const existing = await this.dependencies.messages.getMessage(input.workspaceId, messageId);
     if (existing !== null) return { message: existing, captureQueued: false };
