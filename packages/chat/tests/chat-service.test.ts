@@ -8,6 +8,7 @@ import type {
 import {
   ActorContextSchema,
   MemberDocumentSchema,
+  MessageWriteSchema,
   WorkspaceDocumentSchema,
 } from "@medbuddy/contracts";
 import { describe, expect, it } from "vitest";
@@ -50,7 +51,17 @@ function createStores(): {
     messages: {
       async getMessage(id, messageId) { return messages.get(`${id}:${messageId}`) ?? null; },
       async listMessages(id) { return [...messages.values()].filter((message) => message.workspaceId === id); },
-      async putMessage(message) { messages.set(`${message.workspaceId}:${message.id}`, message); },
+      async putMessage(message) {
+        const revision = Math.max(
+          0,
+          ...[...messages.values()]
+            .filter((storedMessage) => storedMessage.workspaceId === message.workspaceId)
+            .map((storedMessage) => storedMessage.revision),
+        ) + 1;
+        const storedMessage = { ...message, revision };
+        messages.set(`${message.workspaceId}:${message.id}`, storedMessage);
+        return storedMessage;
+      },
     },
   };
 }
@@ -128,7 +139,8 @@ describe("ChatService", () => {
     });
     const initial = await service.listMessages(actor, { workspaceId, limit: 50 });
     const pending = await stores.messages.getMessage(workspaceId, appended.message.id);
-    await stores.messages.putMessage({ ...pending!, processingStatus: "CAPTURED", revision: pending!.revision + 1 });
+    const pendingWrite = MessageWriteSchema.parse(pending);
+    await stores.messages.putMessage({ ...pendingWrite, processingStatus: "CAPTURED" });
 
     const update = await service.listMessages(actor, {
       workspaceId,
@@ -137,5 +149,25 @@ describe("ChatService", () => {
     });
     expect(update.messages).toMatchObject([{ id: appended.message.id, processingStatus: "CAPTURED", revision: 2 }]);
     expect(update.nextRevision).toBe(2);
+  });
+
+  it("does not miss concurrent writes when paging the revision feed", async () => {
+    const stores = createStores();
+    const service = new ChatService({
+      ...stores,
+      captureDispatcher: new FixedCaptureDispatcher(),
+      responder: { async respond() { return { kind: "TECHNICAL_FAILURE", retryable: true }; } },
+      now: () => timestamp,
+    });
+    await Promise.all([
+      service.appendMessage(actor, { workspaceId, body: "first", attachmentIds: [], captureIntent: "PASSIVE", idempotencyKey: "concurrent-1" }),
+      service.appendMessage(actor, { workspaceId, body: "second", attachmentIds: [], captureIntent: "PASSIVE", idempotencyKey: "concurrent-2" }),
+    ]);
+
+    const firstPage = await service.listMessages(actor, { workspaceId, afterRevision: 0, limit: 1 });
+    const secondPage = await service.listMessages(actor, { workspaceId, afterRevision: firstPage.nextRevision, limit: 1 });
+    expect(firstPage.messages[0]?.revision).toBe(1);
+    expect(secondPage.messages[0]?.revision).toBe(2);
+    expect(new Set([...firstPage.messages, ...secondPage.messages].map((message) => message.id)).size).toBe(2);
   });
 });

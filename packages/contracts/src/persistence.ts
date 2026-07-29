@@ -47,6 +47,7 @@ export const MemberDocumentSchema = z.object({
 
 export const FactDocumentSchema = AtomicFactSchema;
 export const MessageDocumentSchema = MessageSchema;
+export const MessageWriteSchema = MessageSchema.omit({ revision: true });
 export const AttachmentDocumentSchema = AttachmentSchema;
 export const ReviewEventDocumentSchema = ReviewEventSchema;
 export const HandoffVersionDocumentSchema = HandoffVersionSchema;
@@ -73,7 +74,13 @@ export interface MessageRepository {
   listMessages(
     workspaceId: z.infer<typeof WorkspaceIdSchema>,
   ): Promise<readonly z.infer<typeof MessageDocumentSchema>[]>;
-  putMessage(message: z.infer<typeof MessageDocumentSchema>): Promise<void>;
+  /**
+   * Atomically persists the mutation and assigns the next workspace-scoped
+   * revision. Implementations must serialize this operation per workspace.
+   */
+  putMessage(
+    message: z.infer<typeof MessageWriteSchema>,
+  ): Promise<z.infer<typeof MessageDocumentSchema>>;
 }
 
 export interface AttachmentRepository {
@@ -123,6 +130,7 @@ export type WorkspaceDocument = z.infer<typeof WorkspaceDocumentSchema>;
 export type MemberDocument = z.infer<typeof MemberDocumentSchema>;
 export type FactDocument = z.infer<typeof FactDocumentSchema>;
 export type MessageDocument = z.infer<typeof MessageDocumentSchema>;
+export type MessageWrite = z.infer<typeof MessageWriteSchema>;
 export type AttachmentDocument = z.infer<typeof AttachmentDocumentSchema>;
 export type ReviewEventDocument = z.infer<typeof ReviewEventDocumentSchema>;
 export type HandoffVersionDocument = z.infer<typeof HandoffVersionDocumentSchema>;

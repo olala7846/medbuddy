@@ -10,6 +10,7 @@ import {
   type MessageCursorQuery,
   MessageCursorQuerySchema,
   MessageIdSchema,
+  MessageWriteSchema,
   type MessageId,
   type MessagePage,
 } from "@medbuddy/contracts";
@@ -56,7 +57,7 @@ export class ChatService implements ChatServicePort {
     const existing = await this.dependencies.messages.getMessage(input.workspaceId, messageId);
     if (existing !== null) return { message: existing, captureQueued: false };
 
-    const message: Message = {
+    const message = await this.dependencies.messages.putMessage({
       id: messageId,
       workspaceId: input.workspaceId,
       authorMemberId: actor.effectiveMemberId,
@@ -66,9 +67,7 @@ export class ChatService implements ChatServicePort {
       captureIntent: input.captureIntent,
       processingStatus: "PENDING",
       processingAttempts: 0,
-      revision: await this.nextRevision(input.workspaceId),
-    };
-    await this.dependencies.messages.putMessage(message);
+    });
 
     const captureQueued = await this.dispatchCapture(message);
     await this.respondIfMentioned(actor, message, createMessageId);
@@ -107,10 +106,10 @@ export class ChatService implements ChatServicePort {
     if (message === null) throw new ChatServiceError("NOT_FOUND");
     await this.requireEligibleActor(actor, message.workspaceId);
     if (message.processingStatus !== "FAILED") throw new ChatServiceError("CONFLICT");
+    const messageWrite = MessageWriteSchema.parse(message);
     await this.dependencies.messages.putMessage({
-      ...message,
+      ...messageWrite,
       processingStatus: "PENDING",
-      revision: await this.nextRevision(message.workspaceId),
       lastProcessingErrorCode: undefined,
       processingLeaseExpiresAt: undefined,
     });
@@ -165,12 +164,6 @@ export class ChatService implements ChatServicePort {
       captureIntent: "PASSIVE",
       processingStatus: "IGNORED",
       processingAttempts: 0,
-      revision: await this.nextRevision(message.workspaceId),
     });
-  }
-
-  private async nextRevision(workspaceId: Message["workspaceId"]): Promise<number> {
-    const messages = await this.dependencies.messages.listMessages(workspaceId);
-    return messages.reduce((revision, message) => Math.max(revision, message.revision), 0) + 1;
   }
 }
