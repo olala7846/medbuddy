@@ -62,4 +62,15 @@ describe("medication refusal", () => {
       intent: "STOP",
     });
   });
+
+  it.each([
+    ["STOP", "Should I stop Fictozine?"],
+    ["SKIP", "Can I skip a dose?"],
+    ["DOSE", "這個藥一天吃幾次？"],
+  ])("routes medication decisions without requiring a generic medication noun", (intent, body) => {
+    expect(routeMedicationDecision({ ...focalMessage, body })).toMatchObject({
+      kind: "REFUSED_MEDICATION_DECISION",
+      intent,
+    });
+  });
 });

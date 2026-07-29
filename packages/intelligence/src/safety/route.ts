@@ -28,20 +28,19 @@ export interface MedicationDecisionRefusal {
   readonly professionalFollowUpProposal: ProfessionalFollowUpProposal;
 }
 
-const MEDICATION_PATTERN = /\b(medication|medicine|medicines|meds?|pill(?:s)?|tablet(?:s)?|prescription|drug(?:s)?)\b|藥物|藥品|藥|劑量/i;
 const QUESTION_PATTERN = /\?|？|\b(should|can|could|may|do i|is it okay|is it safe|what if)\b|嗎|能否|可以|是否|該不該|應不應/i;
 
 const INTENT_PATTERNS: readonly [MedicationDecisionIntent, RegExp][] = [
-  ["DOSE", /\b(dose|dosage|how much|half (?:a )?pill|double)\b|劑量/i],
+  ["SKIP", /\b(skip|miss)\b|跳過|略過/i],
+  ["DOSE", /\b(dose|dosage|how much|how many|how often|half (?:a )?pill|double)\b|劑量|一天吃幾次|幾次/i],
   ["START", /\b(start|begin|restart|initiate|take)\b|開始/i],
   ["STOP", /\b(stop|discontinue|quit)\b|停止|停藥/i],
   ["CONTINUE", /\b(continue|keep taking|keep using)\b|繼續/i],
   ["CHANGE", /\b(change|switch|adjust|increase|decrease)\b|調整|更改|改變/i],
-  ["SKIP", /\b(skip|miss)\b|跳過|略過/i],
 ];
 
 function findMedicationDecisionIntent(body: string): MedicationDecisionIntent | null {
-  if (!MEDICATION_PATTERN.test(body) || !QUESTION_PATTERN.test(body)) {
+  if (!QUESTION_PATTERN.test(body)) {
     return null;
   }
 

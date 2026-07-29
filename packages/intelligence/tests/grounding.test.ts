@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createFixtureMedicationGrounding, renderMedicationLookup } from "../src/index.js";
+import {
+  createFixtureMedicationGrounding,
+  renderMedicationCards,
+  renderMedicationLookup,
+} from "../src/index.js";
 
 describe("bounded medication source-card grounding", () => {
   it("returns only a committed matching card and preserves its citation metadata", async () => {
@@ -61,6 +65,33 @@ describe("bounded medication source-card grounding", () => {
       kind: "UNSUPPORTED",
       claims: [],
       text: "This medicine is not in the targeted fictional prototype data. I cannot identify it, assess completeness, or infer safety from that absence. Please check the readable label and ask a pharmacist or prescribing clinic.",
+    });
+  });
+
+  it("adds baseline limitations even when a committed card omits them", () => {
+    const result = renderMedicationCards([{
+      id: "source-card-fictional-minimal",
+      medicationCode: "DEMO-002",
+      displayName: "Another fictional medicine",
+      identityFields: { dosageForm: "tablet" },
+      generalConsiderations: [{
+        text: "Fictional source-card statement.",
+        sourceOrganization: "Example medicines authority",
+        sourceUrl: "https://example.test/medicines/demo-002",
+        retrievedAt: "2026-07-28T10:00:00.000Z",
+      }],
+      limitations: ["Fictional fixture only."],
+      snapshotVersion: "2026-07-28",
+    }]);
+
+    expect(result).toMatchObject({
+      kind: "GROUNDED",
+      cards: [{
+        limitations: expect.arrayContaining([
+          "General source-card information cannot establish patient-specific purpose, timing, duration, interaction safety, or prescribing rationale.",
+          "Only the cited considerations are shown; absence of another warning does not establish safety or completeness.",
+        ]),
+      }],
     });
   });
 });
