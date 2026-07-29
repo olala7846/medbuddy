@@ -35,7 +35,7 @@ export interface InMemoryRepositories {
   careRecords: CareRecordRepository;
 }
 
-type WriteOperation = (operation: () => void) => Promise<void>;
+type WriteOperation = <Result>(operation: () => Result) => Promise<Result>;
 
 function clone<Value>(value: Value): Value {
   return structuredClone(value);
@@ -117,15 +117,18 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
           .map(clone);
       },
       async putMessage(message) {
-        const nextRevision = Math.max(
-          0,
-          ...[...store.messages.values()]
-            .filter((entry) => entry.workspaceId === message.workspaceId)
-            .map((entry) => entry.revision),
-        ) + 1;
-        const persisted = MessageDocumentSchema.parse({ ...message, revision: nextRevision });
-        await write(() => store.messages.set(key(message.workspaceId, message.id), clone(persisted)));
-        return persisted;
+        return write(() => {
+          const entryKey = key(message.workspaceId, message.id);
+          const nextRevision = Math.max(
+            0,
+            ...[...store.messages.values()]
+              .filter((entry) => entry.workspaceId === message.workspaceId)
+              .map((entry) => entry.revision),
+          ) + 1;
+          const persisted = MessageDocumentSchema.parse({ ...message, revision: nextRevision });
+          store.messages.set(entryKey, clone(persisted));
+          return persisted;
+        });
       },
     },
     attachments: {
@@ -193,7 +196,7 @@ export class InMemoryPersistence {
   #transactions = new InMemoryTransactionQueue();
 
   readonly repositories: InMemoryRepositories = repositoriesFor(this.#store, async (operation) => {
-    await this.#transactions.run(async () => operation());
+    return this.#transactions.run(async () => operation());
   });
   readonly workspaces = this.repositories.workspaces;
   readonly members = this.repositories.members;

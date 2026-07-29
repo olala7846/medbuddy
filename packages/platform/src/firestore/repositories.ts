@@ -22,7 +22,7 @@ import {
   WorkspaceDocumentSchema,
   DemoWorkspaceMappingSchema,
 } from "@medbuddy/contracts";
-import type { DemoWorkspaceMappingRepository, DemoWorkspacePersistence, DemoWorkspaceTransaction } from "../demo-workspace/persistence.js";
+import type { DemoWorkspaceMappingRepository, DemoWorkspacePersistence, DemoWorkspaceResetResultRepository, DemoWorkspaceSeed, DemoWorkspaceTransaction } from "../demo-workspace/persistence.js";
 
 export interface FirestoreRepositories {
   workspaces: WorkspaceRepository;
@@ -73,9 +73,7 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
         return snapshots.docs.map((snapshot) => MessageDocumentSchema.parse(data(snapshot.data())));
       },
       putMessage: async (message) => {
-        const persisted = MessageDocumentSchema.parse({ ...message, revision: 1 });
-        await this.createImmutable(this.messageRef(persisted.workspaceId, persisted.id), persisted);
-        return persisted;
+        return this.putMessageWithNextRevision(undefined, message);
       },
     };
     this.attachments = {
@@ -134,6 +132,8 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
     return this.firestore.runTransaction(async (transaction) => operation({
       repositories: this.transactionRepositories(transaction),
       mappings: this.mappingRepository(transaction),
+      resetResults: this.resetResultRepository(transaction),
+      seed: async (seed) => this.seedDemoWorkspace(transaction, seed),
     }));
   }
 
@@ -183,7 +183,7 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
     return {
       workspaces: { getWorkspace: (id) => get(this.workspaceRef(id), WorkspaceDocumentSchema), putWorkspace: async (value) => { transaction.set(this.workspaceRef(value.id), value); } },
       members: { listMembers: async (id) => (await transaction.get(this.workspaceRef(id).collection("members"))).docs.map((doc) => MemberDocumentSchema.parse(data(doc.data()))), putMember: async (value) => { transaction.set(this.memberRef(value.workspaceId, value.id), value); } },
-      messages: { getMessage: (workspaceId, messageId) => get(this.messageRef(workspaceId, messageId), MessageDocumentSchema), listMessages: async (workspaceId) => (await transaction.get(this.workspaceRef(workspaceId).collection("messages").orderBy("revision"))).docs.map((doc) => MessageDocumentSchema.parse(data(doc.data()))), putMessage: async (value) => { const persisted = MessageDocumentSchema.parse({ ...value, revision: 1 }); await this.putImmutable(transaction, this.messageRef(persisted.workspaceId, persisted.id), persisted); return persisted; } },
+      messages: { getMessage: (workspaceId, messageId) => get(this.messageRef(workspaceId, messageId), MessageDocumentSchema), listMessages: async (workspaceId) => (await transaction.get(this.workspaceRef(workspaceId).collection("messages").orderBy("revision"))).docs.map((doc) => MessageDocumentSchema.parse(data(doc.data()))), putMessage: async (value) => this.putMessageWithNextRevision(transaction, value) },
       attachments: { getAttachment: (workspaceId, messageId, attachmentId) => get(this.attachmentRef(workspaceId, messageId, attachmentId), AttachmentDocumentSchema), putAttachment: async (value) => this.putImmutable(transaction, this.attachmentRef(value.workspaceId, value.messageId, value.id), value) },
       careRecords: {
         getFact: (workspaceId, factId) => get(this.factRef(workspaceId, factId), FactDocumentSchema),
@@ -208,6 +208,31 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
         transaction.set(this.demoMappingRef(mapping.accountId), DemoWorkspaceMappingSchema.parse(mapping));
       },
     };
+  }
+
+  private resetResultRepository(transaction: Transaction): DemoWorkspaceResetResultRepository {
+    return {
+      get: async (input) => {
+        const snapshot = await transaction.get(this.demoResetRef(input.accountId, input.idempotencyKey));
+        return snapshot.exists ? DemoWorkspaceMappingSchema.parse(data(snapshot.data())) : null;
+      },
+      put: async (input, mapping) => {
+        transaction.create(this.demoResetRef(input.accountId, input.idempotencyKey), DemoWorkspaceMappingSchema.parse(mapping));
+      },
+    };
+  }
+
+  private async seedDemoWorkspace(transaction: Transaction, seed: DemoWorkspaceSeed): Promise<void> {
+    WorkspaceDocumentSchema.parse(seed.workspace);
+    for (const member of seed.members) MemberDocumentSchema.parse(member);
+    for (const message of seed.messages) MessageDocumentSchema.parse(message);
+    for (const fact of seed.facts) FactDocumentSchema.parse(fact);
+    for (const handoff of seed.handoffs) HandoffVersionDocumentSchema.parse(handoff);
+    transaction.create(this.workspaceRef(seed.workspace.id), seed.workspace);
+    for (const member of seed.members) transaction.create(this.memberRef(member.workspaceId, member.id), member);
+    for (const message of seed.messages) transaction.create(this.messageRef(message.workspaceId, message.id), message);
+    for (const fact of seed.facts) transaction.create(this.factRef(fact.workspaceId, fact.id), fact);
+    for (const handoff of seed.handoffs) transaction.create(this.handoffRef(handoff.workspaceId, handoff.id), handoff);
   }
 
   private async get<Output>(reference: FirebaseFirestore.DocumentReference, schema: { parse(value: unknown): Output }): Promise<Output | null> {
@@ -235,6 +260,32 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
     value: AttachmentDocument | FactDocument | MessageDocument,
   ): Promise<void> {
     await this.runRawTransaction(async (transaction) => this.putImmutable(transaction, reference, value));
+  }
+
+  private async putMessageWithNextRevision(
+    transaction: Transaction | undefined,
+    message: Parameters<MessageRepository["putMessage"]>[0],
+  ): Promise<MessageDocument> {
+    if (!transaction) {
+      return this.runRawTransaction((activeTransaction) => this.putMessageWithNextRevision(activeTransaction, message));
+    }
+    const reference = this.messageRef(message.workspaceId, message.id);
+    const existing = await transaction.get(reference);
+    if (existing.exists) {
+      const persisted = MessageDocumentSchema.parse({
+        ...message,
+        revision: MessageDocumentSchema.parse(data(existing.data())).revision + 1,
+      });
+      transaction.set(reference, persisted);
+      return persisted;
+    }
+    const latest = await transaction.get(
+      this.workspaceRef(message.workspaceId).collection("messages").orderBy("revision", "desc").limit(1),
+    );
+    const revision = (latest.docs[0] ? MessageDocumentSchema.parse(data(latest.docs[0].data())).revision : 0) + 1;
+    const persisted = MessageDocumentSchema.parse({ ...message, revision });
+    transaction.create(reference, persisted);
+    return persisted;
   }
 
   private workspaceRef(workspaceId: string) {
@@ -267,5 +318,11 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
 
   private demoMappingRef(accountId: string) {
     return this.firestore.collection("demoWorkspaceMappings").doc(accountId);
+  }
+
+  private demoResetRef(accountId: string, idempotencyKey: string) {
+    return this.firestore.collection("demoWorkspaceResetOperations").doc(
+      `${accountId}:${idempotencyKey}`,
+    );
   }
 }

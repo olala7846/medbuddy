@@ -11,11 +11,11 @@ import {
   type DemoWorkspaceProvisioner,
   type DemoWorkspaceResetInput,
   type MemberDocument,
-  type PersistenceRepositories,
   type WorkspaceId,
   GoldenScenario,
 } from "@medbuddy/contracts";
 import type { DemoWorkspacePersistence } from "@medbuddy/platform";
+import type { DemoWorkspaceSeed } from "@medbuddy/platform";
 
 export const FICTIONAL_DEMO_TEMPLATE_VERSION = "golden-2026-07-28-v1";
 export const CREDENTIAL_TEST_WORKSPACE_ID = "workspace:credential-test" as WorkspaceId;
@@ -83,30 +83,29 @@ function handoffForWorkspace(
   });
 }
 
-async function seedFictionalWorkspace(
-  repositories: PersistenceRepositories,
+async function fictionalWorkspaceSeed(
   workspaceId: WorkspaceId,
-): Promise<void> {
-  const existing = await repositories.workspaces.getWorkspace(workspaceId);
-  if (existing) return;
-
+): Promise<DemoWorkspaceSeed> {
   const members = membersFor(workspaceId);
   const workspace = WorkspaceDocumentSchema.parse({
     id: workspaceId,
     ownerMemberId: "member:owner",
     approvalState: "APPROVED",
     approvedMembershipHash: createMembershipSnapshotHash(members),
+    currentHandoffVersionId: "handoff:v2",
     createdAt: TEMPLATE_CREATED_AT,
     updatedAt: TEMPLATE_CREATED_AT,
   });
-  await repositories.workspaces.putWorkspace(workspace);
-  for (const member of members) await repositories.members.putMember(member);
-  for (const message of templateMessages(workspaceId)) await repositories.messages.putMessage(message);
-  for (const fact of GoldenScenario.facts) {
-    await repositories.careRecords.putFact(cloneFactForWorkspace(fact, workspaceId));
-  }
-  await repositories.careRecords.createHandoff(handoffForWorkspace(GoldenScenario.handoffV1, workspaceId));
-  await repositories.careRecords.createHandoff(handoffForWorkspace(GoldenScenario.handoffV2, workspaceId));
+  return {
+    workspace,
+    members,
+    messages: templateMessages(workspaceId),
+    facts: GoldenScenario.facts.map((fact) => cloneFactForWorkspace(fact, workspaceId)),
+    handoffs: [
+      handoffForWorkspace(GoldenScenario.handoffV1, workspaceId),
+      handoffForWorkspace(GoldenScenario.handoffV2, workspaceId),
+    ],
+  };
 }
 
 /**
@@ -117,11 +116,12 @@ export class FictionalDemoWorkspaceProvisioner implements DemoWorkspaceProvision
   constructor(private readonly persistence: DemoWorkspacePersistence) {}
 
   async getOrCreate(accountId: AccountId): Promise<DemoWorkspaceMapping> {
-    return this.persistence.runDemoWorkspaceTransaction(async ({ mappings, repositories }) => {
+    return this.persistence.runDemoWorkspaceTransaction(async ({ mappings, repositories, seed }) => {
       const current = await mappings.get(accountId);
       if (current) return current;
       const workspaceId = workspaceIdFor(accountId);
-      await seedFictionalWorkspace(repositories, workspaceId);
+      const existingWorkspace = await repositories.workspaces.getWorkspace(workspaceId);
+      if (!existingWorkspace) await seed(await fictionalWorkspaceSeed(workspaceId));
       const mapping: DemoWorkspaceMapping = { accountId, workspaceId, templateVersion: FICTIONAL_DEMO_TEMPLATE_VERSION, createdAt: TEMPLATE_CREATED_AT };
       await mappings.put(mapping);
       return mapping;
@@ -129,11 +129,13 @@ export class FictionalDemoWorkspaceProvisioner implements DemoWorkspaceProvision
   }
 
   async reset(input: DemoWorkspaceResetInput): Promise<DemoWorkspaceMapping> {
-    return this.persistence.runDemoWorkspaceTransaction(async ({ mappings, repositories }) => {
+    return this.persistence.runDemoWorkspaceTransaction(async ({ mappings, repositories, resetResults, seed }) => {
+      const completed = await resetResults.get(input);
+      if (completed) return completed;
       const current = await mappings.get(input.accountId);
       const workspaceId = workspaceIdFor(input.accountId, input.idempotencyKey);
-      if (current?.workspaceId === workspaceId) return current;
-      await seedFictionalWorkspace(repositories, workspaceId);
+      const existingWorkspace = await repositories.workspaces.getWorkspace(workspaceId);
+      if (!existingWorkspace) await seed(await fictionalWorkspaceSeed(workspaceId));
       const mapping: DemoWorkspaceMapping = {
         accountId: input.accountId,
         workspaceId,
@@ -142,6 +144,7 @@ export class FictionalDemoWorkspaceProvisioner implements DemoWorkspaceProvision
         ...(current ? { replacedWorkspaceId: current.workspaceId } : {}),
       };
       await mappings.put(mapping);
+      await resetResults.put(input, mapping);
       return mapping;
     });
   }
@@ -149,7 +152,8 @@ export class FictionalDemoWorkspaceProvisioner implements DemoWorkspaceProvision
 
 /** Seeds the fixed credential-only workspace without creating reviewer mappings. */
 export async function seedCredentialTestWorkspace(persistence: DemoWorkspacePersistence): Promise<void> {
-  await persistence.runDemoWorkspaceTransaction(async ({ repositories }) =>
-    seedFictionalWorkspace(repositories, CREDENTIAL_TEST_WORKSPACE_ID),
-  );
+  await persistence.runDemoWorkspaceTransaction(async ({ repositories, seed }) => {
+    const existing = await repositories.workspaces.getWorkspace(CREDENTIAL_TEST_WORKSPACE_ID);
+    if (!existing) await seed(await fictionalWorkspaceSeed(CREDENTIAL_TEST_WORKSPACE_ID));
+  });
 }

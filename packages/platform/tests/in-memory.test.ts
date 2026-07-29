@@ -219,6 +219,35 @@ describe("in-memory persistence", () => {
     expect(executions).toBe(1);
   });
 
+  it("assigns unique workspace-scoped revisions for serial and concurrent appends", async () => {
+    const persistence = new InMemoryPersistence();
+    const createMessage = (id: string) => MessageDocumentSchema.parse({
+      id,
+      workspaceId: "workspace:revisions",
+      authorMemberId: "member:owner",
+      body: `Fictional message ${id}.`,
+      createdAt: "2026-07-28T10:00:00.000Z",
+      attachmentIds: [],
+      captureIntent: "PASSIVE",
+      processingStatus: "PENDING",
+      processingAttempts: 0,
+    });
+
+    const first = await persistence.messages.putMessage(createMessage("message:revision-1"));
+    const [second, third] = await Promise.all([
+      persistence.messages.putMessage(createMessage("message:revision-2")),
+      persistence.messages.putMessage(createMessage("message:revision-3")),
+    ]);
+
+    expect(first.revision).toBe(1);
+    expect(new Set([second.revision, third.revision])).toEqual(new Set([2, 3]));
+    await expect(persistence.messages.listMessages(first.workspaceId)).resolves.toMatchObject([
+      { id: "message:revision-1", revision: 1 },
+      { revision: 2 },
+      { revision: 3 },
+    ]);
+  });
+
   it("preserves immutable review events and handoff versions on conflicting retries", async () => {
     const persistence = new InMemoryPersistence();
     const fact = factFixture();

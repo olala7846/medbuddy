@@ -73,6 +73,19 @@ describe("fictional reviewer workspaces", () => {
     await expect(storage.persistence.careRecords.getHandoff(replacement.workspaceId, HandoffVersionIdSchema.parse("handoff:v2"))).resolves.toMatchObject({ version: 2 });
   });
 
+  it("replays an earlier reset result without moving the current mapping back", async () => {
+    const storage = new InMemoryDemoWorkspacePersistence();
+    const provisioner = new FictionalDemoWorkspaceProvisioner(storage);
+    const accountId = AccountIdSchema.parse("account:reviewer-reset-replay");
+    await provisioner.getOrCreate(accountId);
+    const firstReset = await provisioner.reset({ accountId, idempotencyKey: "reset-a" });
+    const secondReset = await provisioner.reset({ accountId, idempotencyKey: "reset-b" });
+    const replay = await provisioner.reset({ accountId, idempotencyKey: "reset-a" });
+
+    expect(replay).toEqual(firstReset);
+    expect((await provisioner.getOrCreate(accountId)).workspaceId).toBe(secondReset.workspaceId);
+  });
+
   it("keeps credential test data outside reviewer mappings", async () => {
     const storage = new InMemoryDemoWorkspacePersistence();
     await seedCredentialTestWorkspace(storage);
