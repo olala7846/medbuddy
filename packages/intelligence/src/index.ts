@@ -14,6 +14,8 @@ export {
   type RenderedMedicationCard,
   type RenderedMedicationClaim,
 } from "./grounding/render.js";
+export * from "./safety/route.js";
+export * from "./safety/templates.js";
 
 export function createFixtureMedicationGrounding(): MedicationGrounding {
   return new CommittedSourceCardGrounding(fixtureMedicationSourceCards);
