@@ -49,9 +49,10 @@
 - **Acceptance:**
   - Branded account, workspace, member, message, fact, review, and handoff IDs exist.
   - `ActorContext` and authentication-method schemas cover reviewer persona assumption and fixed credential actors.
+  - An allowlisted Google prototype reviewer has a persistent mapping to one dedicated fictional demo workspace; explicit reset requires an idempotency key and creates a replacement rather than mutating history.
   - One `ApiError` schema covers validation, authentication, authorization, conflicts, providers, and internal failures.
-- **Verify:** `npm test --workspace @medbuddy/contracts -- --run ids auth errors`
-- **Files:** `packages/contracts/src/ids.ts`, `packages/contracts/src/auth.ts`, `packages/contracts/src/errors.ts`, `packages/contracts/src/index.ts`, `packages/contracts/tests/auth.test.ts`
+- **Verify:** `npm test --workspace @medbuddy/contracts -- --run ids auth errors demo-workspace`
+- **Files:** `packages/contracts/src/ids.ts`, `packages/contracts/src/auth.ts`, `packages/contracts/src/demo.ts`, `packages/contracts/src/interfaces.ts`, `packages/contracts/src/errors.ts`, `packages/contracts/src/index.ts`, `packages/contracts/tests/auth.test.ts`, `packages/contracts/tests/demo-workspace.test.ts`
 
 ### F3 — Define chat and capture contracts
 
@@ -234,7 +235,7 @@
   - Credential users cannot change their effective participant.
   - Allowed attachments and failed capture display their upload/retry controls.
 - **Verify:** `npm test --workspace @medbuddy/web -- --run persona attachment retry`
-- **Manual:** Open two Google-reviewer tabs with different personas and confirm independent headers.
+- **Manual:** Open two Google prototype-reviewer tabs with different personas and confirm independent headers.
 - **Files:** `apps/web/app/workspace/[workspaceId]/persona.tsx`, `apps/web/app/workspace/[workspaceId]/composer.tsx`, `apps/web/src/auth/request-actor.ts`, `apps/web/tests/persona-attachment.test.tsx`
 
 ### S2.6 — Implement review and printable handoff views
@@ -441,7 +442,7 @@
 - [ ] **Owner:** Stream 2
 - **Dependencies:** E1
 - **Acceptance:**
-  - Two Google-reviewer tabs maintain independent seeded personas.
+  - Two Google prototype-reviewer tabs maintain independent seeded personas.
   - Provider and capture failures show the correct retry actions.
   - Critical status and safety text remains readable at mobile width.
 - **Verify:** `npm run test:e2e -- --grep "reviewer personas|failure retry"`
