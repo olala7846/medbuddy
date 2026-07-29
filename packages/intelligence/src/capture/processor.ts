@@ -6,7 +6,7 @@ import {
   type Message,
 } from "@medbuddy/contracts";
 
-import { type TextExtractionResponse, validateTextExtraction } from "./validate.js";
+import { validateTextExtraction } from "./validate.js";
 
 export type CaptureMessageContext = {
   focalMessage: Message;
@@ -25,7 +25,7 @@ export type TextCaptureRequest = CaptureMessageContext;
  * facts, access storage, or choose contributor/source attribution.
  */
 export interface TextCaptureExtractor {
-  extract(input: TextCaptureRequest): Promise<TextExtractionResponse>;
+  extract(input: TextCaptureRequest): Promise<unknown>;
 }
 
 export class CaptureTechnicalError extends Error {
