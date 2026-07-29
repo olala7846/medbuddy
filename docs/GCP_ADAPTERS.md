@@ -8,8 +8,27 @@ non-breaking patched release: `google-gax` 5.0.8 is the latest compatible
 release, and npm proposes a breaking downgrade of Cloud Storage to 5.18.3.
 
 This is an explicitly accepted prototype dependency exception, not a claim of
-a clean production audit. Before deployment, re-check the audit and upgrade to
+a clean production audit. On 2026-07-29, the production-only audit reports 10
+transitive findings (5 high and 5 moderate):
+
+- Firestore and Tasks share `google-gax@5.0.8`'s `rimraf@5` → `glob@10` →
+  `minimatch@9` → `brace-expansion@2` chain (5 high findings).
+- Storage's supported dependency ranges resolve to `gaxios@6.7.1` and
+  `teeny-request@9.0.0` / `retry-request@7.0.2`, which retain `uuid@9`
+  (5 moderate findings).
+
+The Google client releases above are the current compatible releases. The
+available audit remediation proposes downgrading Storage across a major version
+to `@google-cloud/storage@5.18.3`, so it must not be applied. We also rejected
+forcing current major versions of `rimraf`, `gaxios`, `teeny-request`, or
+`retry-request` through npm overrides: those versions are outside their Google
+clients' declared compatibility ranges, and local adapter tests cannot prove
+their behavior against live GCP APIs.
+
+Before any real-data deployment, re-run `npm audit --omit=dev` and upgrade to
 the first compatible Google client releases that remove these transitive paths.
+Keep real health data out of production until that audit is clean or a security
+owner records a time-bounded risk acceptance with compensating controls.
 Do not use service-account keys: deploy with workload identity, a private
 uniform-access bucket, and a dedicated Cloud Tasks callback service account.
 
