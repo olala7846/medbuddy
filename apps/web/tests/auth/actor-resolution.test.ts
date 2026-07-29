@@ -125,6 +125,24 @@ describe("seeded credentials", () => {
     expect(derivations).toBe(1);
   });
 
+  it("rejects a stored credential hash that uses a weaker derivation cost", async () => {
+    const [seed] = await credentialSeeds();
+    if (!seed) throw new Error("Expected a fictional credential seed.");
+    const derivationIterations: number[] = [];
+    const authenticate = createSeededCredentialAuthenticator(
+      [{ ...seed, passwordHash: seed.passwordHash.replace("$210000$", "$1$") }],
+      {
+        async derivePasswordDigest(_password, _salt, iterations) {
+          derivationIterations.push(iterations);
+          return new Uint8Array(32);
+        },
+      },
+    );
+
+    await expect(authenticate(seed.username, "incorrect")).resolves.toBeNull();
+    expect(derivationIterations).toEqual([210_000]);
+  });
+
   it("ignores a persona header and retains the fixed seeded participant", async () => {
     const actor = await resolveActor(
       {

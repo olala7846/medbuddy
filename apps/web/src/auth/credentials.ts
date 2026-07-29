@@ -70,7 +70,12 @@ function parsePasswordHash(value: string): ParsedPasswordHash | null {
   const iterations = Number(iterationsText);
   const salt = base64ToBytes(saltText);
   const digest = base64ToBytes(digestText);
-  if (!Number.isSafeInteger(iterations) || iterations < 1 || !salt || !digest || digest.length !== PASSWORD_HASH_BYTES) {
+  if (
+    iterations !== PASSWORD_HASH_ITERATIONS ||
+    !salt ||
+    !digest ||
+    digest.length !== PASSWORD_HASH_BYTES
+  ) {
     return null;
   }
   return { iterations, salt, digest };
