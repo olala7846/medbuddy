@@ -205,7 +205,7 @@
 
 ### S2.3 — Implement ChatService with fixed adapters
 
-- [ ] **Owner:** Stream 2
+- [x] **Owner:** Stream 2
 - **Dependencies:** S2.2
 - **Acceptance:**
   - Appending persists the human message before response/capture invocation.

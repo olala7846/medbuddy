@@ -81,9 +81,11 @@ export function describeMessageRepositoryContract(
       await expect(repository.getMessage(message.workspaceId, message.id)).resolves.toBeNull();
       await repository.putMessage(message);
       await expect(repository.getMessage(message.workspaceId, message.id)).resolves.toEqual(message);
+      await expect(repository.listMessages(message.workspaceId)).resolves.toEqual([message]);
       await expect(
         repository.getMessage(WorkspaceIdSchema.parse("workspace:other"), message.id),
       ).resolves.toBeNull();
+      await expect(repository.listMessages(WorkspaceIdSchema.parse("workspace:other"))).resolves.toEqual([]);
     });
   });
 }

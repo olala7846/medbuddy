@@ -38,6 +38,9 @@ describeMessageRepositoryContract(() => {
     async getMessage(workspaceId, messageId) {
       return messages.get(`${workspaceId}:${messageId}`) ?? null;
     },
+    async listMessages(workspaceId) {
+      return [...messages.values()].filter((message) => message.workspaceId === workspaceId);
+    },
     async putMessage(message) {
       messages.set(`${message.workspaceId}:${message.id}`, message);
     },

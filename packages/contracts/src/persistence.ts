@@ -70,6 +70,9 @@ export interface MessageRepository {
     workspaceId: z.infer<typeof WorkspaceIdSchema>,
     messageId: z.infer<typeof MessageIdSchema>,
   ): Promise<z.infer<typeof MessageDocumentSchema> | null>;
+  listMessages(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+  ): Promise<readonly z.infer<typeof MessageDocumentSchema>[]>;
   putMessage(message: z.infer<typeof MessageDocumentSchema>): Promise<void>;
 }
 
