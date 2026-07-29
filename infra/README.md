@@ -49,6 +49,12 @@ terraform apply tfplan
 It creates `medbuddy-tf-state-643586490631-us-west1`: a private, versioned
 bucket with public access prevention. Terraform never destroys that bucket.
 
+Alternatively, run the one-time workflow from the repository root:
+
+```sh
+make infra-bootstrap
+```
+
 ## Apply the prototype foundation
 
 ```sh
@@ -64,6 +70,21 @@ terraform output
 The first apply creates the irreversible `(default)` Native-mode Firestore
 database in `us-west1`. Review the saved plan before applying it. The database
 has delete protection and Terraform prevent-destroy protection.
+
+## Future infrastructure changes
+
+After the one-time bootstrap, the normal GCS-backed workflow is one command
+from the repository root:
+
+```sh
+make infra-apply
+```
+
+It re-initializes the remote backend, checks formatting, validates the
+configuration, saves and displays `tfplan`, then asks Terraform for the final
+apply confirmation. Use `make infra-plan` to stop after planning,
+`make infra-output` to read outputs, and `make infra-verify` for read-only GCP
+checks. Plan files and local bootstrap state remain ignored by Git.
 
 ## Verify after apply
 
