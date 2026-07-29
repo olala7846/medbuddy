@@ -10,6 +10,8 @@
     "test": "vitest run --root ../.. --config vitest.config.ts"
   },
   "dependencies": {
-    "@medbuddy/contracts": "0.0.0"
+    "@medbuddy/care-record": "0.0.0",
+    "@medbuddy/contracts": "0.0.0",
+    "@medbuddy/platform": "0.0.0"
   }
 }

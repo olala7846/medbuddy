@@ -13,6 +13,7 @@ import type {
   WorkspaceDocument,
   WorkspaceRepository,
 } from "@medbuddy/contracts";
+import { MessageDocumentSchema, MessageWriteSchema } from "@medbuddy/contracts";
 import { InMemoryTransactionQueue } from "./transactions.js";
 
 interface InMemoryStore {
@@ -34,7 +35,7 @@ export interface InMemoryRepositories {
   careRecords: CareRecordRepository;
 }
 
-type WriteOperation = (operation: () => void) => Promise<void>;
+type WriteOperation = <Result>(operation: () => Result) => Promise<Result>;
 
 function clone<Value>(value: Value): Value {
   return structuredClone(value);
@@ -109,8 +110,52 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
       async getMessage(workspaceId, messageId) {
         return clone(store.messages.get(key(workspaceId, messageId)) ?? null);
       },
+      async listMessages(workspaceId) {
+        return [...store.messages.values()]
+          .filter((message) => message.workspaceId === workspaceId)
+          .sort((left, right) => left.revision - right.revision)
+          .map(clone);
+      },
       async putMessage(message) {
-        await write(() => store.messages.set(key(message.workspaceId, message.id), clone(message)));
+        return write(() => {
+          const entryKey = key(message.workspaceId, message.id);
+          const existing = store.messages.get(entryKey);
+          if (existing) {
+            const immutableShape = (value: typeof message) => {
+              const parsed = MessageWriteSchema.parse(value);
+              return {
+                id: parsed.id,
+                workspaceId: parsed.workspaceId,
+                authorMemberId: parsed.authorMemberId,
+                body: parsed.body,
+                createdAt: parsed.createdAt,
+                attachmentIds: parsed.attachmentIds,
+                captureIntent: parsed.captureIntent,
+              };
+            };
+            if (JSON.stringify(immutableShape(existing)) !== JSON.stringify(immutableShape(message))) {
+              throw new Error("An immutable record already exists with a different value.");
+            }
+            if (JSON.stringify(MessageWriteSchema.parse(existing)) === JSON.stringify(MessageWriteSchema.parse(message))) {
+              return clone(existing);
+            }
+            const persisted = MessageDocumentSchema.parse({
+              ...message,
+              revision: existing.revision + 1,
+            });
+            store.messages.set(entryKey, clone(persisted));
+            return persisted;
+          }
+          const nextRevision = Math.max(
+            0,
+            ...[...store.messages.values()]
+              .filter((entry) => entry.workspaceId === message.workspaceId)
+              .map((entry) => entry.revision),
+          ) + 1;
+          const persisted = MessageDocumentSchema.parse({ ...message, revision: nextRevision });
+          store.messages.set(entryKey, clone(persisted));
+          return persisted;
+        });
       },
     },
     attachments: {
@@ -178,7 +223,7 @@ export class InMemoryPersistence {
   #transactions = new InMemoryTransactionQueue();
 
   readonly repositories: InMemoryRepositories = repositoriesFor(this.#store, async (operation) => {
-    await this.#transactions.run(async () => operation());
+    return this.#transactions.run(async () => operation());
   });
   readonly workspaces = this.repositories.workspaces;
   readonly members = this.repositories.members;

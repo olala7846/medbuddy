@@ -219,6 +219,47 @@ describe("in-memory persistence", () => {
     expect(executions).toBe(1);
   });
 
+  it("assigns unique workspace-scoped revisions for serial and concurrent appends", async () => {
+    const persistence = new InMemoryPersistence();
+    const createMessage = (id: string) => MessageDocumentSchema.parse({
+      id,
+      workspaceId: "workspace:revisions",
+      authorMemberId: "member:owner",
+      body: `Fictional message ${id}.`,
+      createdAt: "2026-07-28T10:00:00.000Z",
+      attachmentIds: [],
+      captureIntent: "PASSIVE",
+      processingStatus: "PENDING",
+      processingAttempts: 0,
+    });
+
+    const first = await persistence.messages.putMessage(createMessage("message:revision-1"));
+    const duplicate = await persistence.messages.putMessage(createMessage("message:revision-1"));
+    const captured = await persistence.messages.putMessage({
+      ...createMessage("message:revision-1"),
+      processingStatus: "CAPTURED",
+    });
+    const concurrent = await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        persistence.messages.putMessage(createMessage(`message:revision-${index + 2}`)),
+      ),
+    );
+
+    expect(first.revision).toBe(1);
+    expect(duplicate).toEqual(first);
+    expect(captured).toMatchObject({ processingStatus: "CAPTURED", revision: 2 });
+    expect(concurrent.map((message) => message.revision).sort((left, right) => left - right)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 3),
+    );
+    await expect(persistence.messages.putMessage({ ...createMessage("message:revision-1"), body: "Changed." })).rejects.toThrow("immutable");
+    const messages = await persistence.messages.listMessages(first.workspaceId);
+    expect(messages.slice(0, 3)).toMatchObject([
+      { id: "message:revision-1", revision: 2 },
+      { id: "message:revision-2", revision: 3 },
+      { id: "message:revision-3", revision: 4 },
+    ]);
+  });
+
   it("preserves immutable review events and handoff versions on conflicting retries", async () => {
     const persistence = new InMemoryPersistence();
     const fact = factFixture();
