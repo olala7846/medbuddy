@@ -6,6 +6,7 @@ import {
   CaptureJobInputSchema,
   CaptureOutcomeSchema,
   ConversationContextSchema,
+  ConversationRequestSchema,
   type ConversationResponder,
   MessageSchema,
   ProcessingStatusSchema,
@@ -103,11 +104,12 @@ describe("chat contracts", () => {
       },
     };
 
-    await responder.respond({
+    const request = ConversationRequestSchema.parse({
       actor,
       messageId: focalMessage.id,
       context,
     });
+    await responder.respond(request);
   });
 
   it("rejects a context that crosses workspaces", () => {
@@ -115,6 +117,34 @@ describe("chat contracts", () => {
       ConversationContextSchema.safeParse({
         workspaceId: "workspace:demo-1",
         messages: [{ ...message, workspaceId: "workspace:other" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires the focal message and actor workspace to match the context", () => {
+    const actor = ActorContextSchema.parse({
+      accountId: "account:owner-1",
+      authentication: {
+        kind: "CREDENTIALS",
+        accountId: "account:owner-1",
+        fixedMemberId: "member:owner-1",
+      },
+      effectiveMemberId: "member:owner-1",
+      workspaceId: "workspace:demo-1",
+    });
+
+    expect(
+      ConversationRequestSchema.safeParse({
+        actor,
+        messageId: "message:missing",
+        context: { workspaceId: "workspace:demo-1", messages: [message] },
+      }).success,
+    ).toBe(false);
+    expect(
+      ConversationRequestSchema.safeParse({
+        actor,
+        messageId: "message:visit-1",
+        context: { workspaceId: "workspace:other", messages: [{ ...message, workspaceId: "workspace:other" }] },
       }).success,
     ).toBe(false);
   });

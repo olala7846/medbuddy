@@ -421,7 +421,7 @@ Medication-change intent bypasses free-form answer generation. The application e
 
 Only messages that explicitly mention `@MedBuddy` require a textual agent response. Passive capture does not invoke the conversational agent. A message is persisted before any model call.
 
-For each agent turn, Chat reconstructs a bounded `ConversationContext` from recent canonical messages in the actor's workspace, verifies every supplied message belongs to that workspace, and passes the context with the focal `messageId` to `ConversationResponder`. Intelligence receives this value rather than a repository or Firestore client. LangGraph execution state is ephemeral for that invocation. If an invocation fails, a retry reconstructs state again; no custom checkpointer is required.
+For each agent turn, Chat reconstructs a bounded `ConversationContext` from recent canonical messages in the actor's workspace, verifies every supplied message belongs to that workspace, and passes the context with the focal `messageId` to `ConversationResponder`. The shared request schema requires that the context workspace equals the effective actor workspace and that it includes the focal message. Intelligence receives this value rather than a repository or Firestore client. LangGraph execution state is ephemeral for that invocation. If an invocation fails, a retry reconstructs state again; no custom checkpointer is required.
 
 ### 8.2 Agent behavior
 
