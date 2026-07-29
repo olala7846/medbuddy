@@ -89,6 +89,7 @@ export interface CareRecordRepository {
   ): Promise<z.infer<typeof FactDocumentSchema> | null>;
   putFact(fact: z.infer<typeof FactDocumentSchema>): Promise<void>;
   updateFactReviewStatus(input: { workspaceId: z.infer<typeof WorkspaceIdSchema>; factId: z.infer<typeof FactIdSchema>; reviewStatus: z.infer<typeof AtomicFactSchema>["reviewStatus"] }): Promise<void>;
+  applyReview(event: z.infer<typeof ReviewEventDocumentSchema>, reviewStatus: z.infer<typeof AtomicFactSchema>["reviewStatus"]): Promise<void>;
   listReviewEvents(
     workspaceId: z.infer<typeof WorkspaceIdSchema>,
     factId: z.infer<typeof FactIdSchema>,

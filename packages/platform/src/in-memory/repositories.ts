@@ -141,6 +141,15 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
           store.facts.set(entryKey, { ...clone(fact), reviewStatus });
         });
       },
+      async applyReview(event, reviewStatus) {
+        await write(() => {
+          const factKey = key(event.workspaceId, event.factId);
+          const fact = store.facts.get(factKey);
+          if (!fact) throw new Error("Cannot review a missing fact.");
+          putImmutable(store.reviews, key(event.workspaceId, event.id), event);
+          store.facts.set(factKey, { ...clone(fact), reviewStatus });
+        });
+      },
       async listReviewEvents(workspaceId, factId) {
         return [...store.reviews.values()]
           .filter((review) => review.workspaceId === workspaceId && review.factId === factId)

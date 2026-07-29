@@ -79,6 +79,12 @@ export class FirestorePersistence implements TransactionalPersistence {
       updateFactReviewStatus: async ({ workspaceId, factId, reviewStatus }) => {
         await this.factRef(workspaceId, factId).update({ reviewStatus });
       },
+      applyReview: async (event, reviewStatus) => this.runRawTransaction(async (transaction) => {
+        const fact = await transaction.get(this.factRef(event.workspaceId, event.factId));
+        if (!fact.exists) throw new Error("Cannot review a missing fact.");
+        await this.putImmutable(transaction, this.reviewRef(event.workspaceId, event.id), event);
+        transaction.update(this.factRef(event.workspaceId, event.factId), { reviewStatus });
+      }),
       listReviewEvents: async (workspaceId, factId) => {
         const snapshots = await this.workspaceRef(workspaceId)
           .collection("reviewEvents")
@@ -160,6 +166,7 @@ export class FirestorePersistence implements TransactionalPersistence {
         getFact: (workspaceId, factId) => get(this.factRef(workspaceId, factId), FactDocumentSchema),
         putFact: async (value) => this.putImmutable(transaction, this.factRef(value.workspaceId, value.id), value),
         updateFactReviewStatus: async ({ workspaceId, factId, reviewStatus }) => { transaction.update(this.factRef(workspaceId, factId), { reviewStatus }); },
+        applyReview: async (event, reviewStatus) => { const fact = await transaction.get(this.factRef(event.workspaceId, event.factId)); if (!fact.exists) throw new Error("Cannot review a missing fact."); await this.putImmutable(transaction, this.reviewRef(event.workspaceId, event.id), event); transaction.update(this.factRef(event.workspaceId, event.factId), { reviewStatus }); },
         listReviewEvents: async (workspaceId, factId) => (await transaction.get(this.workspaceRef(workspaceId).collection("reviewEvents").where("factId", "==", factId))).docs.map((doc) => ReviewEventDocumentSchema.parse(data(doc.data()))),
         appendReviewEvent: async (value) => this.putImmutable(transaction, this.reviewRef(value.workspaceId, value.id), value),
         getHandoff: (workspaceId, id) => get(this.handoffRef(workspaceId, id), HandoffVersionDocumentSchema),
