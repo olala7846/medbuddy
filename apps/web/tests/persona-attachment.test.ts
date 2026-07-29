@@ -1,0 +1,160 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  ActorContextSchema,
+  AttachmentIdSchema,
+  MessageIdSchema,
+  MessageSchema,
+  WorkspaceIdSchema,
+  type ChatService,
+} from "@medbuddy/contracts";
+
+import {
+  MEDBUDDY_DEMO_MEMBER_HEADER,
+  createAuthenticatedChatRoute,
+  createPersistedChatTimeline,
+  createServerAttachmentMetadata,
+  createTabPersonaSelection,
+} from "../src/index.js";
+
+class FakeSessionStorage {
+  #values = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.#values.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.#values.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.#values.delete(key);
+  }
+}
+
+const workspaceId = WorkspaceIdSchema.parse("workspace:reviewer-demo");
+
+describe("per-tab reviewer personas", () => {
+  it("stores each Google reviewer's selected fictional participant in session storage and creates the approved header", () => {
+    const firstTab = createTabPersonaSelection({ workspaceId, storage: new FakeSessionStorage(), isGoogleReviewer: true });
+    const secondTab = createTabPersonaSelection({ workspaceId, storage: new FakeSessionStorage(), isGoogleReviewer: true });
+
+    firstTab.select("member:owner");
+    secondTab.select("member:caregiver");
+
+    expect(firstTab.memberId).toBe("member:owner");
+    expect(secondTab.memberId).toBe("member:caregiver");
+    expect(firstTab.requestHeaders()).toEqual({ [MEDBUDDY_DEMO_MEMBER_HEADER]: "member:owner" });
+    expect(secondTab.requestHeaders()).toEqual({ [MEDBUDDY_DEMO_MEMBER_HEADER]: "member:caregiver" });
+  });
+
+  it("does not provide a persona override for a fixed credential session", () => {
+    const selection = createTabPersonaSelection({
+      workspaceId,
+      storage: new FakeSessionStorage(),
+      isGoogleReviewer: false,
+    });
+
+    selection.select("member:owner");
+
+    expect(selection.memberId).toBeUndefined();
+    expect(selection.requestHeaders()).toEqual({});
+  });
+});
+
+describe("server-owned attachment metadata", () => {
+  it("permits only contract-approved image types and creates a private message-scoped path", () => {
+    const attachment = createServerAttachmentMetadata({
+      attachmentId: AttachmentIdSchema.parse("attachment:label"),
+      workspaceId,
+      messageId: MessageIdSchema.parse("message:visit-note"),
+      mimeType: "image/png",
+      byteSize: 128,
+      checksum: "a".repeat(64),
+    });
+
+    expect(attachment.objectPath).toBe("workspaces/workspace:reviewer-demo/messages/message:visit-note/attachment:label");
+    expect(attachment.mimeType).toBe("image/png");
+  });
+
+  it("rejects unsupported types and never accepts a browser-supplied object path", () => {
+    expect(() => createServerAttachmentMetadata({
+      attachmentId: AttachmentIdSchema.parse("attachment:document"),
+      workspaceId,
+      messageId: MessageIdSchema.parse("message:visit-note"),
+      mimeType: "application/pdf",
+      byteSize: 128,
+      checksum: "a".repeat(64),
+      objectPath: "outside-the-workspace",
+    })).toThrow();
+  });
+});
+
+describe("workspace requests and capture retry", () => {
+  const actor = ActorContextSchema.parse({
+    accountId: "account:reviewer",
+    authentication: { kind: "GOOGLE_PROTOTYPE_REVIEWER", accountId: "account:reviewer", email: "reviewer@example.test", emailVerified: true, assumedMemberId: "member:owner" },
+    effectiveMemberId: "member:owner",
+    workspaceId,
+  });
+
+  it("forwards only the approved persona header to server-side actor resolution", async () => {
+    const resolvedHeaders: Array<string | undefined> = [];
+    const chatService: ChatService = {
+      async appendMessage(_actor, input) {
+        return {
+          message: MessageSchema.parse({ id: "message:sent", workspaceId, authorMemberId: "member:owner", body: input.body, createdAt: "2026-07-29T12:00:00.000Z", attachmentIds: [], captureIntent: "PASSIVE", processingStatus: "PENDING", processingAttempts: 0, revision: 1 }),
+          captureQueued: true,
+        };
+      },
+      async listMessages() { return { messages: [], nextRevision: 0 }; },
+      async requestCaptureRetry() {},
+    };
+    const route = createAuthenticatedChatRoute({
+      chatService,
+      async resolveServerActor(_workspaceId, demoMemberHeader) {
+        resolvedHeaders.push(demoMemberHeader);
+        return actor;
+      },
+    });
+
+    await route.listMessages(
+      { workspaceId, limit: 20 },
+      { headers: { [MEDBUDDY_DEMO_MEMBER_HEADER]: "member:owner", "X-Untrusted": "ignored" } },
+    );
+
+    expect(resolvedHeaders).toEqual(["member:owner"]);
+  });
+
+  it("renders image upload guidance and a retry control for a failed capture", async () => {
+    const api = {
+      async listMessages() {
+        return {
+          messages: [MessageSchema.parse({
+            id: "message:failed",
+            workspaceId,
+            authorMemberId: "member:owner",
+            body: "Fictional unreadable label.",
+            createdAt: "2026-07-29T12:00:00.000Z",
+            attachmentIds: [],
+            captureIntent: "PASSIVE",
+            processingStatus: "FAILED",
+            processingAttempts: 1,
+            revision: 1,
+          })],
+          nextRevision: 1,
+        };
+      },
+      async sendMessage() { throw new Error("Not used in this test."); },
+      async requestCaptureRetry() {},
+    };
+    const timeline = createPersistedChatTimeline({ workspaceId, api });
+
+    await timeline.load();
+
+    expect(timeline.render()).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(timeline.render()).toContain("Retry capture");
+    await expect(timeline.retry(MessageIdSchema.parse("message:failed"))).resolves.toBeUndefined();
+  });
+});
