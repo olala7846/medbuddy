@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AtomicFactSchema,
+  FactIdSchema,
   GoldenScenario,
   HandoffVersionSchema,
   MemberDocumentSchema,
@@ -29,6 +30,16 @@ const owner = MemberDocumentSchema.parse({
   role: "OWNER",
   processingConsent: true,
   joinedAt: workspace.createdAt,
+});
+
+const foreignWorkspace = WorkspaceDocumentSchema.parse({
+  ...workspace,
+  id: "workspace:other",
+});
+
+const foreignOwner = MemberDocumentSchema.parse({
+  ...owner,
+  workspaceId: foreignWorkspace.id,
 });
 
 const scenarioV1 = HandoffVersionSchema.parse(GoldenScenario.handoffV1);
@@ -101,6 +112,30 @@ describe("immutable handoff assembly", () => {
     );
   });
 
+  it("records a unique source-message set when multiple facts came from one message", () => {
+    const secondFactFromSameMessage = AtomicFactSchema.parse({
+      ...firstScenarioFact,
+      id: FactIdSchema.parse("fact:owner-visit-medication"),
+      kind: "MEDICATION",
+      value: { label: "Demo medicine tablet" },
+      conflictsWithFactIds: [],
+    });
+
+    const handoff = assembleHandoffVersion({
+      workspace,
+      actor: owner,
+      id: "handoff:shared-message",
+      createdAt: "2026-07-28T10:10:00.000Z",
+      facts: [firstScenarioFact, secondFactFromSameMessage],
+      conflicts: [],
+      medicationSources: [],
+      reviewEvents: [],
+    });
+
+    expect(handoff.sourceFactIds).toEqual([firstScenarioFact.id, secondFactFromSameMessage.id]);
+    expect(handoff.sourceMessageIds).toEqual([firstScenarioFact.sourceMessageId]);
+  });
+
   it("rejects cross-workspace facts, reviews, or predecessors before publishing a handoff", () => {
     expect(() =>
       assembleHandoffVersion({
@@ -117,6 +152,54 @@ describe("immutable handoff assembly", () => {
         reviewEvents: [],
       }),
     ).toThrow("must belong to the workspace");
+
+    const foreignReview = ReviewEventSchema.parse({
+      id: "review:foreign",
+      workspaceId: WorkspaceIdSchema.parse("workspace:other"),
+      factId: firstScenarioFact.id,
+      actorMemberId: owner.id,
+      action: "ACCEPT",
+      createdAt: "2026-07-28T10:05:00.000Z",
+    });
+    expect(() =>
+      assembleHandoffVersion({
+        workspace,
+        actor: owner,
+        id: "handoff:invalid-review",
+        createdAt: "2026-07-28T10:10:00.000Z",
+        facts: [firstScenarioFact],
+        conflicts: [],
+        medicationSources: [],
+        reviewEvents: [foreignReview],
+      }),
+    ).toThrow("review event must belong to the workspace");
+
+    const foreignPredecessor = assembleHandoffVersion({
+      workspace: foreignWorkspace,
+      actor: foreignOwner,
+      id: "handoff:foreign-v1",
+      createdAt: "2026-07-28T10:10:00.000Z",
+      facts: [AtomicFactSchema.parse({
+        ...firstScenarioFact,
+        workspaceId: foreignWorkspace.id,
+      })],
+      conflicts: [],
+      medicationSources: [],
+      reviewEvents: [],
+    });
+    expect(() =>
+      assembleHandoffVersion({
+        workspace,
+        actor: owner,
+        id: "handoff:foreign-predecessor",
+        createdAt: "2026-07-29T08:10:00.000Z",
+        predecessor: foreignPredecessor,
+        facts: [firstScenarioFact],
+        conflicts: [],
+        medicationSources: [],
+        reviewEvents: [],
+      }),
+    ).toThrow("predecessor handoff must belong to the workspace");
 
     expect(() =>
       assembleHandoffVersion({

@@ -68,7 +68,7 @@ export function assembleHandoffVersion({
     predecessorVersionId: parsedPredecessor?.id,
     createdByMemberId: actor.id,
     createdAt,
-    sourceMessageIds: snapshot.facts.map((fact) => fact.sourceMessageId),
+    sourceMessageIds: [...new Set(snapshot.facts.map((fact) => fact.sourceMessageId))],
     sourceFactIds: snapshot.facts.map((fact) => fact.id),
     sourceReviewEventIds: reviewEvents.map((event) => event.id),
     snapshot,

@@ -57,8 +57,8 @@ export const HandoffVersionSchema = z.object({
   }
   if (
     referencedMessageIds.size !== sourceMessageIds.length ||
-    referencedMessageIds.size !== snapshotMessageIds.size ||
-    [...referencedMessageIds].some((id) => !snapshotMessageIds.has(id))
+    [...referencedMessageIds].some((id) => !snapshotMessageIds.has(id)) ||
+    [...snapshotMessageIds].some((id) => !referencedMessageIds.has(id))
   ) {
     context.addIssue({
       code: "custom",
