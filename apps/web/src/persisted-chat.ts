@@ -65,12 +65,17 @@ export class PersistedChatTimeline {
   }
 
   async load(): Promise<void> {
-    const page = await this.#api.listMessages(this.#actor, {
-      workspaceId: this.#actor.workspaceId,
-      limit: 100,
-    });
-    this.#replaceMessages(page.messages);
-    this.#revision = page.nextRevision;
+    let after: MessageCursorQuery["after"];
+    do {
+      const page = await this.#api.listMessages(this.#actor, {
+        workspaceId: this.#actor.workspaceId,
+        after,
+        limit: 100,
+      });
+      this.#replaceMessages(page.messages);
+      this.#revision = Math.max(this.#revision, page.nextRevision);
+      after = page.nextCursor;
+    } while (after !== undefined);
   }
 
   async send(body: string): Promise<Message> {

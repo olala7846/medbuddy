@@ -118,4 +118,23 @@ describe("login and persisted chat timeline", () => {
     expect(timeline.messages).toMatchObject([{ id: "message:human-new", processingStatus: "CAPTURED" }]);
     expect(timeline.render()).toContain("<strong>Captured:</strong> available for review.");
   });
+
+  it("loads every cursor page before it begins revision polling", async () => {
+    const api = createApi([
+      {
+        messages: [message({ id: "message:first", body: "First", processingStatus: "PENDING", revision: 1 })],
+        nextCursor: "message:first" as never,
+        nextRevision: 1,
+      },
+      {
+        messages: [message({ id: "message:second", body: "Second", processingStatus: "CAPTURED", revision: 2 })],
+        nextRevision: 2,
+      },
+    ]);
+    const timeline = createPersistedChatTimeline({ actor, api });
+
+    await timeline.load();
+
+    expect(timeline.messages.map((stored) => stored.id)).toEqual(["message:first", "message:second"]);
+  });
 });
