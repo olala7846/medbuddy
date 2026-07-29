@@ -4,11 +4,13 @@ import {
   CaptureOutcomeSchema,
   CaptureProposalSchema,
   MessageSchema,
+  ReadableLabelExtractionResponseSchema,
   type Attachment,
   type CaptureJobInput,
   type CaptureOutcome,
   type CaptureProcessor,
   type Message,
+  type ReadableLabelExtractionResponse,
 } from "@medbuddy/contracts";
 
 import { CaptureTechnicalError } from "./processor.js";
@@ -33,12 +35,10 @@ export interface ReadableLabelExtractor {
   extract(
     input: ReadableLabelCaptureRequest,
     attachment: Attachment,
-  ): Promise<ReadableLabelExtractionResponse>;
+  ): Promise<unknown>;
 }
 
-export type ReadableLabelExtractionResponse =
-  | { kind: "READABLE_PRINTED_LABEL"; labelText: string }
-  | { kind: "UNREADABLE" | "HANDWRITING" | "PILL_APPEARANCE" };
+export type { ReadableLabelExtractionResponse } from "@medbuddy/contracts";
 
 const printedLabelCharacters = /^[\p{Script=Han}A-Za-z0-9\s.,:;()\-/%+]+$/u;
 
@@ -67,7 +67,28 @@ export function createReadableLabelCaptureProcessor(
             response: await extractor.extract(context, attachment),
           })),
         );
-        const readableResponses = responses.filter(isReadablePrintedLabelResponse);
+        const readableResponses: {
+          attachment: Attachment;
+          response: Extract<ReadableLabelExtractionResponse, { kind: "READABLE_PRINTED_LABEL" }>;
+        }[] = [];
+        for (const { attachment, response } of responses) {
+          const parsedResponse = ReadableLabelExtractionResponseSchema.safeParse(response);
+          if (!parsedResponse.success) {
+            return CaptureOutcomeSchema.parse({
+              kind: "UNCERTAIN",
+              reason: "SCHEMA_INVALID",
+              captureIntent: context.focalMessage.captureIntent,
+            });
+          }
+          if (parsedResponse.data.kind !== "READABLE_PRINTED_LABEL") {
+            return CaptureOutcomeSchema.parse({
+              kind: "UNCERTAIN",
+              reason: "UNREADABLE_LABEL",
+              captureIntent: context.focalMessage.captureIntent,
+            });
+          }
+          readableResponses.push({ attachment, response: parsedResponse.data });
+        }
         if (readableResponses.length !== responses.length) {
           return CaptureOutcomeSchema.parse({
             kind: "UNCERTAIN",
@@ -110,12 +131,6 @@ export function createReadableLabelCaptureProcessor(
 
 function isSupportedPrintedLabel(labelText: string): boolean {
   return labelText.length > 0 && printedLabelCharacters.test(labelText);
-}
-
-function isReadablePrintedLabelResponse(
-  item: { attachment: Attachment; response: ReadableLabelExtractionResponse },
-): item is { attachment: Attachment; response: Extract<ReadableLabelExtractionResponse, { kind: "READABLE_PRINTED_LABEL" }> } {
-  return item.response.kind === "READABLE_PRINTED_LABEL";
 }
 
 function validateImageCaptureContext(input: CaptureJobInput, context: ImageCaptureMessageContext): void {

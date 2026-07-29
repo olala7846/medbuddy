@@ -5,6 +5,7 @@ import { CaptureJobInputSchema, MessageSchema } from "@medbuddy/contracts";
 import {
   CaptureTechnicalError,
   FixedTextCaptureExtractor,
+  ModelProviderError,
   createTextCaptureProcessor,
   type CaptureMessageContext,
   type CaptureMessageLoader,
@@ -124,6 +125,22 @@ describe("text capture processor", () => {
     await expect(failedProcessor.process(input)).resolves.toEqual({
       kind: "TECHNICAL_FAILURE",
       code: "PROVIDER_TIMEOUT",
+      retryable: true,
+    });
+  });
+
+  it.each([
+    ["timeout", new ModelProviderError("PROVIDER_TIMEOUT"), "PROVIDER_TIMEOUT"],
+    ["provider failure", new ModelProviderError("PROVIDER_ERROR"), "PROVIDER_ERROR"],
+  ])("maps a fixed-adapter %s to a typed technical failure", async (_label, error, code) => {
+    const processor = createTextCaptureProcessor(
+      createLoader({ focalMessage, nearbyMessages: [] }),
+      new FixedTextCaptureExtractor(new Map([[focalMessage.id, error]])),
+    );
+
+    await expect(processor.process(input)).resolves.toEqual({
+      kind: "TECHNICAL_FAILURE",
+      code,
       retryable: true,
     });
   });

@@ -34,3 +34,4 @@ export * from "./capture/readable-label.js";
 export * from "./capture/validate.js";
 export * from "./conversation/responder.js";
 export * from "./conversation/tools.js";
+export * from "./adapters/fixed-model.js";
