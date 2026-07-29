@@ -23,10 +23,12 @@ The authentication decision below supersedes the V0 TDD statements that real aut
 
 - Use Auth.js with Google and Credentials providers.
 - Permit Google login only for verified emails matching configured email or domain allowlists.
+- On first eligible Google prototype-reviewer sign-in, provision one persistent dedicated fictional workspace from the committed golden-scenario template; later sign-ins reuse its mapping.
 - Allow an approved Google prototype reviewer to select any seeded fictional participant independently in each browser tab.
 - Send that selection as `X-MedBuddy-Demo-Member`; server-side actor resolution accepts it only for an eligible Google prototype reviewer and a seeded member.
 - Bind each seeded credential account to exactly one fictional participant. Ignore persona-selection headers from credential accounts.
 - Store only password hashes in Secret Manager or ignored local configuration.
+- Permit an explicit idempotent reset of only the authenticated prototype reviewer's fictional demo workspace. The reset provisions a replacement and never rewrites the old workspace or handoffs.
 - Provide no registration, password reset, account management, or public-user workflow.
 - Use service-account OIDC—not human credentials—for Cloud Tasks invocation.
 
@@ -109,6 +111,11 @@ interface ConversationResponder {
   respond(input: ConversationRequest): Promise<ConversationResult>;
 }
 
+interface DemoWorkspaceProvisioner {
+  getOrCreate(accountId: AccountId): Promise<DemoWorkspaceMapping>;
+  reset(input: DemoWorkspaceResetInput): Promise<DemoWorkspaceMapping>;
+}
+
 interface CaptureProcessor {
   process(input: CaptureJobInput): Promise<CaptureOutcome>;
 }
@@ -143,6 +150,7 @@ All request, result, event, error, Firestore-document, task-payload, and model-p
 | Handoff versions | Care record | Transactional handoff assembler |
 | Medication source cards | Intelligence/grounding | Build-time snapshot script |
 | Attachments | Chat metadata; platform object storage | Server-side upload flow |
+| Reviewer demo-workspace mappings | Auth/composition | Persistent account-to-fictional-workspace mapping; platform only adapts storage |
 | Agent and capture proposals | Intelligence | Never canonical until validated |
 
 The intelligence module does not write Firestore. It returns typed proposals. Care-record code validates and persists facts; chat code updates processing state and exposes `👀`.
@@ -229,6 +237,7 @@ Owns:
 Delivers:
 
 - Google and seeded credential login;
+- first-sign-in provisioning and explicit reset of a Google prototype reviewer's fictional demo workspace through the public contract;
 - per-tab fictional persona selection for eligible Google prototype reviewers;
 - timeline, composer, attachment input, polling, reactions, and retry controls;
 - review and printable handoff screens;
@@ -240,7 +249,7 @@ Independent completion evidence:
 - The complete browser flow runs in in-memory mode without GCP or Gemini.
 - Human and fixed MedBuddy messages use the same message contract.
 - Credential sessions remain bound to their configured participants.
-- Separate Google-reviewer tabs may select separate fictional personas.
+- Separate Google prototype-reviewer tabs may select separate fictional personas in that reviewer's workspace.
 - Critical states have readable text and non-color indicators.
 
 Estimated focused effort: **6–8 hours**.
@@ -424,7 +433,7 @@ These are elapsed estimates, not summed labor. GCP permissions, Google OAuth con
 | Chat begins depending directly on Gemini | High coupling | Use `ConversationResponder`; Chat tests only against a fixed adapter. |
 | Intelligence writes Firestore directly | High safety risk | Return typed proposals; care record remains canonical writer. |
 | Firestore schemas become shared-edit hotspots | High merge risk | Assign collection ownership and use repository interfaces. |
-| Auth expands beyond prototype needs | Medium schedule risk | No signup/reset/admin; only allowlisted Google and seeded credentials. |
+| Auth expands beyond prototype needs | Medium schedule risk | No signup, password reset, account management, or public-user workflow; only allowlisted Google, seeded credentials, and explicit reviewer-demo workspace reset. |
 | Google OAuth setup blocks UI work | Medium | Develop Stream 2 with fixed credential/in-memory mode first. |
 | GCP IAM or region blocks deployment | High | Complete local in-memory and emulator proof; document exact blocker. |
 | Live model output is unstable | Medium | Fixed-output tests are release-blocking; live quality remains manual. |

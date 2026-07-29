@@ -31,7 +31,7 @@ Success means the deployed prototype and its tests demonstrate that workflow wit
 
 ### 2.1 Must ship in the 18–24 hour build
 
-- One seeded, already-approved workspace with one owner and two caregivers.
+- One versioned, already-approved fictional golden-scenario template with one owner and two caregivers. Each eligible Google prototype reviewer receives one dedicated persistent workspace copied from that template on first sign-in.
 - Simulated persona switching, visibly labeled as simulation.
 - Server-persisted group conversation that survives browser restart.
 - Friendly `@MedBuddy` conversation powered by Gemini.
@@ -70,11 +70,11 @@ Success means the deployed prototype and its tests demonstrate that workflow wit
 
 - The repository and deployment may be publicly reviewed; all fixtures are fictional.
 - The prototype supports no more than 100 users and no more than five humans per workspace: exactly one owner and up to four caregivers.
-- The required demo is single-workspace and single-tab. Multiple tabs may observe shared state through polling, but realtime coordination is not guaranteed.
+- Each reviewer demo is a single workspace and single-tab acceptance path. Multiple tabs in that reviewer workspace may observe shared state through polling, but realtime coordination is not guaranteed.
 - A workspace-scoped database is required for chat persistence and agent-state reconstruction.
-- Workspace approval is a prerequisite for all health functionality. The seeded demo starts after approval to preserve the build cut.
+- Workspace approval is a prerequisite for all health functionality. Each reviewer workspace is provisioned from an already-approved fictional template to preserve the build cut.
 - Participant messages may remain visible as ordinary conversation before approval, but MedBuddy must not process them, react to them, structure them, or replay them after approval.
-- Authentication is required for every browser request. Approved Google prototype reviewers may select a seeded fictional persona per browser tab; seeded credential accounts stay bound to one fictional participant.
+- Authentication is required for every browser request. Approved Google prototype reviewers may select a fictional persona per browser tab in their own seeded workspace; seeded credential accounts stay bound to one fictional participant in a separate deterministic test workspace.
 - Browser printing is the export surface.
 - One deployment environment is sufficient. GitHub CI is optional and must not delay the prototype.
 - Probabilistic extraction quality is best effort. Deterministic safety, consent, authorization, provenance, and history invariants are release-blocking.
@@ -108,6 +108,10 @@ Package versions other than the selected model are fixed by `package-lock.json` 
 Auth.js is the browser authentication boundary. Google sign-in is accepted only when the provider reports a verified email that matches a configured exact-email or domain allowlist. Seeded credential accounts verify password hashes held outside Git and resolve to one fixed fictional member ID. Failed credential attempts use a generic response and never disclose account existence.
 
 An authenticated Google prototype reviewer is an allowlisted evaluator of the fictional prototype who signs in with Google; it is not a product user, a caregiver role, or a claim of affiliation with a particular reviewer organization. They may select a seeded fictional participant in each browser tab. The browser sends that selection in `X-MedBuddy-Demo-Member`; server-side actor resolution accepts it only when the evaluator is eligible, the member is seeded, and that member belongs to the requested workspace. Credential sessions ignore this header and retain their fixed member. The selected persona is a visible demo simulation, not authorization by itself. Unauthenticated, unmapped, and cross-workspace selections fail before domain code runs.
+
+After the server verifies an eligible Google prototype-reviewer session, composition calls `DemoWorkspaceProvisioner.getOrCreate(accountId)`. The provisioner creates that account's first dedicated workspace from the committed versioned fictional golden-scenario template, or returns its existing mapping on later sign-ins. The reviewer account is never a health participant: the copied workspace contains the fixed fictional owner and two caregivers, and the reviewer selects one of those personas visibly per tab. Credential accounts use a separate deterministic test workspace and never share a reviewer mapping.
+
+Reviewer workspace reset is an explicit, server-authorized action, not an automatic sign-in side effect. `DemoWorkspaceProvisioner.reset({ accountId, idempotencyKey })` creates a replacement workspace from the current approved template and atomically changes the reviewer mapping. It never edits a prior workspace, its facts, or an immutable handoff; the old workspace may be retained or archived by the eventual implementation. The UI and route adapter are deferred to the authenticated Chat App workstream. The reset API derives `accountId` from the session and supplies an idempotency key; it never trusts an account ID sent by the browser.
 
 Cloud Tasks does not use a human session. Its internal callback verifies the configured service-account OIDC identity separately.
 
@@ -174,7 +178,7 @@ Nearby messages may help disambiguate pronouns or context, but every extracted f
 
 ### 5.1 Browser
 
-The browser may display data, collect input, select a permitted simulated persona for a Google-reviewer tab, upload an allowed attachment, request review actions, and poll for updates. It must not write Firestore or Cloud Storage directly and must not decide authentication, authorization, safety routing, fact eligibility, or handoff content.
+The browser may display data, collect input, select a permitted simulated persona for a Google prototype-reviewer tab, request an explicit demo-workspace reset, upload an allowed attachment, request review actions, and poll for updates. It must not write Firestore or Cloud Storage directly and must not decide authentication, authorization, demo-workspace provisioning, safety routing, fact eligibility, or handoff content.
 
 ### 5.2 Conversational agent
 
@@ -252,7 +256,7 @@ medicationSources/{sourceCardId}
 
 The workspace document contains mutable configuration and pointers such as `approvalState`, `approvedMembershipHash`, `currentHandoffVersionId`, and timestamps. It must not contain a growing message or fact array.
 
-Collection ownership is explicit: care-record/domain owns `workspaces`, `members`, `facts`, `reviewEvents`, and `handoffVersions`; chat owns `messages` and their processing state; intelligence owns only the build-time `medicationSources` contract and returns proposals rather than canonical writes; platform owns Firestore, task, and storage adapters but no domain policy. `agentRuns` is operational metadata only. All collection access is through public repository ports; no workstream imports another package's internal files or accesses Firestore directly.
+Collection ownership is explicit: care-record/domain owns `workspaces`, `members`, `facts`, `reviewEvents`, and `handoffVersions`; chat owns `messages` and their processing state; the auth/composition boundary owns `demoWorkspaceMappings` (reviewer account to dedicated fictional workspace); intelligence owns only the build-time `medicationSources` contract and returns proposals rather than canonical writes; platform owns Firestore, task, and storage adapters but no domain policy. `agentRuns` is operational metadata only. All collection access is through public repository ports; no workstream imports another package's internal files or accesses Firestore directly.
 
 ### 6.3 Core records
 
@@ -380,6 +384,7 @@ interface ApiError {
 | `GET /api/workspaces/:id` | Load workspace, members, and current handoff pointer. | Selected persona belongs to workspace. |
 | `GET /api/workspaces/:id/messages?after=` | Poll ordered messages and processing changes. | Workspace visibility; bounded page size. |
 | `POST /api/workspaces/:id/messages` | Persist a participant message, then enqueue capture and optionally invoke agent. | Approved workspace, approved participant, input schema, idempotency key. |
+| `POST /api/demo/workspace/reset` | Replace the authenticated eligible reviewer's dedicated fictional workspace. | Server-derived account, allowlisted Google prototype-reviewer session, idempotency key; never edits the prior workspace. |
 | `POST /api/workspaces/:id/attachments` | Upload one label image through the server. | Approved participant, MIME, size, workspace-scoped object path. |
 | `GET /api/workspaces/:id/facts` | Load candidate facts for review. | Approved participant. |
 | `POST /api/workspaces/:id/reviews` | Append one typed review event. | Contributor/owner authority and valid state transition. |
@@ -493,7 +498,7 @@ Multiple claims in one message become separate facts. Conflicting facts remain s
 - Send an authorized object or bytes to Gemini only during the relevant server/task invocation.
 - Restrict identification to readable printed medication-bag labels and printed instructions in Traditional Chinese, English, and numbers.
 - Do not identify medication from pill appearance. Treat handwriting or unreadable labels as unresolved and request manual input.
-- Workspace reset/deletion removes Firestore records and associated objects on a best-effort server-side operation.
+- Lifecycle deletion of a health workspace removes Firestore records and associated objects on a best-effort server-side operation. This is distinct from prototype-reviewer demo reset, which creates a replacement workspace without editing or deleting the prior one.
 
 ## 11. Medication Grounding
 
@@ -553,7 +558,7 @@ Gemini may add friendly connective language but may not add, remove, or alter fa
 - The owner must approve the exact membership snapshot before health functionality starts.
 - A participant leaving may automatically establish a reduced approved snapshot.
 - Rejoining is a new membership event requiring participant consent and owner approval.
-- Only the owner controls sharing, revocation, and workspace reset.
+- Only the owner controls sharing, revocation, and reset of a health workspace. The separate prototype-reviewer demo reset is limited to replacing that reviewer's own fictional workspace as defined in section 4.1.1.
 - Any approved participant may ask questions, contribute messages, review according to provenance, and invoke handoff creation.
 - A contributor may correct or withdraw their own report. Nobody may rewrite another contributor's claim.
 

@@ -6,10 +6,11 @@ import type {
   MessagePage,
 } from "./chat.js";
 import type { CaptureJobInput, CaptureOutcome } from "./capture.js";
+import type { DemoWorkspaceMapping, DemoWorkspaceResetInput } from "./demo.js";
 import type { ReviewEvent, ReviewInput } from "./care-record.js";
 import type { MedicationQuery, MedicationSourceCard } from "./grounding.js";
 import type { CreateHandoffInput, HandoffVersion } from "./handoff.js";
-import type { MessageId } from "./ids.js";
+import type { AccountId, MessageId } from "./ids.js";
 
 export interface ChatService {
   appendMessage(
@@ -49,4 +50,13 @@ export interface CareRecordService {
 
 export interface MedicationGrounding {
   lookup(query: MedicationQuery): Promise<MedicationSourceCard[]>;
+}
+
+/**
+ * Called only after server-side verification of an allowlisted Google
+ * prototype-reviewer session. It provisions fictional data only.
+ */
+export interface DemoWorkspaceProvisioner {
+  getOrCreate(accountId: AccountId): Promise<DemoWorkspaceMapping>;
+  reset(input: DemoWorkspaceResetInput): Promise<DemoWorkspaceMapping>;
 }
