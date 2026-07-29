@@ -51,6 +51,8 @@ export const MessageSchema = z.object({
   captureIntent: CaptureIntentSchema,
   processingStatus: ProcessingStatusSchema,
   processingAttempts: z.number().int().min(0).max(3),
+  /** A workspace-scoped, monotonically increasing value for each persisted change. */
+  revision: z.number().int().positive().default(1),
   lastProcessingErrorCode: z.string().min(1).max(100).optional(),
   processingLeaseExpiresAt: TimestampSchema.optional(),
 });
@@ -79,12 +81,14 @@ export const ConversationContextSchema = z
 export const MessageCursorQuerySchema = z.object({
   workspaceId: WorkspaceIdSchema,
   after: MessageIdSchema.optional(),
+  afterRevision: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(100).default(50),
 });
 
 export const MessagePageSchema = z.object({
   messages: z.array(MessageSchema),
   nextCursor: MessageIdSchema.optional(),
+  nextRevision: z.number().int().min(0),
 });
 
 export const AppendMessageInputSchema = z.object({

@@ -9,6 +9,7 @@ import {
   HandoffVersionDocumentSchema,
   MemberDocumentSchema,
   MessageDocumentSchema,
+  MessageWriteSchema,
   ReviewEventDocumentSchema,
   WorkspaceDocumentSchema,
 } from "../src/persistence.js";
@@ -79,11 +80,14 @@ export function describeMessageRepositoryContract(
         processingAttempts: 0,
       });
       await expect(repository.getMessage(message.workspaceId, message.id)).resolves.toBeNull();
-      await repository.putMessage(message);
-      await expect(repository.getMessage(message.workspaceId, message.id)).resolves.toEqual(message);
+      const messageWrite = MessageWriteSchema.parse(message);
+      const storedMessage = await repository.putMessage(messageWrite);
+      await expect(repository.getMessage(message.workspaceId, message.id)).resolves.toEqual(storedMessage);
+      await expect(repository.listMessages(message.workspaceId)).resolves.toEqual([storedMessage]);
       await expect(
         repository.getMessage(WorkspaceIdSchema.parse("workspace:other"), message.id),
       ).resolves.toBeNull();
+      await expect(repository.listMessages(WorkspaceIdSchema.parse("workspace:other"))).resolves.toEqual([]);
     });
   });
 }

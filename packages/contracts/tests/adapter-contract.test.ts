@@ -38,8 +38,19 @@ describeMessageRepositoryContract(() => {
     async getMessage(workspaceId, messageId) {
       return messages.get(`${workspaceId}:${messageId}`) ?? null;
     },
+    async listMessages(workspaceId) {
+      return [...messages.values()].filter((message) => message.workspaceId === workspaceId);
+    },
     async putMessage(message) {
-      messages.set(`${message.workspaceId}:${message.id}`, message);
+      const revision = Math.max(
+        0,
+        ...[...messages.values()]
+          .filter((storedMessage) => storedMessage.workspaceId === message.workspaceId)
+          .map((storedMessage) => storedMessage.revision),
+      ) + 1;
+      const storedMessage = { ...message, revision };
+      messages.set(`${message.workspaceId}:${message.id}`, storedMessage);
+      return storedMessage;
     },
   };
 });
