@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { AtomicFactSchema, MemberIdSchema, WorkspaceDocumentSchema } from "@medbuddy/contracts";
+import {
+  AtomicFactSchema,
+  MemberDocumentSchema,
+  WorkspaceDocumentSchema,
+} from "@medbuddy/contracts";
 
 import {
   appendCorrection,
@@ -14,6 +18,22 @@ const workspace = WorkspaceDocumentSchema.parse({
   approvalState: "APPROVED",
   createdAt: "2026-07-28T10:00:00.000Z",
   updatedAt: "2026-07-28T10:00:00.000Z",
+});
+
+const owner = MemberDocumentSchema.parse({
+  id: "member:owner",
+  workspaceId: workspace.id,
+  role: "OWNER",
+  processingConsent: true,
+  joinedAt: workspace.createdAt,
+});
+
+const caregiver = MemberDocumentSchema.parse({
+  id: "member:caregiver-a",
+  workspaceId: workspace.id,
+  role: "CAREGIVER",
+  processingConsent: true,
+  joinedAt: workspace.createdAt,
 });
 
 const ownerTiming = createCandidateFact(AtomicFactSchema.parse({
@@ -62,7 +82,7 @@ describe("attributed candidate facts", () => {
   it("appends a contributor correction without changing the original fact", () => {
     const correction = appendCorrection({
       workspace,
-      actorMemberId: MemberIdSchema.parse("member:owner"),
+      actor: owner,
       originalFact: ownerTiming,
       correctionFact: AtomicFactSchema.parse({
         ...ownerTiming,
@@ -98,7 +118,7 @@ describe("attributed candidate facts", () => {
     expect(() =>
       appendCorrection({
         workspace,
-        actorMemberId: MemberIdSchema.parse("member:caregiver-a"),
+        actor: caregiver,
         originalFact: ownerTiming,
         correctionFact,
       }),
@@ -106,10 +126,18 @@ describe("attributed candidate facts", () => {
     expect(() =>
       appendCorrection({
         workspace,
-        actorMemberId: MemberIdSchema.parse("member:owner"),
+        actor: owner,
         originalFact: AtomicFactSchema.parse({ ...ownerTiming, workspaceId: "workspace:other" }),
         correctionFact,
       }),
     ).toThrow("The claim does not belong to the workspace.");
+    expect(() =>
+      appendCorrection({
+        workspace,
+        actor: MemberDocumentSchema.parse({ ...owner, workspaceId: "workspace:other" }),
+        originalFact: ownerTiming,
+        correctionFact,
+      }),
+    ).toThrow("The effective actor is not a member of this workspace.");
   });
 });

@@ -5,10 +5,14 @@ import {
   type AtomicFact,
   type Conflict,
   type Correction,
+  type MemberDocument,
   type WorkspaceDocument,
 } from "@medbuddy/contracts";
 
-import { requireContributorClaimAuthority } from "./authorization.js";
+import {
+  requireContributorClaimAuthority,
+  requireWorkspaceMemberAuthority,
+} from "./authorization.js";
 
 export function createCandidateFact(fact: AtomicFact): AtomicFact {
   return AtomicFactSchema.parse(fact);
@@ -20,12 +24,20 @@ export function createCandidateFact(fact: AtomicFact): AtomicFact {
  */
 export function appendCorrection({
   workspace,
-  actorMemberId,
+  actor,
   originalFact,
   correctionFact,
-}: Correction & { workspace: WorkspaceDocument }): AtomicFact {
-  requireContributorClaimAuthority(workspace, actorMemberId, originalFact);
-  return CorrectionSchema.parse({ actorMemberId, originalFact, correctionFact }).correctionFact;
+}: Omit<Correction, "actorMemberId"> & {
+  workspace: WorkspaceDocument;
+  actor: MemberDocument;
+}): AtomicFact {
+  requireWorkspaceMemberAuthority(workspace, actor);
+  requireContributorClaimAuthority(workspace, actor.id, originalFact);
+  return CorrectionSchema.parse({
+    actorMemberId: actor.id,
+    originalFact,
+    correctionFact,
+  }).correctionFact;
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AtomicFactSchema,
-  MemberIdSchema,
+  MemberDocumentSchema,
   ReviewInputSchema,
   WorkspaceDocumentSchema,
 } from "@medbuddy/contracts";
@@ -15,6 +15,22 @@ const workspace = WorkspaceDocumentSchema.parse({
   approvalState: "APPROVED",
   createdAt: "2026-07-28T10:00:00.000Z",
   updatedAt: "2026-07-28T10:00:00.000Z",
+});
+
+const owner = MemberDocumentSchema.parse({
+  id: "member:owner",
+  workspaceId: workspace.id,
+  role: "OWNER",
+  processingConsent: true,
+  joinedAt: workspace.createdAt,
+});
+
+const caregiver = MemberDocumentSchema.parse({
+  id: "member:caregiver-a",
+  workspaceId: workspace.id,
+  role: "CAREGIVER",
+  processingConsent: true,
+  joinedAt: workspace.createdAt,
 });
 
 const ownerReport = AtomicFactSchema.parse({
@@ -34,7 +50,7 @@ describe("fact review", () => {
   it("records a review event and derives the current status without changing factual provenance", () => {
     const result = applyFactReview({
       workspace,
-      actorMemberId: MemberIdSchema.parse("member:caregiver-a"),
+      actor: caregiver,
       fact: ownerReport,
       input: ReviewInputSchema.parse({
         workspaceId: workspace.id,
@@ -69,7 +85,7 @@ describe("fact review", () => {
     expect(() =>
       applyFactReview({
         workspace,
-        actorMemberId: MemberIdSchema.parse("member:caregiver-a"),
+        actor: caregiver,
         fact: ownerReport,
         input,
         reviewEventId: "review:invalid-withdrawal",
@@ -79,7 +95,7 @@ describe("fact review", () => {
     expect(
       applyFactReview({
         workspace,
-        actorMemberId: MemberIdSchema.parse("member:owner"),
+        actor: owner,
         fact: ownerReport,
         input,
         reviewEventId: "review:owner-withdrawal",
@@ -92,7 +108,7 @@ describe("fact review", () => {
     expect(() =>
       applyFactReview({
         workspace,
-        actorMemberId: MemberIdSchema.parse("member:owner"),
+        actor: owner,
         fact: ownerReport,
         input: ReviewInputSchema.parse({
           workspaceId: workspace.id,
@@ -106,7 +122,7 @@ describe("fact review", () => {
     expect(() =>
       applyFactReview({
         workspace,
-        actorMemberId: MemberIdSchema.parse("member:owner"),
+        actor: owner,
         fact: AtomicFactSchema.parse({ ...ownerReport, workspaceId: "workspace:other" }),
         input: ReviewInputSchema.parse({
           workspaceId: "workspace:other",
@@ -117,5 +133,22 @@ describe("fact review", () => {
         createdAt: "2026-07-28T10:05:00.000Z",
       }),
     ).toThrow("The claim does not belong to the workspace.");
+  });
+
+  it("rejects a server-loaded actor from another workspace before reviewing", () => {
+    expect(() =>
+      applyFactReview({
+        workspace,
+        actor: MemberDocumentSchema.parse({ ...caregiver, workspaceId: "workspace:other" }),
+        fact: ownerReport,
+        input: ReviewInputSchema.parse({
+          workspaceId: workspace.id,
+          factId: ownerReport.id,
+          action: "ACCEPT",
+        }),
+        reviewEventId: "review:foreign-actor",
+        createdAt: "2026-07-28T10:06:00.000Z",
+      }),
+    ).toThrow("The effective actor is not a member of this workspace.");
   });
 });

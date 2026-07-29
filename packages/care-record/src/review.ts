@@ -2,13 +2,16 @@ import {
   AtomicFactSchema,
   ReviewEventSchema,
   type AtomicFact,
-  type MemberId,
+  type MemberDocument,
   type ReviewEvent,
   type ReviewInput,
   type WorkspaceDocument,
 } from "@medbuddy/contracts";
 
-import { requireContributorClaimAuthority } from "./authorization.js";
+import {
+  requireContributorClaimAuthority,
+  requireWorkspaceMemberAuthority,
+} from "./authorization.js";
 
 export interface FactReviewResult {
   fact: AtomicFact;
@@ -17,7 +20,7 @@ export interface FactReviewResult {
 
 export interface ApplyFactReviewInput {
   workspace: WorkspaceDocument;
-  actorMemberId: MemberId;
+  actor: MemberDocument;
   fact: AtomicFact;
   input: ReviewInput;
   reviewEventId: string;
@@ -37,12 +40,13 @@ const statusForAction = {
  */
 export function applyFactReview({
   workspace,
-  actorMemberId,
+  actor,
   fact,
   input,
   reviewEventId,
   createdAt,
 }: ApplyFactReviewInput): FactReviewResult {
+  requireWorkspaceMemberAuthority(workspace, actor);
   if (fact.workspaceId !== workspace.id) {
     throw new Error("The claim does not belong to the workspace.");
   }
@@ -53,14 +57,14 @@ export function applyFactReview({
     throw new Error("Review input must identify the server-loaded fact.");
   }
   if (input.action === "WITHDRAW") {
-    requireContributorClaimAuthority(workspace, actorMemberId, fact);
+    requireContributorClaimAuthority(workspace, actor.id, fact);
   }
 
   const reviewEvent = ReviewEventSchema.parse({
     id: reviewEventId,
     workspaceId: workspace.id,
     factId: fact.id,
-    actorMemberId,
+    actorMemberId: actor.id,
     action: input.action,
     createdAt,
     note: input.note,

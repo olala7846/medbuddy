@@ -79,6 +79,19 @@ export function requireOwnerWorkspaceAuthority(
   }
 }
 
+/**
+ * Validates the server-loaded effective member before any domain action uses
+ * their ID. Callers are responsible for loading the current member record.
+ */
+export function requireWorkspaceMemberAuthority(
+  workspace: WorkspaceDocument,
+  actor: MemberDocument,
+): void {
+  if (actor.workspaceId !== workspace.id) {
+    throw new Error("The effective actor is not a member of this workspace.");
+  }
+}
+
 export function requireContributorClaimAuthority(
   workspace: WorkspaceDocument,
   actorMemberId: MemberId,
