@@ -14,6 +14,7 @@ import {
   describeMessageRepositoryContract,
   describeWorkspaceRepositoryContract,
 } from "@medbuddy/contracts/adapter-contract-tests";
+import { describeTransactionalPersistenceContract } from "@medbuddy/contracts/transaction-contract-tests";
 import { InMemoryPersistence } from "../src/index.js";
 
 function workspaceFixture() {
@@ -64,6 +65,7 @@ function handoffFixture() {
 }
 
 describe("in-memory persistence", () => {
+  describeTransactionalPersistenceContract(() => { const persistence = new InMemoryPersistence(); return { persistence, workspaces: persistence.workspaces }; });
   describeWorkspaceRepositoryContract(() => new InMemoryPersistence().workspaces);
   describeMemberRepositoryContract(() => new InMemoryPersistence().members);
   describeMessageRepositoryContract(() => new InMemoryPersistence().messages);

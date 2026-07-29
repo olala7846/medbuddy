@@ -14,6 +14,7 @@ import {
   describeMessageRepositoryContract,
   describeWorkspaceRepositoryContract,
 } from "@medbuddy/contracts/adapter-contract-tests";
+import { describeTransactionalPersistenceContract } from "@medbuddy/contracts/transaction-contract-tests";
 
 import { FirestorePersistence } from "../src/index.js";
 
@@ -25,6 +26,7 @@ function persistence() {
 }
 
 describeEmulator("Firestore emulator persistence", () => {
+  describeTransactionalPersistenceContract(() => { const instance = persistence(); return { persistence: instance, workspaces: instance.workspaces }; });
   describeWorkspaceRepositoryContract(() => persistence().workspaces);
   describeMemberRepositoryContract(() => persistence().members);
   describeMessageRepositoryContract(() => persistence().messages);
