@@ -1,16 +1,15 @@
 {
-  "name": "@medbuddy/contracts",
+  "name": "@medbuddy/platform",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./adapter-contract-tests": "./tests/adapter-contract.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "vitest run --root ../.. --config vitest.config.ts"
   },
   "dependencies": {
-    "zod": "4.1.12"
+    "@medbuddy/contracts": "0.0.0"
   }
 }
