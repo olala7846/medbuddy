@@ -4,6 +4,8 @@ import {
   type AttachmentRepository,
   type CareRecordRepository,
   type CaptureCompletion,
+  type PersistenceRepositories,
+  type TransactionalPersistence,
   type FactDocument,
   type HandoffVersionDocument,
   type MemberRepository,
@@ -38,7 +40,7 @@ function data(document: unknown): FirestoreRecord {
  * Platform-only Firestore adapter. Collection paths follow the public
  * persistence contract; callers still choose all domain transitions.
  */
-export class FirestorePersistence {
+export class FirestorePersistence implements TransactionalPersistence {
   readonly workspaces: WorkspaceRepository;
   readonly members: MemberRepository;
   readonly messages: MessageRepository;
@@ -85,13 +87,13 @@ export class FirestorePersistence {
         return snapshots.docs.map((snapshot) => ReviewEventDocumentSchema.parse(data(snapshot.data())));
       },
       appendReviewEvent: async (event) =>
-        this.runTransaction(async (transaction) =>
+        this.runRawTransaction(async (transaction) =>
           this.putImmutable(transaction, this.reviewRef(event.workspaceId, event.id), event),
         ),
       getHandoff: async (workspaceId, handoffVersionId) =>
         this.get(this.handoffRef(workspaceId, handoffVersionId), HandoffVersionDocumentSchema),
       createHandoff: async (version) =>
-        this.runTransaction(async (transaction) => {
+        this.runRawTransaction(async (transaction) => {
           await this.putImmutable(transaction, this.handoffRef(version.workspaceId, version.id), version);
           const workspace = await transaction.get(this.workspaceRef(version.workspaceId));
           if (!workspace.exists) {
@@ -105,16 +107,16 @@ export class FirestorePersistence {
     };
   }
 
-  async runTransaction<Result>(operation: (transaction: Transaction) => Promise<Result>): Promise<Result> {
-    return this.firestore.runTransaction(operation);
+  async runTransaction<Result>(operation: (repositories: PersistenceRepositories) => Promise<Result>): Promise<Result> {
+    return this.firestore.runTransaction((transaction) => operation(this.transactionRepositories(transaction)));
   }
 
   async runIdempotent<Result>(idempotencyKey: string, operation: (repositories: FirestoreRepositories) => Promise<Result>): Promise<Result> {
     const reference = this.firestore.collection("platformOperations").doc(idempotencyKey);
-    return this.runTransaction(async (transaction) => {
+    return this.firestore.runTransaction(async (transaction) => {
       const existing = await transaction.get(reference);
       if (existing.exists) return (existing.data() as { result: Result }).result;
-      const result = await operation({ workspaces: this.workspaces, members: this.members, messages: this.messages, attachments: this.attachments, careRecords: this.careRecords });
+      const result = await operation(this.transactionRepositories(transaction));
       transaction.create(reference, { result });
       return result;
     });
@@ -127,7 +129,7 @@ export class FirestorePersistence {
         throw new Error("Capture facts must belong to the focal workspace and message.");
       }
     }
-    await this.runTransaction(async (transaction) => {
+    await this.runRawTransaction(async (transaction) => {
       const messageRef = this.messageRef(input.workspaceId, input.messageId);
       const message = await transaction.get(messageRef);
       if (!message.exists) throw new Error("Cannot complete capture for a missing message.");
@@ -138,6 +140,32 @@ export class FirestorePersistence {
       }
       transaction.update(messageRef, { processingStatus: input.processingStatus, processingLeaseExpiresAt: undefined });
     });
+  }
+
+  private async runRawTransaction<Result>(operation: (transaction: Transaction) => Promise<Result>): Promise<Result> {
+    return this.firestore.runTransaction(operation);
+  }
+
+  private transactionRepositories(transaction: Transaction): FirestoreRepositories {
+    const get = async <Output>(reference: FirebaseFirestore.DocumentReference, schema: { parse(value: unknown): Output }) => {
+      const snapshot = await transaction.get(reference);
+      return snapshot.exists ? schema.parse(data(snapshot.data())) : null;
+    };
+    return {
+      workspaces: { getWorkspace: (id) => get(this.workspaceRef(id), WorkspaceDocumentSchema), putWorkspace: async (value) => { transaction.set(this.workspaceRef(value.id), value); } },
+      members: { listMembers: async (id) => (await transaction.get(this.workspaceRef(id).collection("members"))).docs.map((doc) => MemberDocumentSchema.parse(data(doc.data()))), putMember: async (value) => { transaction.set(this.memberRef(value.workspaceId, value.id), value); } },
+      messages: { getMessage: (workspaceId, messageId) => get(this.messageRef(workspaceId, messageId), MessageDocumentSchema), putMessage: async (value) => this.putImmutable(transaction, this.messageRef(value.workspaceId, value.id), value) },
+      attachments: { getAttachment: (workspaceId, messageId, attachmentId) => get(this.attachmentRef(workspaceId, messageId, attachmentId), AttachmentDocumentSchema), putAttachment: async (value) => this.putImmutable(transaction, this.attachmentRef(value.workspaceId, value.messageId, value.id), value) },
+      careRecords: {
+        getFact: (workspaceId, factId) => get(this.factRef(workspaceId, factId), FactDocumentSchema),
+        putFact: async (value) => this.putImmutable(transaction, this.factRef(value.workspaceId, value.id), value),
+        updateFactReviewStatus: async ({ workspaceId, factId, reviewStatus }) => { transaction.update(this.factRef(workspaceId, factId), { reviewStatus }); },
+        listReviewEvents: async (workspaceId, factId) => (await transaction.get(this.workspaceRef(workspaceId).collection("reviewEvents").where("factId", "==", factId))).docs.map((doc) => ReviewEventDocumentSchema.parse(data(doc.data()))),
+        appendReviewEvent: async (value) => this.putImmutable(transaction, this.reviewRef(value.workspaceId, value.id), value),
+        getHandoff: (workspaceId, id) => get(this.handoffRef(workspaceId, id), HandoffVersionDocumentSchema),
+        createHandoff: async (value) => this.putImmutable(transaction, this.handoffRef(value.workspaceId, value.id), value),
+      },
+    };
   }
 
   private async get<Output>(reference: FirebaseFirestore.DocumentReference, schema: { parse(value: unknown): Output }): Promise<Output | null> {
@@ -164,7 +192,7 @@ export class FirestorePersistence {
     reference: FirebaseFirestore.DocumentReference,
     value: AttachmentDocument | FactDocument | MessageDocument,
   ): Promise<void> {
-    await this.runTransaction(async (transaction) => this.putImmutable(transaction, reference, value));
+    await this.runRawTransaction(async (transaction) => this.putImmutable(transaction, reference, value));
   }
 
   private workspaceRef(workspaceId: string) {
