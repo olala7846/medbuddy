@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 
 import {
   ActorContextSchema,
@@ -80,6 +81,15 @@ describe("per-tab reviewer personas", () => {
   it("keeps server attachment admission out of the browser public entry point", () => {
     expect(BrowserApi).not.toHaveProperty("createServerAttachmentAdmission");
     expect(BrowserApi).not.toHaveProperty("createAuthenticatedChatRoute");
+  });
+
+  it("keeps auth and Platform composition imports out of the browser import graph", async () => {
+    const browserEntry = await readFile(new URL("../src/index.ts", import.meta.url), "utf8");
+
+    expect(browserEntry).not.toContain("./auth/");
+    expect(browserEntry).not.toContain("./composition/");
+    expect(browserEntry).not.toContain(".server");
+    expect(browserEntry).not.toContain("@medbuddy/platform");
   });
 
   it("stores each Google reviewer's selected fictional participant in session storage and creates the approved header", () => {

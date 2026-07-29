@@ -19,7 +19,7 @@ import {
 import { describeTransactionalPersistenceContract } from "@medbuddy/contracts/transaction-contract-tests";
 
 import { FirestorePersistence } from "../src/index.js";
-import { FictionalDemoWorkspaceProvisioner } from "@medbuddy/web";
+import { FictionalDemoWorkspaceProvisioner } from "@medbuddy/web/server";
 
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
 const describeEmulator = emulatorHost ? describe : describe.skip;

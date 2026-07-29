@@ -9,7 +9,7 @@ import {
   resolveActor,
   type AuthResolutionDependencies,
   type CredentialSeed,
-} from "../../src/index.js";
+} from "../../src/server.js";
 
 const accountId = (value: string) => AccountIdSchema.parse(value);
 const memberId = (value: string) => MemberIdSchema.parse(value);
