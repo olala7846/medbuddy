@@ -17,5 +17,12 @@ export function describeTransactionalPersistenceContract(create: () => { persist
       expect(runs).toBe(1);
       await expect(workspaces.getWorkspace(workspace.id)).resolves.toEqual(workspace);
     });
+    it("replays a completed void operation", async () => {
+      const { persistence } = create();
+      let runs = 0;
+      await persistence.runIdempotent("transaction-contract-void", async () => { runs += 1; });
+      await persistence.runIdempotent("transaction-contract-void", async () => { runs += 1; });
+      expect(runs).toBe(1);
+    });
   });
 }

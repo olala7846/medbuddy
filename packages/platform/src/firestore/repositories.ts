@@ -121,9 +121,12 @@ export class FirestorePersistence implements TransactionalPersistence {
     const reference = this.firestore.collection("platformOperations").doc(idempotencyKey);
     return this.firestore.runTransaction(async (transaction) => {
       const existing = await transaction.get(reference);
-      if (existing.exists) return (existing.data() as { result: Result }).result;
+      if (existing.exists) {
+        const marker = existing.data() as { hasResult: boolean; result?: Result };
+        return (marker.hasResult ? marker.result : undefined) as Result;
+      }
       const result = await operation(this.transactionRepositories(transaction));
-      transaction.create(reference, { result });
+      transaction.create(reference, result === undefined ? { hasResult: false } : { hasResult: true, result });
       return result;
     });
   }
@@ -170,7 +173,7 @@ export class FirestorePersistence implements TransactionalPersistence {
         listReviewEvents: async (workspaceId, factId) => (await transaction.get(this.workspaceRef(workspaceId).collection("reviewEvents").where("factId", "==", factId))).docs.map((doc) => ReviewEventDocumentSchema.parse(data(doc.data()))),
         appendReviewEvent: async (value) => this.putImmutable(transaction, this.reviewRef(value.workspaceId, value.id), value),
         getHandoff: (workspaceId, id) => get(this.handoffRef(workspaceId, id), HandoffVersionDocumentSchema),
-        createHandoff: async (value) => this.putImmutable(transaction, this.handoffRef(value.workspaceId, value.id), value),
+        createHandoff: async (value) => { await this.putImmutable(transaction, this.handoffRef(value.workspaceId, value.id), value); const workspace = await transaction.get(this.workspaceRef(value.workspaceId)); if (!workspace.exists) throw new Error("Cannot publish a handoff for a missing workspace."); transaction.update(this.workspaceRef(value.workspaceId), { currentHandoffVersionId: value.id, updatedAt: value.createdAt }); },
       },
     };
   }
