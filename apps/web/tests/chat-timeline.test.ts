@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import { ActorContextSchema, MessageSchema, type ActorContext, type Message, type MessagePage } from "@medbuddy/contracts";
+import {
+  ActorContextSchema,
+  MessageSchema,
+  type ChatService,
+  type Message,
+  type MessagePage,
+} from "@medbuddy/contracts";
 
 import {
   createPersistedChatTimeline,
+  createAuthenticatedChatRoute,
+  mountPersistedChatApp,
   renderLoginPage,
+  type ChatBrowserForm,
+  type ChatBrowserRoot,
+  type ChatBrowserTextArea,
   type PersistedChatApi,
 } from "../src/index.js";
 
@@ -45,11 +56,11 @@ function createApi(pages: MessagePage[]): PersistedChatApi & { sends: string[] }
   const sends: string[] = [];
   return {
     sends,
-    async listMessages(_actor: ActorContext, request) {
+    async listMessages(request) {
       expect(request.workspaceId).toBe("workspace:demo");
       return pages.shift() ?? { messages: [], nextRevision: 0 };
     },
-    async sendMessage(_actor: ActorContext, input) {
+    async sendMessage(input) {
       sends.push(input.body);
       return message({
         id: "message:human-new",
@@ -81,7 +92,7 @@ describe("login and persisted chat timeline", () => {
       ],
       nextRevision: 6,
     }]);
-    const timeline = createPersistedChatTimeline({ actor, api, idempotencyKey: () => "send-1" });
+    const timeline = createPersistedChatTimeline({ workspaceId: actor.workspaceId, api, idempotencyKey: () => "send-1" });
 
     await timeline.load();
     const html = timeline.render();
@@ -108,7 +119,7 @@ describe("login and persisted chat timeline", () => {
         nextRevision: 7,
       },
     ]);
-    const timeline = createPersistedChatTimeline({ actor, api, idempotencyKey: () => "send-1" });
+    const timeline = createPersistedChatTimeline({ workspaceId: actor.workspaceId, api, idempotencyKey: () => "send-1" });
 
     await timeline.load();
     await timeline.send("@MedBuddy Please record this.");
@@ -131,10 +142,108 @@ describe("login and persisted chat timeline", () => {
         nextRevision: 2,
       },
     ]);
-    const timeline = createPersistedChatTimeline({ actor, api });
+    const timeline = createPersistedChatTimeline({ workspaceId: actor.workspaceId, api });
 
     await timeline.load();
 
     expect(timeline.messages.map((stored) => stored.id)).toEqual(["message:first", "message:second"]);
   });
+
+  it("mounts an authenticated fake-backed browser flow with composer submission and polling", async () => {
+    const seenActors: string[] = [];
+    const chatService: ChatService = {
+      async appendMessage(resolvedActor, input) {
+        seenActors.push(resolvedActor.effectiveMemberId);
+        return {
+          message: message({ id: "message:sent", body: input.body, processingStatus: "PENDING", revision: 2 }),
+          captureQueued: true,
+        };
+      },
+      async listMessages(resolvedActor, query) {
+        seenActors.push(resolvedActor.effectiveMemberId);
+        if (query.afterRevision !== undefined) {
+          return {
+            messages: [message({
+              id: "message:buddy",
+              authorMemberId: "MEDBUDDY",
+              body: "I can help record that.",
+              processingStatus: "IGNORED",
+              revision: 3,
+            })],
+            nextRevision: 3,
+          };
+        }
+        return { messages: [], nextRevision: 0 };
+      },
+      async requestCaptureRetry() {},
+    };
+    const route = createAuthenticatedChatRoute({
+      chatService,
+      async resolveServerActor(workspaceId) {
+        expect(workspaceId).toBe("workspace:demo");
+        return actor;
+      },
+    });
+    const root = new FakeBrowserRoot();
+    const timeline = createPersistedChatTimeline({ workspaceId: actor.workspaceId, api: route, idempotencyKey: () => "send-1" });
+    const app = await mountPersistedChatApp(root, timeline, { pollIntervalMs: 60_000 });
+
+    const sent = root.nextRender();
+    root.submit("@MedBuddy Please record this.");
+    await sent;
+    expect(root.innerHTML).toContain("@MedBuddy Please record this.");
+
+    await app.poll();
+    expect(root.innerHTML).toContain("I can help record that.");
+    expect(seenActors).toEqual(["member:owner", "member:owner", "member:owner"]);
+    app.unmount();
+  });
 });
+
+class FakeBrowserForm implements ChatBrowserForm {
+  #listener: ((event: { preventDefault(): void }) => void) | undefined;
+
+  addEventListener(_type: "submit", listener: (event: { preventDefault(): void }) => void): void {
+    this.#listener = listener;
+  }
+
+  submit(): void {
+    this.#listener?.({ preventDefault() {} });
+  }
+}
+
+class FakeBrowserRoot implements ChatBrowserRoot {
+  #html = "";
+  #form = new FakeBrowserForm();
+  #textarea: ChatBrowserTextArea = { value: "" };
+  #nextRender: (() => void) | undefined;
+
+  get innerHTML(): string {
+    return this.#html;
+  }
+
+  set innerHTML(value: string) {
+    this.#html = value;
+    this.#form = new FakeBrowserForm();
+    this.#textarea = { value: "" };
+    this.#nextRender?.();
+    this.#nextRender = undefined;
+  }
+
+  querySelector(selector: "form"): ChatBrowserForm | null;
+  querySelector(selector: "textarea"): ChatBrowserTextArea | null;
+  querySelector(selector: "form" | "textarea"): ChatBrowserForm | ChatBrowserTextArea | null {
+    return selector === "form" ? this.#form : this.#textarea;
+  }
+
+  submit(value: string): void {
+    this.#textarea.value = value;
+    this.#form.submit();
+  }
+
+  nextRender(): Promise<void> {
+    return new Promise((resolve) => {
+      this.#nextRender = resolve;
+    });
+  }
+}

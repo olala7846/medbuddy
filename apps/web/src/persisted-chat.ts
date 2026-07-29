@@ -1,18 +1,18 @@
 import type {
-  ActorContext,
   AppendMessageInput,
   Message,
   MessageCursorQuery,
   MessagePage,
+  WorkspaceId,
 } from "@medbuddy/contracts";
 
 export interface PersistedChatApi {
-  listMessages(actor: ActorContext, query: MessageCursorQuery): Promise<MessagePage>;
-  sendMessage(actor: ActorContext, input: AppendMessageInput): Promise<Message>;
+  listMessages(query: MessageCursorQuery): Promise<MessagePage>;
+  sendMessage(input: AppendMessageInput): Promise<Message>;
 }
 
 export interface PersistedChatTimelineOptions {
-  actor: ActorContext;
+  workspaceId: WorkspaceId;
   api: PersistedChatApi;
   idempotencyKey?: () => string;
 }
@@ -48,14 +48,14 @@ function newIdempotencyKey(): string {
  * through a server API; it never receives repositories or Intelligence ports.
  */
 export class PersistedChatTimeline {
-  readonly #actor: ActorContext;
+  readonly #workspaceId: WorkspaceId;
   readonly #api: PersistedChatApi;
   readonly #idempotencyKey: () => string;
   #messages: Message[] = [];
   #revision = 0;
 
   constructor(options: PersistedChatTimelineOptions) {
-    this.#actor = options.actor;
+    this.#workspaceId = options.workspaceId;
     this.#api = options.api;
     this.#idempotencyKey = options.idempotencyKey ?? newIdempotencyKey;
   }
@@ -67,8 +67,8 @@ export class PersistedChatTimeline {
   async load(): Promise<void> {
     let after: MessageCursorQuery["after"];
     do {
-      const page = await this.#api.listMessages(this.#actor, {
-        workspaceId: this.#actor.workspaceId,
+      const page = await this.#api.listMessages({
+        workspaceId: this.#workspaceId,
         after,
         limit: 100,
       });
@@ -79,8 +79,8 @@ export class PersistedChatTimeline {
   }
 
   async send(body: string): Promise<Message> {
-    const message = await this.#api.sendMessage(this.#actor, {
-      workspaceId: this.#actor.workspaceId,
+    const message = await this.#api.sendMessage({
+      workspaceId: this.#workspaceId,
       body,
       attachmentIds: [],
       captureIntent: "PASSIVE",
@@ -92,8 +92,8 @@ export class PersistedChatTimeline {
   }
 
   async poll(): Promise<void> {
-    const page = await this.#api.listMessages(this.#actor, {
-      workspaceId: this.#actor.workspaceId,
+    const page = await this.#api.listMessages({
+      workspaceId: this.#workspaceId,
       afterRevision: this.#revision,
       limit: 100,
     });
@@ -143,6 +143,61 @@ function renderMessage(message: Message): string {
 
 export function createPersistedChatTimeline(options: PersistedChatTimelineOptions): PersistedChatTimeline {
   return new PersistedChatTimeline(options);
+}
+
+export interface ChatBrowserRoot {
+  innerHTML: string;
+  querySelector(selector: "form"): ChatBrowserForm | null;
+  querySelector(selector: "textarea"): ChatBrowserTextArea | null;
+}
+
+export interface ChatBrowserForm {
+  addEventListener(type: "submit", listener: (event: { preventDefault(): void }) => void): void;
+}
+
+export interface ChatBrowserTextArea {
+  value: string;
+}
+
+export interface MountedPersistedChatApp {
+  poll(): Promise<void>;
+  unmount(): void;
+}
+
+/** Mounts the timeline in a browser root and wires its composer plus polling. */
+export async function mountPersistedChatApp(
+  root: ChatBrowserRoot,
+  timeline: PersistedChatTimeline,
+  options: { pollIntervalMs?: number } = {},
+): Promise<MountedPersistedChatApp> {
+  const render = () => {
+    root.innerHTML = timeline.render();
+    const form = root.querySelector("form");
+    const textarea = root.querySelector("textarea");
+    if (!form || !textarea) throw new Error("Persisted chat markup is missing its composer.");
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const body = textarea.value.trim();
+      if (!body) return;
+      void timeline.send(body).then(() => {
+        render();
+      });
+    });
+  };
+  const poll = async () => {
+    await timeline.poll();
+    render();
+  };
+
+  await timeline.load();
+  render();
+  const timer = setInterval(() => { void poll(); }, options.pollIntervalMs ?? 5_000);
+  return {
+    poll,
+    unmount() {
+      clearInterval(timer);
+    },
+  };
 }
 
 export function renderLoginPage(): string {
