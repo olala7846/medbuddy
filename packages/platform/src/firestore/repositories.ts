@@ -276,10 +276,21 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
     const existing = await transaction.get(reference);
     if (existing.exists) {
       const persisted = MessageDocumentSchema.parse(data(existing.data()));
-      if (JSON.stringify(MessageWriteSchema.parse(persisted)) !== JSON.stringify(MessageWriteSchema.parse(message))) {
+      if (!this.hasSameImmutableMessage(persisted, message)) {
         throw new Error("An immutable record already exists with a different value.");
       }
-      return persisted;
+      if (JSON.stringify(MessageWriteSchema.parse(persisted)) === JSON.stringify(MessageWriteSchema.parse(message))) {
+        return persisted;
+      }
+      const counter = await transaction.get(this.messageRevisionCounterRef(message.workspaceId));
+      const revision = Math.max(
+        persisted.revision,
+        counter.exists ? this.nextMessageRevision(counter.data()) : 0,
+      ) + 1;
+      const updated = MessageDocumentSchema.parse({ ...message, revision });
+      transaction.set(reference, updated);
+      transaction.set(this.messageRevisionCounterRef(message.workspaceId), { nextRevision: revision });
+      return updated;
     }
     const counter = await transaction.get(this.messageRevisionCounterRef(message.workspaceId));
     const revision = counter.exists ? this.nextMessageRevision(counter.data()) + 1 : 1;
@@ -319,6 +330,25 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
       throw new Error("Message revision counter is invalid.");
     }
     return nextRevision;
+  }
+
+  private hasSameImmutableMessage(
+    left: MessageDocument,
+    right: Parameters<MessageRepository["putMessage"]>[0],
+  ): boolean {
+    const project = (message: Parameters<MessageRepository["putMessage"]>[0]) => {
+      const parsed = MessageWriteSchema.parse(message);
+      return {
+        id: parsed.id,
+        workspaceId: parsed.workspaceId,
+        authorMemberId: parsed.authorMemberId,
+        body: parsed.body,
+        createdAt: parsed.createdAt,
+        attachmentIds: parsed.attachmentIds,
+        captureIntent: parsed.captureIntent,
+      };
+    };
+    return JSON.stringify(project(left)) === JSON.stringify(project(right));
   }
 
   private workspaceRef(workspaceId: string) {
