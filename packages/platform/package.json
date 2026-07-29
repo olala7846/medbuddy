@@ -1,0 +1,15 @@
+{
+  "name": "@medbuddy/platform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --root ../.. --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@medbuddy/contracts": "0.0.0"
+  }
+}
