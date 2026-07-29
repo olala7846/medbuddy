@@ -5,7 +5,7 @@ provisioned or claimed.
 
 ## Current local evidence
 
-- The machine has an active `gcloud` user session for `olala7846@gmail.com`.
+- The machine has an active `gcloud` user session.
 - The selected CLI project is `med-buddy-503802`; billing is enabled and the
   active user has owner access for the prototype foundation apply.
 - The selected prototype region is `us-west1`. Firestore, Cloud Tasks, Cloud
