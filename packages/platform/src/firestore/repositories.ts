@@ -37,6 +37,7 @@ type FirestoreRecord = Record<string, unknown>;
 
 class TransactionWriteBuffer {
   #documents = new Map<string, unknown>();
+  #updates = new Map<string, Record<string, unknown>>();
 
   get(reference: FirebaseFirestore.DocumentReference): unknown | undefined {
     return this.#documents.get(reference.path);
@@ -53,7 +54,19 @@ class TransactionWriteBuffer {
   }
 
   update(reference: FirebaseFirestore.DocumentReference, value: Record<string, unknown>): void {
+    const update = { ...this.#updates.get(reference.path), ...value };
+    this.#updates.set(reference.path, update);
+    const current = this.#documents.get(reference.path);
+    if (current !== undefined) this.#documents.set(reference.path, { ...data(current), ...update });
     this.#writes.push({ kind: "update", reference, value });
+  }
+
+  applyUpdates(reference: FirebaseFirestore.DocumentReference, value: unknown): unknown {
+    const update = this.#updates.get(reference.path);
+    if (!update) return value;
+    const merged = { ...data(value), ...update };
+    this.#documents.set(reference.path, merged);
+    return merged;
   }
 
   flush(transaction: Transaction): void {
@@ -219,7 +232,7 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
       const buffered = writes?.get(reference);
       if (buffered !== undefined) return schema.parse(buffered);
       const snapshot = await transaction.get(reference);
-      return snapshot.exists ? schema.parse(data(snapshot.data())) : null;
+      return snapshot.exists ? schema.parse(writes?.applyUpdates(reference, data(snapshot.data())) ?? data(snapshot.data())) : null;
     };
     const set = (reference: FirebaseFirestore.DocumentReference, value: unknown) => writes ? writes.set(reference, value) : transaction.set(reference, value);
     const update = (reference: FirebaseFirestore.DocumentReference, value: Record<string, unknown>) => writes ? writes.update(reference, value) : transaction.update(reference, value);

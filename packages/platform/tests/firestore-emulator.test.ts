@@ -58,12 +58,24 @@ describeEmulator("Firestore emulator persistence", () => {
       snapshot: { version: 1, facts: [fact], conflicts: [], medicationSources: [], unresolvedItems: ["Fictional unresolved item."], limitations: ["Fictional limitation."] },
     });
 
-    await platform.runTransaction(async (repositories) => {
+    const observedWorkspace = await platform.runTransaction(async (repositories) => {
       await repositories.workspaces.putWorkspace(workspace);
       await repositories.messages.putMessage(message);
+      await repositories.careRecords.putFact(fact);
+      await repositories.careRecords.updateFactReviewStatus({
+        workspaceId: workspace.id,
+        factId: fact.id,
+        reviewStatus: "ACCEPTED",
+      });
       await repositories.careRecords.createHandoff(handoff);
+      return {
+        workspace: await repositories.workspaces.getWorkspace(workspace.id),
+        fact: await repositories.careRecords.getFact(workspace.id, fact.id),
+      };
     });
 
+    expect(observedWorkspace.workspace).toMatchObject({ currentHandoffVersionId: handoff.id });
+    expect(observedWorkspace.fact).toMatchObject({ reviewStatus: "ACCEPTED" });
     await expect(platform.messages.getMessage(workspace.id, message.id)).resolves.toMatchObject({ revision: 1 });
     await expect(platform.careRecords.getHandoff(workspace.id, handoff.id)).resolves.toEqual(handoff);
   });
