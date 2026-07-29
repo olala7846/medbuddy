@@ -74,7 +74,11 @@ export function loadVertexConfiguration(environment = process.env): VertexConfig
 
   const parsed = VertexConfigurationSchema.safeParse({
     projectId: environment.MEDBUDDY_VERTEX_PROJECT,
-    location: environment.MEDBUDDY_VERTEX_LOCATION ?? "us-central1",
+    location: environment.MEDBUDDY_VERTEX_LOCATION ?? (
+      environment.MEDBUDDY_VERTEX_MODEL === undefined || environment.MEDBUDDY_VERTEX_MODEL === "gemini-3.6-flash"
+        ? "global"
+        : "us-central1"
+    ),
     model: environment.MEDBUDDY_VERTEX_MODEL ?? "gemini-3.6-flash",
   });
   if (!parsed.success) {
@@ -94,6 +98,7 @@ export class VertexRestClient implements VertexModelClient {
     private readonly configuration: VertexConfiguration,
     authentication?: AccessTokenProvider,
     private readonly request = fetch,
+    private readonly timeoutMs = 20_000,
   ) {
     this.authentication = authentication ?? new GoogleAuth({ scopes: [vertexScope] });
   }
@@ -104,22 +109,38 @@ export class VertexRestClient implements VertexModelClient {
       if (accessToken === null || accessToken === undefined || accessToken.length === 0) {
         throw new ModelProviderError("PROVIDER_ERROR");
       }
-      const response = await this.request(this.endpoint(), {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${accessToken}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: input.systemInstruction }] },
-          contents: input.contents,
-          generationConfig: { responseMimeType: "application/json" },
-        }),
-      });
-      if (!response.ok) {
-        throw new ModelProviderError("PROVIDER_ERROR");
+      const controller = new AbortController();
+      let timedOut = false;
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, this.timeoutMs);
+      try {
+        const response = await this.request(this.endpoint(), {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: input.systemInstruction }] },
+            contents: input.contents,
+            generationConfig: { responseMimeType: "application/json" },
+          }),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new ModelProviderError("PROVIDER_ERROR");
+        }
+        return await response.json();
+      } catch (error) {
+        if (timedOut) {
+          throw new ModelProviderError("PROVIDER_TIMEOUT");
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
       }
-      return await response.json();
     } catch (error) {
       if (error instanceof ModelProviderError) {
         throw error;
@@ -133,7 +154,8 @@ export class VertexRestClient implements VertexModelClient {
 
   private endpoint(): string {
     const { location, model, projectId } = this.configuration;
-    return `https://${location}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
+    const host = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
+    return `https://${host}/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(model)}:generateContent`;
   }
 }
 
@@ -172,7 +194,7 @@ function textCaptureRequest(input: TextCaptureRequest): VertexGenerationRequest 
     ].join(" "),
     contents: [{
       role: "user",
-      parts: [{ text: JSON.stringify({ focalMessage: input.focalMessage.body, nearbyMessages: input.nearbyMessages.map((message) => message.body) }) }],
+      parts: [{ text: input.focalMessage.body }],
     }],
   };
 }

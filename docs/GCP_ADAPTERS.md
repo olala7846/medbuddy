@@ -20,7 +20,10 @@ test path. The live Vertex REST adapter is opt-in: set
 `MEDBUDDY_VERTEX_ENABLED=true`, `MEDBUDDY_VERTEX_PROJECT`, and (optionally)
 `MEDBUDDY_VERTEX_LOCATION` / `MEDBUDDY_VERTEX_MODEL`, then provide Application
 Default Credentials. Do not put credentials in environment files committed to
-the repository.
+the repository. The default `gemini-3.6-flash` configuration uses Vertex's
+`global` location; supply both a regional model and its location when using a
+regional endpoint. Each request has a bounded timeout and returns a typed
+provider-timeout outcome when it expires.
 
 Run the live, fictional-only smoke tests with:
 
