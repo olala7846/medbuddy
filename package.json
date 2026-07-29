@@ -15,7 +15,8 @@
     "check": "npm run typecheck && npm run lint",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:vertex-smoke": "MEDBUDDY_RUN_VERTEX_SMOKE=true vitest run --run vertex-smoke"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
