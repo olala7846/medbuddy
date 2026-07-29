@@ -5,16 +5,28 @@ import type {
   MessagePage,
   WorkspaceId,
 } from "@medbuddy/contracts";
+import { MessageIdSchema } from "@medbuddy/contracts";
+
+import type { BrowserAttachmentUpload } from "./attachment-input.js";
+import type { TabPersonaSelection } from "./persona.js";
 
 export interface PersistedChatApi {
-  listMessages(query: MessageCursorQuery): Promise<MessagePage>;
-  sendMessage(input: AppendMessageInput): Promise<Message>;
+  listMessages(query: MessageCursorQuery, request?: BrowserRequestMetadata): Promise<MessagePage>;
+  sendMessage(input: AppendMessageInput, request?: BrowserRequestMetadata): Promise<Message>;
+  uploadAttachment?(input: { workspaceId: WorkspaceId; idempotencyKey: string } & BrowserAttachmentUpload, request?: BrowserRequestMetadata): Promise<{ id: Message["attachmentIds"][number] }>;
+  requestCaptureRetry?(workspaceId: WorkspaceId, messageId: Message["id"], request?: BrowserRequestMetadata): Promise<void>;
+}
+
+/** Browser request metadata; it is never an actor or a server credential. */
+export interface BrowserRequestMetadata {
+  headers: Readonly<Record<string, string>>;
 }
 
 export interface PersistedChatTimelineOptions {
   workspaceId: WorkspaceId;
   api: PersistedChatApi;
   idempotencyKey?: () => string;
+  requestHeaders?: () => Readonly<Record<string, string>>;
 }
 
 const processingStatusText: Record<Message["processingStatus"], { label: string; detail: string }> = {
@@ -51,6 +63,7 @@ export class PersistedChatTimeline {
   readonly #workspaceId: WorkspaceId;
   readonly #api: PersistedChatApi;
   readonly #idempotencyKey: () => string;
+  readonly #requestHeaders: () => Readonly<Record<string, string>>;
   #messages: Message[] = [];
   #revision = 0;
 
@@ -58,6 +71,7 @@ export class PersistedChatTimeline {
     this.#workspaceId = options.workspaceId;
     this.#api = options.api;
     this.#idempotencyKey = options.idempotencyKey ?? newIdempotencyKey;
+    this.#requestHeaders = options.requestHeaders ?? (() => ({}));
   }
 
   get messages(): readonly Message[] {
@@ -71,21 +85,23 @@ export class PersistedChatTimeline {
         workspaceId: this.#workspaceId,
         after,
         limit: 100,
-      });
+      }, this.#requestMetadata());
       this.#replaceMessages(page.messages);
       this.#revision = Math.max(this.#revision, page.nextRevision);
       after = page.nextCursor;
     } while (after !== undefined);
   }
 
-  async send(body: string): Promise<Message> {
+  async send(body: string, attachments: readonly BrowserAttachmentUpload[] = []): Promise<Message> {
+    const idempotencyKey = this.#idempotencyKey();
+    const attachmentIds = await this.#uploadAttachments(idempotencyKey, attachments);
     const message = await this.#api.sendMessage({
       workspaceId: this.#workspaceId,
       body,
-      attachmentIds: [],
+      attachmentIds,
       captureIntent: "PASSIVE",
-      idempotencyKey: this.#idempotencyKey(),
-    });
+      idempotencyKey,
+    }, this.#requestMetadata());
     this.#replaceMessages([message]);
     this.#revision = Math.max(this.#revision, message.revision);
     return message;
@@ -96,9 +112,17 @@ export class PersistedChatTimeline {
       workspaceId: this.#workspaceId,
       afterRevision: this.#revision,
       limit: 100,
-    });
+    }, this.#requestMetadata());
     this.#replaceMessages(page.messages);
     this.#revision = page.nextRevision;
+  }
+
+  async retry(messageId: Message["id"]): Promise<void> {
+    if (!this.#messages.some((message) => message.id === messageId && message.processingStatus === "FAILED")) {
+      throw new Error("Only a failed message can be retried.");
+    }
+    if (!this.#api.requestCaptureRetry) throw new Error("Capture retry is unavailable.");
+    await this.#api.requestCaptureRetry(this.#workspaceId, messageId, this.#requestMetadata());
   }
 
   render(): string {
@@ -114,6 +138,9 @@ export class PersistedChatTimeline {
   <form aria-label="Send a message">
     <label for="chat-message">Message</label>
     <textarea id="chat-message" name="message" required maxlength="10000"></textarea>
+    <label for="chat-attachment">Attach a fictional medication-label image</label>
+    <input id="chat-attachment" name="attachment" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+    <p>Images only: JPEG, PNG, or WebP, up to 5 MB each. Attachments are uploaded through MedBuddy's server.</p>
     <button type="submit">Send message</button>
   </form>
 </main>`;
@@ -127,6 +154,27 @@ export class PersistedChatTimeline {
     }
     this.#messages = [...byId.values()].sort(compareMessages);
   }
+
+  #requestMetadata(): BrowserRequestMetadata {
+    return { headers: this.#requestHeaders() };
+  }
+
+  async #uploadAttachments(
+    idempotencyKey: string,
+    attachments: readonly BrowserAttachmentUpload[],
+  ): Promise<AppendMessageInput["attachmentIds"]> {
+    if (attachments.length === 0) return [];
+    if (attachments.length > 5) throw new Error("A message can have at most five attachments.");
+    if (!this.#api.uploadAttachment) throw new Error("Attachment upload is unavailable.");
+    return Promise.all(attachments.map(async (attachment) => {
+      const admitted = await this.#api.uploadAttachment?.(
+        { workspaceId: this.#workspaceId, idempotencyKey, ...attachment },
+        this.#requestMetadata(),
+      );
+      if (!admitted) throw new Error("Attachment upload is unavailable.");
+      return admitted.id;
+    }));
+  }
 }
 
 function renderMessage(message: Message): string {
@@ -136,7 +184,8 @@ function renderMessage(message: Message): string {
   <article aria-label="Message from ${author}">
     <h2>${author}</h2>
     <p>${escapeHtml(message.body)}</p>
-    <p aria-label="Processing status: ${status.label}"><strong>${status.label}:</strong> ${status.detail}</p>
+    <p aria-label="Processing status: ${status.label}"><strong>${status.label}:</strong> ${status.detail}</p>${message.processingStatus === "FAILED" ? `
+    <button type="button" data-retry-message-id="${message.id}">Retry capture</button>` : ""}
   </article>
 </li>`;
 }
@@ -151,6 +200,8 @@ export interface ChatBrowserRoot {
   ownerDocument?: { activeElement: unknown };
   querySelector(selector: "form"): ChatBrowserForm | null;
   querySelector(selector: "textarea"): ChatBrowserTextArea | null;
+  querySelector(selector: "input"): ChatBrowserAttachmentInput | null;
+  querySelectorAll?(selector: "[data-retry-message-id]"): readonly ChatBrowserRetryButton[];
 }
 
 export interface ChatBrowserForm {
@@ -160,6 +211,15 @@ export interface ChatBrowserForm {
 export interface ChatBrowserTextArea {
   value: string;
   focus?(): void;
+}
+
+export interface ChatBrowserRetryButton {
+  getAttribute(name: "data-retry-message-id"): string | null;
+  addEventListener(type: "click", listener: () => void): void;
+}
+
+export interface ChatBrowserAttachmentInput {
+  files(): readonly BrowserAttachmentUpload[];
 }
 
 export interface MountedPersistedChatApp {
@@ -174,23 +234,24 @@ export async function mountPersistedChatApp(
   options: { pollIntervalMs?: number } = {},
 ): Promise<MountedPersistedChatApp> {
   let statusMessage: string | undefined;
-  const render = (options: { draft?: string; restoreFocus?: boolean } = {}) => {
+  const render = (renderOptions: { draft?: string; restoreFocus?: boolean } = {}) => {
     const previousTextArea = root.querySelector("textarea");
-    const draft = options.draft ?? previousTextArea?.value ?? "";
+    const draft = renderOptions.draft ?? previousTextArea?.value ?? "";
     const composerWasFocused = previousTextArea !== null &&
       (root.activeElement === previousTextArea || root.ownerDocument?.activeElement === previousTextArea);
-    const shouldRestoreFocus = (options.restoreFocus ?? false) && composerWasFocused;
+    const shouldRestoreFocus = (renderOptions.restoreFocus ?? false) && composerWasFocused;
     root.innerHTML = `${statusMessage === undefined ? "" : `<p role="alert">${statusMessage}</p>`}${timeline.render()}`;
     const form = root.querySelector("form");
     const textarea = root.querySelector("textarea");
-    if (!form || !textarea) throw new Error("Persisted chat markup is missing its composer.");
+    const attachmentInput = root.querySelector("input");
+    if (!form || !textarea || !attachmentInput) throw new Error("Persisted chat markup is missing its composer.");
     textarea.value = draft;
     if (shouldRestoreFocus) textarea.focus?.();
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const body = textarea.value.trim();
       if (!body) return;
-      void timeline.send(body)
+      void timeline.send(body, attachmentInput.files())
         .then(() => {
           statusMessage = undefined;
           render();
@@ -200,6 +261,21 @@ export async function mountPersistedChatApp(
           render({ draft: body, restoreFocus: true });
         });
     });
+    for (const button of root.querySelectorAll?.("[data-retry-message-id]") ?? []) {
+      const messageId = button.getAttribute("data-retry-message-id");
+      if (messageId === null) continue;
+      button.addEventListener("click", () => {
+        void timeline.retry(MessageIdSchema.parse(messageId))
+          .then(() => {
+            statusMessage = "Capture retry requested. The message will update when processing finishes.";
+            render({ restoreFocus: true });
+          })
+          .catch(() => {
+            statusMessage = "Capture retry could not be requested. Try again.";
+            render({ restoreFocus: true });
+          });
+      });
+    }
   };
   const poll = async () => {
     try {
@@ -220,6 +296,31 @@ export async function mountPersistedChatApp(
       clearInterval(timer);
     },
   };
+}
+
+export interface AuthenticatedChatAppOptions {
+  workspaceId: WorkspaceId;
+  api: PersistedChatApi;
+  personaSelection: TabPersonaSelection;
+  idempotencyKey?: () => string;
+  pollIntervalMs?: number;
+}
+
+/** Creates the mounted browser composition with its tab-scoped persona headers. */
+export async function mountAuthenticatedChatApp(
+  root: ChatBrowserRoot,
+  options: AuthenticatedChatAppOptions,
+): Promise<MountedPersistedChatApp & { timeline: PersistedChatTimeline }> {
+  const timeline = createPersistedChatTimeline({
+    workspaceId: options.workspaceId,
+    api: options.api,
+    ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
+    requestHeaders: () => options.personaSelection.requestHeaders(),
+  });
+  const mounted = await mountPersistedChatApp(root, timeline, {
+    ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
+  });
+  return { ...mounted, timeline };
 }
 
 export function renderLoginPage(): string {

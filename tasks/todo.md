@@ -228,7 +228,7 @@
 
 ### S2.5 — Implement per-tab persona and attachment/retry UI
 
-- [ ] **Owner:** Stream 2
+- [x] **Owner:** Stream 2
 - **Dependencies:** S2.4
 - **Acceptance:**
   - Google persona choice is stored in `sessionStorage` and sent on workspace requests.
