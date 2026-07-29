@@ -131,6 +131,8 @@ export class FirestorePersistence {
       const messageRef = this.messageRef(input.workspaceId, input.messageId);
       const message = await transaction.get(messageRef);
       if (!message.exists) throw new Error("Cannot complete capture for a missing message.");
+      const current = MessageDocumentSchema.parse(data(message.data()));
+      if (["CAPTURED", "IGNORED", "NEEDS_MANUAL_REVIEW"].includes(current.processingStatus)) return;
       for (const fact of input.facts) {
         await this.putImmutable(transaction, this.factRef(fact.workspaceId, fact.id), fact);
       }

@@ -134,10 +134,12 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
         await write(() => store.facts.set(key(fact.workspaceId, fact.id), clone(fact)));
       },
       async updateFactReviewStatus({ workspaceId, factId, reviewStatus }) {
-        const entryKey = key(workspaceId, factId);
-        const fact = store.facts.get(entryKey);
-        if (!fact) throw new Error("Cannot update a missing fact.");
-        store.facts.set(entryKey, { ...clone(fact), reviewStatus });
+        await write(() => {
+          const entryKey = key(workspaceId, factId);
+          const fact = store.facts.get(entryKey);
+          if (!fact) throw new Error("Cannot update a missing fact.");
+          store.facts.set(entryKey, { ...clone(fact), reviewStatus });
+        });
       },
       async listReviewEvents(workspaceId, factId) {
         return [...store.reviews.values()]
