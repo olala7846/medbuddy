@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   AttachmentSchema,
+  ActorContextSchema,
   CaptureJobInputSchema,
   CaptureOutcomeSchema,
+  ConversationContextSchema,
+  ConversationRequestSchema,
+  type ConversationResponder,
   MessageSchema,
   ProcessingStatusSchema,
   ReactionSchema,
@@ -71,6 +75,78 @@ describe("chat contracts", () => {
         reason: "CAPTURED_FOR_REVIEW",
       }).success,
     ).toBe(true);
+  });
+
+  it("gives the responder bounded canonical context without a persistence handle", async () => {
+    const context = ConversationContextSchema.parse({
+      workspaceId: "workspace:demo-1",
+      messages: [message],
+    });
+    const focalMessage = context.messages[0];
+    if (!focalMessage) {
+      throw new Error("Expected the conversation context to contain its focal message.");
+    }
+    const actor = ActorContextSchema.parse({
+      accountId: "account:owner-1",
+      authentication: {
+        kind: "CREDENTIALS",
+        accountId: "account:owner-1",
+        fixedMemberId: "member:owner-1",
+      },
+      effectiveMemberId: "member:owner-1",
+      workspaceId: "workspace:demo-1",
+    });
+    const responder: ConversationResponder = {
+      async respond(input) {
+        expect(input.context).toEqual(context);
+        expect(input.messageId).toBe(focalMessage.id);
+        return { kind: "RESPONDED", responseText: "Thanks for sharing.", retryable: false };
+      },
+    };
+
+    const request = ConversationRequestSchema.parse({
+      actor,
+      messageId: focalMessage.id,
+      context,
+    });
+    await responder.respond(request);
+  });
+
+  it("rejects a context that crosses workspaces", () => {
+    expect(
+      ConversationContextSchema.safeParse({
+        workspaceId: "workspace:demo-1",
+        messages: [{ ...message, workspaceId: "workspace:other" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires the focal message and actor workspace to match the context", () => {
+    const actor = ActorContextSchema.parse({
+      accountId: "account:owner-1",
+      authentication: {
+        kind: "CREDENTIALS",
+        accountId: "account:owner-1",
+        fixedMemberId: "member:owner-1",
+      },
+      effectiveMemberId: "member:owner-1",
+      workspaceId: "workspace:demo-1",
+    });
+
+    expect(
+      ConversationRequestSchema.safeParse({
+        actor,
+        messageId: "message:missing",
+        context: { workspaceId: "workspace:demo-1", messages: [message] },
+      }).success,
+    ).toBe(false);
+    expect(
+      ConversationRequestSchema.safeParse({
+        actor,
+        messageId: "message:visit-1",
+        context: { workspaceId: "workspace:other", messages: [{ ...message, workspaceId: "workspace:other" }] },
+      }).success,
+    ).toBe(false);
   });
 });
 

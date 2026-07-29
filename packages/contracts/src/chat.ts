@@ -55,6 +55,27 @@ export const MessageSchema = z.object({
   processingLeaseExpiresAt: TimestampSchema.optional(),
 });
 
+/**
+ * Bounded canonical state prepared by Chat for one agent invocation.
+ * Intelligence receives this value, never a repository or Firestore client.
+ */
+export const ConversationContextSchema = z
+  .object({
+    workspaceId: WorkspaceIdSchema,
+    messages: z.array(MessageSchema).min(1).max(20),
+  })
+  .superRefine((context, issueContext) => {
+    for (const [index, message] of context.messages.entries()) {
+      if (message.workspaceId !== context.workspaceId) {
+        issueContext.addIssue({
+          code: "custom",
+          message: "Conversation context messages must belong to the requested workspace.",
+          path: ["messages", index, "workspaceId"],
+        });
+      }
+    }
+  });
+
 export const MessageCursorQuerySchema = z.object({
   workspaceId: WorkspaceIdSchema,
   after: MessageIdSchema.optional(),
@@ -94,6 +115,7 @@ export type ProcessingStatus = z.infer<typeof ProcessingStatusSchema>;
 export type CaptureIntent = z.infer<typeof CaptureIntentSchema>;
 export type Attachment = z.infer<typeof AttachmentSchema>;
 export type Message = z.infer<typeof MessageSchema>;
+export type ConversationContext = z.infer<typeof ConversationContextSchema>;
 export type MessageCursorQuery = z.infer<typeof MessageCursorQuerySchema>;
 export type MessagePage = z.infer<typeof MessagePageSchema>;
 export type AppendMessageInput = z.infer<typeof AppendMessageInputSchema>;

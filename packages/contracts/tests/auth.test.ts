@@ -9,11 +9,11 @@ import {
 } from "../src/index.js";
 
 describe("authentication contracts", () => {
-  it("accepts an eligible Google reviewer assuming a seeded workspace member", () => {
+  it("accepts an eligible Google prototype reviewer assuming a seeded workspace member", () => {
     const result = ActorContextSchema.safeParse({
       accountId: "account:reviewer-1",
       authentication: {
-        kind: "GOOGLE_REVIEWER",
+        kind: "GOOGLE_PROTOTYPE_REVIEWER",
         accountId: "account:reviewer-1",
         email: "reviewer@example.test",
         emailVerified: true,
@@ -51,7 +51,7 @@ describe("authentication contracts", () => {
     const result = ActorContextSchema.safeParse({
       accountId: "account:reviewer-1",
       authentication: {
-        kind: "GOOGLE_REVIEWER",
+        kind: "GOOGLE_PROTOTYPE_REVIEWER",
         accountId: "account:reviewer-1",
         email: "reviewer@example.test",
         emailVerified: true,
