@@ -8,6 +8,8 @@ import {
 const PASSWORD_HASH_ALGORITHM = "pbkdf2-sha256";
 const PASSWORD_HASH_ITERATIONS = 210_000;
 const PASSWORD_HASH_BYTES = 32;
+const DUMMY_PASSWORD_HASH =
+  "pbkdf2-sha256$210000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
 export interface CredentialSeed {
   username: string;
@@ -26,6 +28,16 @@ interface ParsedPasswordHash {
   iterations: number;
   salt: Uint8Array;
   digest: Uint8Array;
+}
+
+export type PasswordDigestDeriver = (
+  password: string,
+  salt: Uint8Array,
+  iterations: number,
+) => Promise<Uint8Array>;
+
+export interface CredentialAuthenticatorOptions {
+  derivePasswordDigest?: PasswordDigestDeriver;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -64,7 +76,7 @@ function parsePasswordHash(value: string): ParsedPasswordHash | null {
   return { iterations, salt, digest };
 }
 
-async function derivePasswordDigest(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+const derivePasswordDigest: PasswordDigestDeriver = async (password, salt, iterations) => {
   const copiedSalt = new Uint8Array(salt.byteLength);
   copiedSalt.set(salt);
   const key = await crypto.subtle.importKey(
@@ -80,7 +92,7 @@ async function derivePasswordDigest(password: string, salt: Uint8Array, iteratio
     PASSWORD_HASH_BYTES * 8,
   );
   return new Uint8Array(bits);
-}
+};
 
 function securelyEquals(left: Uint8Array, right: Uint8Array): boolean {
   let difference = left.length ^ right.length;
@@ -99,6 +111,7 @@ export async function hashCredentialPassword(password: string): Promise<string> 
 
 export function createSeededCredentialAuthenticator(
   seeds: readonly CredentialSeed[],
+  options: CredentialAuthenticatorOptions = {},
 ): (username: string, password: string) => Promise<CredentialSession | null> {
   const validSeeds = seeds.filter((seed) =>
     seed.username.trim().length > 0 &&
@@ -106,14 +119,17 @@ export function createSeededCredentialAuthenticator(
     MemberIdSchema.safeParse(seed.fixedMemberId).success &&
     parsePasswordHash(seed.passwordHash) !== null,
   );
+  const dummyHash = parsePasswordHash(DUMMY_PASSWORD_HASH);
+  if (!dummyHash) throw new Error("The fixed dummy credential hash is invalid.");
+  const derive = options.derivePasswordDigest ?? derivePasswordDigest;
 
   return async (username, password) => {
     const matchingSeed = validSeeds.find((seed) => seed.username === username);
-    const parsedHash = matchingSeed ? parsePasswordHash(matchingSeed.passwordHash) : null;
-    if (!matchingSeed || !parsedHash) return null;
+    const parsedHash = matchingSeed ? parsePasswordHash(matchingSeed.passwordHash) : dummyHash;
+    if (!parsedHash) return null;
 
-    const suppliedDigest = await derivePasswordDigest(password, parsedHash.salt, parsedHash.iterations);
-    if (!securelyEquals(suppliedDigest, parsedHash.digest)) return null;
+    const suppliedDigest = await derive(password, parsedHash.salt, parsedHash.iterations);
+    if (!matchingSeed || !securelyEquals(suppliedDigest, parsedHash.digest)) return null;
 
     return {
       kind: "CREDENTIALS",

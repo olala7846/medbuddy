@@ -112,6 +112,19 @@ describe("seeded credentials", () => {
     });
   });
 
+  it("performs the fixed-cost password derivation for an unknown username", async () => {
+    let derivations = 0;
+    const authenticate = createSeededCredentialAuthenticator([], {
+      async derivePasswordDigest() {
+        derivations += 1;
+        return new Uint8Array(32);
+      },
+    });
+
+    await expect(authenticate("unknown", "incorrect")).resolves.toBeNull();
+    expect(derivations).toBe(1);
+  });
+
   it("ignores a persona header and retains the fixed seeded participant", async () => {
     const actor = await resolveActor(
       {
