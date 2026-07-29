@@ -5,11 +5,11 @@ provisioned or claimed.
 
 ## Current local evidence
 
-- The machine has an active `gcloud` user session for `olala7846@gmail.com`.
-- The active CLI project is `ai-for-agency`.
-- A separate project named `med-buddy-503802` is visible to that account, but
-  MedBuddy has **not** selected it, verified its IAM permissions, or changed
-  the active CLI project. Visibility is not authorization.
+- The machine has an active `gcloud` user session.
+- The selected CLI project is `med-buddy-503802`; billing is enabled and the
+  active user has owner access for the prototype foundation apply.
+- The selected prototype region is `us-west1`. Firestore, Cloud Tasks, Cloud
+  Run, and Cloud Storage will remain co-located there where supported.
 - The local environment has no Java runtime, so the Firestore emulator suites
   are present but skipped. The final test run had 146 passing tests and 19
   environment-gated skips (Firestore emulator and Vertex-related tests).
@@ -19,12 +19,10 @@ provisioned or claimed.
 
 ## What needs an owner decision or authorization
 
-1. Select the GCP project and billing owner for MedBuddy. Do not assume that
-   `med-buddy-503802` is the approved project merely because it is visible.
-2. Choose a compatible region for Firestore, Cloud Run, Cloud Tasks, and the
-   private Storage bucket. The capture callback URL also depends on the Cloud
-   Run deployment decision.
-3. Authorize creation or reuse of these resources:
+1. Apply the reviewed Terraform foundation for the selected project and
+   `us-west1` region. This will create an irreversible Native-mode Firestore
+   default database and the protected foundation resources described below.
+2. Authorize creation or reuse of these resources:
    - Firestore database;
    - Cloud Tasks queue;
    - private, uniform-bucket-level-access Cloud Storage bucket;
@@ -32,12 +30,12 @@ provisioned or claimed.
    - dedicated Cloud Tasks callback service account;
    - workload-identity deployment path (never a committed service-account
      key).
-4. Approve least-privilege IAM bindings for the runtime and deployer service
+3. Approve least-privilege IAM bindings for the runtime and deployer service
    accounts. The exact bindings should be reviewed against the selected
    project and deployment architecture before any policy change.
-5. Accept or remediate the production dependency audit finding before handling
+4. Accept or remediate the production dependency audit finding before handling
    real health information. It must be re-run immediately before deployment.
-6. Provide a Java runtime on the development/CI host, then execute the
+5. Provide a Java runtime on the development/CI host, then execute the
    Firestore emulator suite rather than treating its skips as proof of parity.
 
 ## What an agent can safely do now with the existing `gcloud` login
