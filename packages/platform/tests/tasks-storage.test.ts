@@ -14,7 +14,7 @@ describe("Cloud Tasks capture dispatcher", () => {
     const dispatcher = new CloudTasksCaptureDispatcher(
       {
         queuePath: () => "projects/demo/locations/us-west1/queues/capture",
-        taskPath: () => "projects/demo/locations/us-west1/queues/capture/tasks/workspace_demo-message_visit_1",
+        taskPath: (_project, _location, _queue, taskId) => `projects/demo/locations/us-west1/queues/capture/tasks/${taskId}`,
         createTask: async (input) => {
           request = input;
           return [{} as never, input, {}] as [never, typeof input, object];
@@ -49,6 +49,26 @@ describe("Cloud Tasks capture dispatcher", () => {
       workspaceId: "workspace:demo",
       messageId: "message:visit-1",
     });
+  });
+
+  it("uses distinct task names for distinct canonical ID pairs", async () => {
+    const names: string[] = [];
+    const dispatcher = new CloudTasksCaptureDispatcher({
+      queuePath: () => "queue", taskPath: (_p, _l, _q, taskId) => { names.push(taskId); return taskId; },
+      createTask: async (input) => [{} as never, input, {}] as [never, typeof input, object],
+    }, { projectId: "demo", location: "us-west1", queue: "capture", callbackUrl: "https://example.test/capture", serviceAccountEmail: "capture@demo.iam.gserviceaccount.com" });
+    await dispatcher.dispatch(CaptureJobInputSchema.parse({ workspaceId: "workspace:a-b", messageId: "message:c" }));
+    await dispatcher.dispatch(CaptureJobInputSchema.parse({ workspaceId: "workspace:a", messageId: "message:b-c" }));
+    expect(names).toHaveLength(2);
+    expect(names[0]).not.toBe(names[1]);
+  });
+
+  it("treats an already-created deterministic task as an idempotent duplicate", async () => {
+    const dispatcher = new CloudTasksCaptureDispatcher({
+      queuePath: () => "queue", taskPath: () => "task",
+      createTask: async () => { throw { code: 6 }; },
+    }, { projectId: "demo", location: "us-west1", queue: "capture", callbackUrl: "https://example.test/capture", serviceAccountEmail: "capture@demo.iam.gserviceaccount.com" });
+    await expect(dispatcher.dispatch(CaptureJobInputSchema.parse({ workspaceId: "workspace:demo", messageId: "message:visit-1" }))).resolves.toBeUndefined();
   });
 });
 

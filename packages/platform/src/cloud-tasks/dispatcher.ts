@@ -1,5 +1,6 @@
 import { CloudTasksClient } from "@google-cloud/tasks";
 import { CaptureJobInputSchema, type CaptureDispatcher } from "@medbuddy/contracts";
+import { createHash } from "node:crypto";
 
 export interface CloudTasksDispatcherOptions {
   projectId: string;
@@ -18,8 +19,9 @@ export class CloudTasksCaptureDispatcher implements CaptureDispatcher {
   async dispatch(input: Parameters<CaptureDispatcher["dispatch"]>[0]): Promise<void> {
     const canonicalInput = CaptureJobInputSchema.parse(input);
     const parent = this.client.queuePath(this.options.projectId, this.options.location, this.options.queue);
-    const taskId = `${canonicalInput.workspaceId}-${canonicalInput.messageId}`.replace(/[^A-Za-z0-9_-]/g, "_");
-    await this.client.createTask({
+    const taskId = `capture-${createHash("sha256").update(JSON.stringify(canonicalInput)).digest("hex")}`;
+    try {
+      await this.client.createTask({
       parent,
       task: {
         name: this.client.taskPath(this.options.projectId, this.options.location, this.options.queue, taskId),
@@ -34,6 +36,11 @@ export class CloudTasksCaptureDispatcher implements CaptureDispatcher {
           },
         },
       },
-    });
+      });
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== 6 && (error as { code?: unknown }).code !== "ALREADY_EXISTS") {
+        throw error;
+      }
+    }
   }
 }

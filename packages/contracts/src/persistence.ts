@@ -115,6 +115,15 @@ export interface CaptureDispatcher {
   ): Promise<void>;
 }
 
+/**
+ * The public persistence seam for work that must commit together and ignore a
+ * repeated delivery. Platform adapters own mechanics; callers own policy.
+ */
+export interface TransactionalPersistence {
+  runTransaction<Result>(operation: () => Promise<Result>): Promise<Result>;
+  runIdempotent<Result>(idempotencyKey: string, operation: () => Promise<Result>): Promise<Result>;
+}
+
 export type ApprovalState = z.infer<typeof ApprovalStateSchema>;
 export type WorkspaceDocument = z.infer<typeof WorkspaceDocumentSchema>;
 export type MemberDocument = z.infer<typeof MemberDocumentSchema>;

@@ -1,8 +1,10 @@
 import { Firestore } from "@google-cloud/firestore";
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   AtomicFactSchema,
   HandoffVersionDocumentSchema,
+  MessageDocumentSchema,
   WorkspaceDocumentSchema,
 } from "@medbuddy/contracts";
 import {
@@ -19,7 +21,7 @@ const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
 const describeEmulator = emulatorHost ? describe : describe.skip;
 
 function persistence() {
-  return new FirestorePersistence(new Firestore({ projectId: "medbuddy-platform-test" }));
+  return new FirestorePersistence(new Firestore({ projectId: `medbuddy-platform-test-${randomUUID()}` }));
 }
 
 describeEmulator("Firestore emulator persistence", () => {
@@ -77,5 +79,16 @@ describeEmulator("Firestore emulator persistence", () => {
     await expect(platform.workspaces.getWorkspace(workspace.id)).resolves.toMatchObject({
       currentHandoffVersionId: handoff.id,
     });
+  });
+
+  it("does not overwrite immutable message, attachment, or fact records", async () => {
+    const platform = persistence();
+    const message = MessageDocumentSchema.parse({
+      id: "message:immutable", workspaceId: "workspace:immutable", authorMemberId: "member:owner" as const,
+      body: "Original fictional message.", createdAt: "2026-07-28T10:00:00.000Z", attachmentIds: [],
+      captureIntent: "PASSIVE" as const, processingStatus: "PENDING" as const, processingAttempts: 0,
+    });
+    await platform.messages.putMessage(message);
+    await expect(platform.messages.putMessage({ ...message, body: "Overwritten." })).rejects.toThrow("immutable");
   });
 });

@@ -1,9 +1,12 @@
 import { Firestore, type Transaction } from "@google-cloud/firestore";
 import {
+  type AttachmentDocument,
   type AttachmentRepository,
   type CareRecordRepository,
+  type FactDocument,
   type HandoffVersionDocument,
   type MemberRepository,
+  type MessageDocument,
   type MessageRepository,
   type ReviewEventDocument,
   type WorkspaceRepository,
@@ -60,22 +63,16 @@ export class FirestorePersistence {
     this.messages = {
       getMessage: async (workspaceId, messageId) =>
         this.get(this.messageRef(workspaceId, messageId), MessageDocumentSchema),
-      putMessage: async (message) => {
-        await this.messageRef(message.workspaceId, message.id).set(message);
-      },
+      putMessage: async (message) => this.createImmutable(this.messageRef(message.workspaceId, message.id), message),
     };
     this.attachments = {
       getAttachment: async (workspaceId, messageId, attachmentId) =>
         this.get(this.attachmentRef(workspaceId, messageId, attachmentId), AttachmentDocumentSchema),
-      putAttachment: async (attachment) => {
-        await this.attachmentRef(attachment.workspaceId, attachment.messageId, attachment.id).set(attachment);
-      },
+      putAttachment: async (attachment) => this.createImmutable(this.attachmentRef(attachment.workspaceId, attachment.messageId, attachment.id), attachment),
     };
     this.careRecords = {
       getFact: async (workspaceId, factId) => this.get(this.factRef(workspaceId, factId), FactDocumentSchema),
-      putFact: async (fact) => {
-        await this.factRef(fact.workspaceId, fact.id).set(fact);
-      },
+      putFact: async (fact) => this.createImmutable(this.factRef(fact.workspaceId, fact.id), fact),
       listReviewEvents: async (workspaceId, factId) => {
         const snapshots = await this.workspaceRef(workspaceId)
           .collection("reviewEvents")
@@ -108,6 +105,35 @@ export class FirestorePersistence {
     return this.firestore.runTransaction(operation);
   }
 
+  async runIdempotent<Result>(idempotencyKey: string, operation: () => Promise<Result>): Promise<Result> {
+    const reference = this.firestore.collection("platformOperations").doc(idempotencyKey);
+    return this.runTransaction(async (transaction) => {
+      const existing = await transaction.get(reference);
+      if (existing.exists) return (existing.data() as { result: Result }).result;
+      const result = await operation();
+      transaction.create(reference, { result });
+      return result;
+    });
+  }
+
+  /** Persists candidate facts and the terminal capture state as one transaction. */
+  async completeCapture(input: {
+    workspaceId: string;
+    messageId: string;
+    facts: readonly FactDocument[];
+    processingStatus: "CAPTURED" | "IGNORED" | "NEEDS_MANUAL_REVIEW";
+  }): Promise<void> {
+    await this.runTransaction(async (transaction) => {
+      const messageRef = this.messageRef(input.workspaceId, input.messageId);
+      const message = await transaction.get(messageRef);
+      if (!message.exists) throw new Error("Cannot complete capture for a missing message.");
+      for (const fact of input.facts) {
+        await this.putImmutable(transaction, this.factRef(fact.workspaceId, fact.id), fact);
+      }
+      transaction.update(messageRef, { processingStatus: input.processingStatus, processingLeaseExpiresAt: undefined });
+    });
+  }
+
   private async get<Output>(reference: FirebaseFirestore.DocumentReference, schema: { parse(value: unknown): Output }): Promise<Output | null> {
     const snapshot = await reference.get();
     return snapshot.exists ? schema.parse(data(snapshot.data())) : null;
@@ -116,7 +142,7 @@ export class FirestorePersistence {
   private async putImmutable(
     transaction: Transaction,
     reference: FirebaseFirestore.DocumentReference,
-    value: ReviewEventDocument | HandoffVersionDocument,
+    value: AttachmentDocument | FactDocument | HandoffVersionDocument | MessageDocument | ReviewEventDocument,
   ): Promise<void> {
     const existing = await transaction.get(reference);
     if (!existing.exists) {
@@ -126,6 +152,13 @@ export class FirestorePersistence {
     if (JSON.stringify(existing.data()) !== JSON.stringify(value)) {
       throw new Error("An immutable record already exists with a different value.");
     }
+  }
+
+  private async createImmutable(
+    reference: FirebaseFirestore.DocumentReference,
+    value: AttachmentDocument | FactDocument | MessageDocument,
+  ): Promise<void> {
+    await this.runTransaction(async (transaction) => this.putImmutable(transaction, reference, value));
   }
 
   private workspaceRef(workspaceId: string) {
