@@ -114,4 +114,28 @@ describe("ChatService", () => {
     const secondPage = await service.listMessages(actor, { workspaceId, after: firstPage.nextCursor, limit: 1 });
     expect(secondPage.messages.map((message) => message.id)).toEqual(["message:second"]);
   });
+
+  it("returns a processing transition after the prior revision cursor", async () => {
+    const stores = createStores();
+    const service = new ChatService({
+      ...stores,
+      captureDispatcher: new FixedCaptureDispatcher(),
+      responder: { async respond() { return { kind: "TECHNICAL_FAILURE", retryable: true }; } },
+      now: () => timestamp,
+    });
+    const appended = await service.appendMessage(actor, {
+      workspaceId, body: "I felt dizzy.", attachmentIds: [], captureIntent: "PASSIVE", idempotencyKey: "transition-1",
+    });
+    const initial = await service.listMessages(actor, { workspaceId, limit: 50 });
+    const pending = await stores.messages.getMessage(workspaceId, appended.message.id);
+    await stores.messages.putMessage({ ...pending!, processingStatus: "CAPTURED", revision: pending!.revision + 1 });
+
+    const update = await service.listMessages(actor, {
+      workspaceId,
+      afterRevision: initial.nextRevision,
+      limit: 50,
+    });
+    expect(update.messages).toMatchObject([{ id: appended.message.id, processingStatus: "CAPTURED", revision: 2 }]);
+    expect(update.nextRevision).toBe(2);
+  });
 });

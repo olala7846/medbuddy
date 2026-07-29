@@ -66,6 +66,7 @@ export class ChatService implements ChatServicePort {
       captureIntent: input.captureIntent,
       processingStatus: "PENDING",
       processingAttempts: 0,
+      revision: await this.nextRevision(input.workspaceId),
     };
     await this.dependencies.messages.putMessage(message);
 
@@ -79,11 +80,25 @@ export class ChatService implements ChatServicePort {
     const query = MessageCursorQuerySchema.parse(queryValue);
     await this.requireEligibleActor(actor, query.workspaceId);
     const messages = [...await this.dependencies.messages.listMessages(query.workspaceId)].sort(compareMessages);
+    if (query.afterRevision !== undefined) {
+      const changes = messages
+        .filter((message) => message.revision > query.afterRevision!)
+        .sort((left, right) => left.revision - right.revision || compareMessages(left, right));
+      const page = changes.slice(0, query.limit);
+      return {
+        messages: page,
+        nextRevision: page.at(-1)?.revision ?? query.afterRevision,
+      };
+    }
     const afterIndex = query.after === undefined ? -1 : messages.findIndex((message) => message.id === query.after);
     if (query.after !== undefined && afterIndex === -1) throw new ChatServiceError("NOT_FOUND");
     const page = messages.slice(afterIndex + 1, afterIndex + 1 + query.limit);
     const hasMore = afterIndex + 1 + query.limit < messages.length;
-    return { messages: page, ...(hasMore && page.length > 0 ? { nextCursor: page.at(-1)?.id } : {}) };
+    return {
+      messages: page,
+      nextRevision: messages.reduce((revision, message) => Math.max(revision, message.revision), 0),
+      ...(hasMore && page.length > 0 ? { nextCursor: page.at(-1)?.id } : {}),
+    };
   }
 
   async requestCaptureRetry(actorInput: ActorContext, messageId: MessageId): Promise<void> {
@@ -95,6 +110,7 @@ export class ChatService implements ChatServicePort {
     await this.dependencies.messages.putMessage({
       ...message,
       processingStatus: "PENDING",
+      revision: await this.nextRevision(message.workspaceId),
       lastProcessingErrorCode: undefined,
       processingLeaseExpiresAt: undefined,
     });
@@ -149,6 +165,12 @@ export class ChatService implements ChatServicePort {
       captureIntent: "PASSIVE",
       processingStatus: "IGNORED",
       processingAttempts: 0,
+      revision: await this.nextRevision(message.workspaceId),
     });
+  }
+
+  private async nextRevision(workspaceId: Message["workspaceId"]): Promise<number> {
+    const messages = await this.dependencies.messages.listMessages(workspaceId);
+    return messages.reduce((revision, message) => Math.max(revision, message.revision), 0) + 1;
   }
 }
