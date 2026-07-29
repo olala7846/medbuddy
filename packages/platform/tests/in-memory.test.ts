@@ -240,6 +240,8 @@ describe("in-memory persistence", () => {
       },
     });
 
+    await persistence.workspaces.putWorkspace(workspaceFixture());
+
     await persistence.careRecords.appendReviewEvent(review);
     await persistence.careRecords.appendReviewEvent(review);
     await expect(persistence.careRecords.appendReviewEvent(changedReview)).rejects.toThrow(

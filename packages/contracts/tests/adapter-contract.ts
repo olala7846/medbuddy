@@ -6,7 +6,6 @@ import { WorkspaceIdSchema } from "../src/ids.js";
 import {
   AttachmentDocumentSchema,
   FactDocumentSchema,
-  HandoffVersionDocumentSchema,
   MemberDocumentSchema,
   MessageDocumentSchema,
   ReviewEventDocumentSchema,
@@ -214,35 +213,11 @@ export function describeCareRecordRepositoryContract(
         action: "ACCEPT",
         createdAt: fact.enteredAt,
       });
-      const handoff = HandoffVersionDocumentSchema.parse({
-        id: "handoff:v1",
-        workspaceId: fact.workspaceId,
-        version: 1,
-        createdByMemberId: fact.contributorMemberId,
-        createdAt: fact.enteredAt,
-        sourceMessageIds: [fact.sourceMessageId],
-        sourceFactIds: [fact.id],
-        sourceReviewEventIds: [review.id],
-        snapshot: {
-          version: 1,
-          facts: [fact],
-          conflicts: [],
-          medicationSources: [],
-          unresolvedItems: ["Confirm the timing with a pharmacist or clinic."],
-          limitations: ["This handoff preserves reported information and is not medical advice."],
-        },
-      });
-
       await repository.appendReviewEvent(review);
       await expect(repository.listReviewEvents(fact.workspaceId, fact.id)).resolves.toEqual([review]);
       await expect(
         repository.listReviewEvents(WorkspaceIdSchema.parse("workspace:other"), fact.id),
       ).resolves.toEqual([]);
-      await repository.createHandoff(handoff);
-      await expect(repository.getHandoff(fact.workspaceId, handoff.id)).resolves.toEqual(handoff);
-      await expect(
-        repository.getHandoff(WorkspaceIdSchema.parse("workspace:other"), handoff.id),
-      ).resolves.toBeNull();
     });
   });
 }

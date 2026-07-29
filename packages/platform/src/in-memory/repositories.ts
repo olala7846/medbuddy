@@ -164,8 +164,9 @@ function repositoriesFor(store: InMemoryStore, write: WriteOperation): InMemoryR
       async createHandoff(version) {
         await write(() => {
           const workspace = store.workspaces.get(version.workspaceId);
+          if (!workspace) throw new Error("Cannot publish a handoff for a missing workspace.");
           putImmutable(store.handoffs, key(version.workspaceId, version.id), version);
-          if (workspace) store.workspaces.set(version.workspaceId, { ...clone(workspace), currentHandoffVersionId: version.id, updatedAt: version.createdAt });
+          store.workspaces.set(version.workspaceId, { ...clone(workspace), currentHandoffVersionId: version.id, updatedAt: version.createdAt });
         });
       },
     },
