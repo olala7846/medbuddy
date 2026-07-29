@@ -12,29 +12,47 @@ export type WorkspaceEligibility =
       reason:
         | "WORKSPACE_NOT_APPROVED"
         | "MEMBERSHIP_NOT_APPROVED"
+        | "MEMBER_WORKSPACE_INVALID"
         | "OWNER_MEMBERSHIP_INVALID"
         | "MEMBER_CONSENT_REQUIRED";
     };
 
 export type WorkspaceControlAction = "SHARE" | "REVOKE" | "RESET";
 
+export function createMembershipSnapshotHash(members: readonly MemberDocument[]): string {
+  return JSON.stringify(
+    [...members]
+      .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      .map((member) => ({
+        id: member.id,
+        workspaceId: member.workspaceId,
+        role: member.role,
+        processingConsent: member.processingConsent,
+        joinedAt: member.joinedAt,
+      })),
+  );
+}
+
 /**
  * Returns the eligibility required before any health processing or output.
- * The caller supplies the current membership snapshot hash from its repository
- * transaction; this domain service never derives authority from a model or client.
+ * The membership snapshot is derived from server-loaded member records, never a
+ * model or client claim.
  */
 export function determineWorkspaceEligibility(
   workspace: WorkspaceDocument,
   members: readonly MemberDocument[],
-  currentMembershipHash: string,
 ): WorkspaceEligibility {
   if (workspace.approvalState !== "APPROVED") {
     return { eligible: false, reason: "WORKSPACE_NOT_APPROVED" };
   }
 
+  if (members.some((member) => member.workspaceId !== workspace.id)) {
+    return { eligible: false, reason: "MEMBER_WORKSPACE_INVALID" };
+  }
+
   if (
     workspace.approvedMembershipHash === undefined ||
-    workspace.approvedMembershipHash !== currentMembershipHash
+    workspace.approvedMembershipHash !== createMembershipSnapshotHash(members)
   ) {
     return { eligible: false, reason: "MEMBERSHIP_NOT_APPROVED" };
   }
