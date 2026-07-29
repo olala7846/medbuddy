@@ -124,11 +124,8 @@ export class ConversationResponder implements ConversationResponderPort {
         return technicalFailure();
       }
 
-      return this.respondToInstruction(instruction.data);
-    } catch (error) {
-      if (error instanceof ConversationProviderError) {
-        return technicalFailure();
-      }
+      return await this.respondToInstruction(instruction.data);
+    } catch {
       return technicalFailure();
     }
   }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { ActorContextSchema, ConversationRequestSchema, MessageSchema } from "@medbuddy/contracts";
+import {
+  ActorContextSchema,
+  ConversationRequestSchema,
+  MessageSchema,
+  type MedicationGrounding,
+} from "@medbuddy/contracts";
 
 import {
   ConversationProviderError,
@@ -99,6 +104,26 @@ describe("conversation responder", () => {
     const responder = new ConversationResponder(
       createFixtureMedicationGrounding(),
       new FixedConversationProvider(new Map([[focalMessage.id, output]])),
+    );
+
+    await expect(responder.respond(request)).resolves.toEqual({
+      kind: "TECHNICAL_FAILURE",
+      retryable: true,
+    });
+  });
+
+  it("contains a source-card lookup rejection as a retryable technical failure", async () => {
+    const rejectingGrounding: MedicationGrounding = {
+      async lookup() {
+        throw new Error("fictional lookup outage");
+      },
+    };
+    const responder = new ConversationResponder(
+      rejectingGrounding,
+      new FixedConversationProvider(new Map([[focalMessage.id, {
+        kind: "LOOKUP_MEDICATION",
+        query: { displayName: "Demo medicine" },
+      }]])),
     );
 
     await expect(responder.respond(request)).resolves.toEqual({
