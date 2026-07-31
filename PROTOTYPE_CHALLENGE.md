@@ -1,6 +1,12 @@
 # MedBuddy Prototype Challenge
 
-## Delivery Constraint
+> **Historical external brief:** The submission deadline and reviewer-oriented
+> deliverables below no longer determine product priority. The medical-safety
+> contract remains binding. Current work follows
+> [`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md) and the
+> [Telegram family-alpha specification](./docs/TELEGRAM_FAMILY_ALPHA_SPEC.md).
+
+## Original Delivery Constraint (no longer active)
 
 - Deliver within 48 hours of receiving the challenge. If the deadline is at risk, flag it and provide an ETA.
 - The main deliverable is a working, runnable prototype with source code.
@@ -41,7 +47,7 @@ Go meaningfully deeper in at least one area:
 - Never diagnose, prescribe, or make autonomous medical decisions.
 - Escalate potentially dangerous symptoms, interactions, or uncertainty to an appropriate human or emergency resource.
 
-## Required Deliverables
+## Original Required Deliverables
 
 - A working end-to-end prototype.
 - The exact command or live URL used to run it.
@@ -54,7 +60,7 @@ Reviewers will read the PRD and TDD before running and inspecting the prototype.
 
 AI Fund will execute the prototype and test commands before scheduling a panel.
 
-## Submission Contract
+## Original Submission Contract
 
 Provide:
 
@@ -72,7 +78,7 @@ Make the repository public or grant reviewer access before the interview. Ensure
 
 A ZIP snapshot is only a fallback; advancement pauses until the repository can be verified.
 
-## AI Interview
+## Original AI Interview
 
 - Complete the required 60-minute voice interview after submitting.
 - Start it within 30 minutes of submission.

@@ -1,15 +1,18 @@
 # MedBuddy
 
-Fictional-data-only prototype that helps an older adult and authorized family caregivers turn an incomplete post-visit conversation into an attributed, reviewable handoff. Taiwan is the first market; real health data is out of scope.
+MedBuddy is becoming a passive AI participant in a real private family group chat. It captures attributed observations and reported instructions, maintains a reviewable timeline, and helps the family prepare and communicate before and after appointments without making medical decisions.
+
+The current goal is a live Telegram family alpha for two adult caregivers coordinating care for one dependent child. A working message-to-fact-to-visit-brief path is more important than further polish of the existing fake-backed web demo. See [`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md).
 
 ## Start here (progressive disclosure)
 
 | Order | Open | When |
 | --- | --- | --- |
-| 1 | [PROTOTYPE_CHALLENGE.md](./PROTOTYPE_CHALLENGE.md) | Delivery contract and medical-safety bounds (binding) |
-| 2 | [AGENTS.md](./AGENTS.md) | Always-on agent and contributor rules |
-| 3 | [docs/INDEX.md](./docs/INDEX.md) | Doc catalog and when to load deeper material |
-| 4 | Package or app `README.md` | Only when editing that package |
+| 1 | [PRODUCT_DIRECTION.md](./PRODUCT_DIRECTION.md) | Current goal, priorities, and locked alpha decisions |
+| 2 | [PROTOTYPE_CHALLENGE.md](./PROTOTYPE_CHALLENGE.md) | Historical brief; medical-safety bounds remain binding |
+| 3 | [AGENTS.md](./AGENTS.md) | Always-on agent and contributor rules |
+| 4 | [docs/INDEX.md](./docs/INDEX.md) | Doc catalog and when to load deeper material |
+| 5 | Package or app `README.md` | Only when editing that package |
 
 Do not load the full PRD or TDD by default. Use [docs/INDEX.md](./docs/INDEX.md) to choose the next file.
 
@@ -54,11 +57,15 @@ make help              # Terraform targets for infra/
 
 The local browser host requires no environment file, cloud account, external credentials, or deployment. See
 [`apps/web/README.md`](./apps/web/README.md) for the fictional sign-in details and manual verification flow.
+It remains useful for automated verification, but it is not the current product-delivery priority.
 See package READMEs and [docs/ops notes via INDEX](./docs/INDEX.md) for deployment and adapter details.
 
 ## Documentation
 
-- Product: [docs/PRD.md](./docs/PRD.md)
+- Current direction: [PRODUCT_DIRECTION.md](./PRODUCT_DIRECTION.md)
+- Telegram family-alpha spec: [docs/TELEGRAM_FAMILY_ALPHA_SPEC.md](./docs/TELEGRAM_FAMILY_ALPHA_SPEC.md)
+- Earlier product PRD: [docs/PRD.md](./docs/PRD.md)
 - Architecture skim: [docs/engineering/ARCHITECTURE.md](./docs/engineering/ARCHITECTURE.md)
 - Full technical design: [docs/TDD.md](./docs/TDD.md)
+- Current implementation roadmap: [tasks/plan.md](./tasks/plan.md)
 - Infra: [infra/README.md](./infra/README.md)

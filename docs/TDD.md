@@ -1,6 +1,12 @@
 # MedBuddy Technical Design Document
 
-**Status:** Draft for approval
+> **Foundation design, partially superseded:** The package boundaries, safety
+> rules, provenance, and persistence design remain relevant. The fake-backed
+> web delivery target and fictional-only runtime scope are superseded by
+> [`../PRODUCT_DIRECTION.md`](../PRODUCT_DIRECTION.md) and the
+> [Telegram family-alpha specification](./TELEGRAM_FAMILY_ALPHA_SPEC.md).
+
+**Status:** Foundation reference; partially superseded
 
 **Version:** 0.1
 
