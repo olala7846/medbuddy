@@ -8,6 +8,7 @@ export default tseslint.config(
       "dist/",
       "node_modules/",
       ".next/",
+      "**/.next/",
     ],
   },
   js.configs.recommended,

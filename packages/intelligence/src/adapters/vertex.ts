@@ -67,7 +67,9 @@ const VertexConfigurationSchema = z.object({
  * Reads only explicitly enabled configuration. Credentials stay in ADC and are
  * never read from or stored in the repository.
  */
-export function loadVertexConfiguration(environment = process.env): VertexConfiguration | null {
+export function loadVertexConfiguration(
+  environment: Record<string, string | undefined> = process.env,
+): VertexConfiguration | null {
   if (environment.MEDBUDDY_VERTEX_ENABLED !== "true") {
     return null;
   }

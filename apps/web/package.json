@@ -8,6 +8,8 @@
     "./server": "./src/server.ts"
   },
   "scripts": {
+    "dev": "next dev --webpack --hostname 127.0.0.1",
+    "build": "next build --webpack",
     "test": "vitest run --root ../.. --config vitest.config.ts"
   },
   "dependencies": {

@@ -13,7 +13,7 @@ const temporaryDirectories: string[] = [];
 
 const packageDependencies: Record<string, string[]> = {
   contracts: [],
-  chat: ["contracts"],
+  chat: ["contracts", "care-record"],
   "care-record": ["contracts"],
   intelligence: ["contracts"],
   platform: ["contracts", "chat", "care-record", "intelligence"],
@@ -39,6 +39,7 @@ function createProject(
       `packages/${name}/package.json`,
       JSON.stringify({
         name: `@medbuddy/${name}`,
+        exports: { ".": "./src/index.ts" },
         dependencies: Object.fromEntries(
           dependencies.map((dependency) => [`@medbuddy/${dependency}`, "0.0.0"]),
         ),
@@ -51,6 +52,7 @@ function createProject(
     "apps/web/package.json",
     JSON.stringify({
       name: "@medbuddy/web",
+      exports: { ".": "./src/index.ts" },
       dependencies: Object.fromEntries(
         Object.keys(packageDependencies).map((dependency) => [
           `@medbuddy/${dependency}`,

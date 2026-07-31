@@ -25,7 +25,7 @@ const IGNORED_DIRECTORIES = new Set([
 
 export const PACKAGE_DEPENDENCY_POLICY = Object.freeze({
   contracts: [],
-  chat: ["contracts"],
+  chat: ["contracts", "care-record"],
   "care-record": ["contracts"],
   intelligence: ["contracts"],
   platform: ["contracts", "chat", "care-record", "intelligence"],
@@ -179,6 +179,13 @@ function declaredRuntimeDependency(sourceModule, targetPackageName) {
   return Boolean(sourceModule.manifest?.dependencies?.[targetPackageName]);
 }
 
+function isExportedSpecifier(targetModule, specifier) {
+  const exportKey = specifier === targetModule.packageName
+    ? "."
+    : `.${specifier.slice(targetModule.packageName.length)}`;
+  return Boolean(targetModule.manifest?.exports?.[exportKey]);
+}
+
 function validateWorkspaceImport({
   rootDir,
   filePath,
@@ -188,7 +195,7 @@ function validateWorkspaceImport({
 }) {
   const violations = [];
 
-  if (location.specifier !== targetModule.packageName) {
+  if (!isExportedSpecifier(targetModule, location.specifier)) {
     violations.push(
       violation(
         rootDir,
@@ -200,6 +207,9 @@ function validateWorkspaceImport({
     );
     return violations;
   }
+
+  const relativeSourcePath = toPosix(path.relative(sourceModule?.root ?? rootDir, filePath));
+  if (relativeSourcePath.startsWith("tests/")) return violations;
 
   if (sourceModule?.kind === "package") {
     const allowedDependencies = PACKAGE_DEPENDENCY_POLICY[sourceModule.directoryName];

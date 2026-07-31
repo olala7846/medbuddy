@@ -70,41 +70,36 @@ export async function createLocalDemoHost(options: LocalDemoHostOptions = {}) {
     },
   };
 
-  const updateProcessingStatus = async (messageId: MessageId) => {
-    const sessionWorkspaces = new Set([...sessions.values()].map((entry) => entry.workspaceId));
-    sessionWorkspaces.add(CREDENTIAL_TEST_WORKSPACE_ID);
-    for (const workspaceId of sessionWorkspaces) {
-      const message = await persistence.messages.getMessage(workspaceId, messageId);
-      if (!message) continue;
-      const attempt = message.processingAttempts + 1;
-      await persistence.messages.putMessage({
-        ...MessageWriteSchema.parse(message),
-        processingStatus: "PROCESSING",
-        processingAttempts: attempt,
-        lastProcessingErrorCode: undefined,
-      });
-      setTimeout(() => {
-        void (async () => {
-          const processing = await persistence.messages.getMessage(workspaceId, messageId);
-          if (!processing) return;
-          const isFirstFailure = processing.body.includes("[demo:fail-once]") && attempt === 1;
-          const processingStatus = isFirstFailure
-            ? "FAILED"
-            : processing.body.includes("[demo:ignore]")
-              ? "IGNORED"
-              : processing.body.includes("[demo:manual-review]")
-                ? "NEEDS_MANUAL_REVIEW"
-                : "CAPTURED";
-          await persistence.messages.putMessage({
-            ...MessageWriteSchema.parse(processing),
-            processingStatus,
-            processingAttempts: attempt,
-            ...(isFirstFailure ? { lastProcessingErrorCode: "PROVIDER_TIMEOUT" } : {}),
-          });
-        })();
-      }, processingDelayMs);
-      return;
-    }
+  const updateProcessingStatus = async (workspaceId: WorkspaceId, messageId: MessageId) => {
+    const message = await persistence.messages.getMessage(workspaceId, messageId);
+    if (!message) return;
+    const attempt = message.processingAttempts + 1;
+    await persistence.messages.putMessage({
+      ...MessageWriteSchema.parse(message),
+      processingStatus: "PROCESSING",
+      processingAttempts: attempt,
+      lastProcessingErrorCode: undefined,
+    });
+    setTimeout(() => {
+      void (async () => {
+        const processing = await persistence.messages.getMessage(workspaceId, messageId);
+        if (!processing) return;
+        const isFirstFailure = processing.body.includes("[demo:fail-once]") && attempt === 1;
+        const processingStatus = isFirstFailure
+          ? "FAILED"
+          : processing.body.includes("[demo:ignore]")
+            ? "IGNORED"
+            : processing.body.includes("[demo:manual-review]")
+              ? "NEEDS_MANUAL_REVIEW"
+              : "CAPTURED";
+        await persistence.messages.putMessage({
+          ...MessageWriteSchema.parse(processing),
+          processingStatus,
+          processingAttempts: attempt,
+          ...(isFirstFailure ? { lastProcessingErrorCode: "PROVIDER_TIMEOUT" } : {}),
+        });
+      })();
+    }, processingDelayMs);
   };
 
   const chatService = new ChatService({
@@ -112,8 +107,8 @@ export async function createLocalDemoHost(options: LocalDemoHostOptions = {}) {
     members: persistence.members,
     messages: persistence.messages,
     captureDispatcher: {
-      async dispatch({ messageId }) {
-        setTimeout(() => { void updateProcessingStatus(messageId); }, processingDelayMs);
+      async dispatch({ workspaceId, messageId }) {
+        setTimeout(() => { void updateProcessingStatus(workspaceId, messageId); }, processingDelayMs);
       },
     },
     responder: {
@@ -184,13 +179,6 @@ export async function createLocalDemoHost(options: LocalDemoHostOptions = {}) {
     async signInWithCredentials(username: string, password: string): Promise<LocalSignInResult | null> {
       const session = await credentialAuthenticator(username, password);
       return session === null ? null : saveSession({ session, workspaceId: CREDENTIAL_TEST_WORKSPACE_ID });
-    },
-    getSession(token: string): StoredSession & { members: readonly MemberDocument[] } {
-      const entry = requireSession(token);
-      return {
-        ...entry,
-        members: [],
-      };
     },
     async sessionDetails(token: string): Promise<StoredSession & { members: readonly MemberDocument[] }> {
       const entry = requireSession(token);
