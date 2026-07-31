@@ -1,6 +1,53 @@
 # `@medbuddy/web`
 
-Application shell: authentication, actor resolution, HTTP/route adapters, and composition root for demo and production wiring.
+Application shell and runnable local browser host: authentication, actor resolution, HTTP route adapters, and composition roots for demo and production wiring.
+
+## Run the fictional local demo
+
+From the repository root:
+
+```bash
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000`. No environment file, cloud service, identity provider, credential, or deployment is required. The local host accepts fictional data only. Sessions and all workspace changes are held in process memory and reset when the dev server restarts.
+
+The sign-in screen offers two deliberately fake paths:
+
+- **Prototype reviewer**: a server-created, verified allowlisted reviewer. Choose a fictional member in each browser tab; the selection stays in that tab's `sessionStorage`.
+- **Fixed fictional participant**: username `fictional-owner`, password `fictional-password`. This account is fixed to `member:owner` and ignores reviewer-persona headers.
+
+The credential is public test data, is not a secret, and must never be reused outside this local fixture.
+
+## Manual verification
+
+1. Enter the prototype reviewer demo and select `member:owner`.
+2. In a second tab, select `member:caregiver-a`; confirm the first tab remains the owner.
+3. Send `@MedBuddy I felt fictional mild dizziness after breakfast.` Confirm the message and fixed safe reply remain after refresh, then watch the textual status progress to **Captured**.
+4. Attach a small, fictional JPEG, PNG, or WebP (maximum 5 MiB) and send another message. The browser sends raw bytes to the local route; admission and storage stay server-side.
+5. Send `[demo:fail-once] Fictional capture retry check.` Wait for **Failed**, choose **Retry capture**, and confirm **Captured**. Optional controls are `[demo:ignore]` and `[demo:manual-review]`.
+6. Open **Review facts**. Inspect contributor attribution, source provenance, statuses, the conflicting timing report, uncertainty, follow-up, and limitations.
+7. Open handoff v1 and print it; confirm the later mild-dizziness fixture is absent. Open v2 and confirm it is present, then revisit v1 to confirm it remains frozen.
+8. Log out and use the fixed fictional credentials. Confirm there is no persona selector.
+9. Repeat the main path in a narrow viewport using only the keyboard. Confirm states remain understandable without color.
+
+The demo markers control only the deterministic local dispatcher. They are not production commands or authority.
+
+## Browser smoke coverage
+
+```bash
+npm exec playwright install chromium
+npm run test:e2e
+```
+
+Playwright starts a fresh dev process on `http://localhost:3100`, uses one Chromium worker and a mobile-sized viewport, and checks the reviewer and credential paths, polling, attachment admission, retry, review, immutable handoffs, print invocation, logout, browser-console errors, and unexpected non-localhost traffic.
+
+Read-only review and printing of stored handoff v1/v2 are in scope. Review mutations, creation of new handoffs, workspace reset UI, production authentication, cloud persistence, background durability, WebSockets, deployment, and cross-browser certification remain deferred.
+
+### Dependency audit note (2026-07-31)
+
+Adding Next.js increases `npm audit` from the checkpoint's 10 findings to 13 (5 moderate, 8 high, 0 critical). The three additional high findings are reported through Next.js's pinned PostCSS build dependency and optional Sharp image dependency. This host processes only repository-authored CSS, does not use `next/image`, binds the dev server to loopback, and has no deployment path. npm currently offers only an incompatible forced downgrade to Next 9.3.3, so no forced remediation was applied. Recheck for a compatible patched Next.js release by 2026-08-31; the checkpoint's existing cloud-adapter findings remain tracked separately.
 
 ## Public entry
 
@@ -26,14 +73,16 @@ Does **not** yet depend on `@medbuddy/intelligence` (wire when connecting respon
 ```text
 src/auth/            Session providers and actor resolution
 src/composition/     Config, demo workspace, production wiring
+src/local-demo/      Process-local sessions, deterministic dispatcher, HTTP helpers
 src/*.ts             Route adapters and persona/chat helpers
+app/                 Next.js pages and localhost-only route handlers
+e2e/                 Playwright Chromium smoke flow
 tests/               Workspace-scoped tests
 ```
-
-Next.js `app/` routes are deferred; this package is currently a composable TypeScript shell.
 
 ## Tests
 
 ```bash
 npm test --workspace @medbuddy/web
+npm run build --workspace @medbuddy/web
 ```
