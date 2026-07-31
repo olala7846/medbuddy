@@ -219,7 +219,7 @@ export interface ChatBrowserRetryButton {
 }
 
 export interface ChatBrowserAttachmentInput {
-  files(): readonly BrowserAttachmentUpload[];
+  files(): readonly BrowserAttachmentUpload[] | Promise<readonly BrowserAttachmentUpload[]>;
 }
 
 export interface MountedPersistedChatApp {
@@ -251,7 +251,8 @@ export async function mountPersistedChatApp(
       event.preventDefault();
       const body = textarea.value.trim();
       if (!body) return;
-      void timeline.send(body, attachmentInput.files())
+      void Promise.resolve(attachmentInput.files())
+        .then((attachments) => timeline.send(body, attachments))
         .then(() => {
           statusMessage = undefined;
           render();

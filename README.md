@@ -44,11 +44,16 @@ intelligence ──→ contracts   (not yet wired into apps/web)
 
 ```bash
 npm ci
+npm exec playwright install chromium
+npm run dev           # local fictional demo at http://localhost:3000
 npm test
 npm run check          # typecheck + lint
+npm run test:e2e      # isolated browser smoke test at http://localhost:3100
 make help              # Terraform targets for infra/
 ```
 
+The local browser host requires no environment file, cloud account, external credentials, or deployment. See
+[`apps/web/README.md`](./apps/web/README.md) for the fictional sign-in details and manual verification flow.
 See package READMEs and [docs/ops notes via INDEX](./docs/INDEX.md) for deployment and adapter details.
 
 ## Documentation

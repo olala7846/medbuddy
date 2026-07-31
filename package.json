@@ -16,11 +16,16 @@
     "check:boundaries": "node scripts/check-module-boundaries.mjs",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "lint": "eslint .",
+    "dev": "npm run dev --workspace @medbuddy/web",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:vertex-smoke": "MEDBUDDY_RUN_VERTEX_SMOKE=true vitest run --run vertex-smoke"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "eslint": "10.8.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0",

@@ -16,7 +16,10 @@ service-account*.json
 .DS_Store
 *.log
 .vitest/
+*.tsbuildinfo
 worktrees/
+playwright-report/
+test-results/
 
 # Terraform local state, plans, and provider cache. The dependency lock file is committed.
 **/.terraform/
