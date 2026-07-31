@@ -1,12 +1,17 @@
 # MedBuddy architecture (as-built)
 
+> **Current target:** Reuse this modular foundation for the live Telegram
+> family alpha defined in [`../../PRODUCT_DIRECTION.md`](../../PRODUCT_DIRECTION.md)
+> and [`../TELEGRAM_FAMILY_ALPHA_SPEC.md`](../TELEGRAM_FAMILY_ALPHA_SPEC.md).
+> The fake-backed web host is a verification surface, not the product priority.
+
 **Audience:** engineers and agents touching code structure  
 **Deeper design:** [../TDD.md](../TDD.md)  
 **Product intent:** [../PRD.md](../PRD.md)
 
 ## Shape
 
-One npm-workspace **modular monolith**: one lockfile, packages for domain and adapters, one web app package (composition shell today — no runtime entrypoint or Next.js UI routes yet).
+One npm-workspace **modular monolith**: one lockfile, packages for domain and adapters, and one web application with a runnable local Next.js host.
 
 Designed for ≤100 users. No microservices.
 
@@ -68,11 +73,11 @@ infra/terraform/              bootstrap/, prototype/
 tasks/                        plan.md, todo.md
 ```
 
-**Not present yet (deferred target, not navigation bugs):**
+**Not present yet:**
 
 - Root `fixtures/`, `scripts/`, `tests/{unit,integration,e2e}`
-- Next.js `apps/web/app/` UI tree
 - Root medication snapshot script
+- Telegram webhook, Bot API adapter, command flow, and live channel composition
 
 Tests live next to each package (`packages/*/tests`, `apps/web/tests`).
 

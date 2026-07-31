@@ -1,608 +1,432 @@
-# MedBuddy Parallel Execution Plan
+# Implementation Plan: Telegram Family Alpha
 
-**Status:** Approved for future execution
+**Status:** Approved for execution
 
-**Date:** 2026-07-28
+**Product source:** [`../PRODUCT_DIRECTION.md`](../PRODUCT_DIRECTION.md)
 
-**Source design:** [`docs/TDD.md`](../docs/TDD.md), V0 commit `5aea2ca`
+**Requirements:** [`../docs/TELEGRAM_FAMILY_ALPHA_SPEC.md`](../docs/TELEGRAM_FAMILY_ALPHA_SPEC.md)
 
-## 1. Purpose and Session Boundary
+## 1. Outcome
 
-This document turns the approved MedBuddy V0 design into a parallel implementation strategy. It is an execution plan, not authorization to begin implementation.
-
-This planning session creates and commits only:
-
-- `tasks/plan.md`
-- `tasks/todo.md`
-
-Do not create application code, install dependencies, provision GCP resources, or alter the TDD during this session. Implementation begins only after separate approval.
-
-## 2. Superseding Authentication Decision
-
-The authentication decision below supersedes the V0 TDD statements that real authentication is deferred, the public browser is unauthenticated, and a selected persona alone identifies the actor:
-
-- Use Auth.js with Google and Credentials providers.
-- Permit Google login only for verified emails matching configured email or domain allowlists.
-- On first eligible Google prototype-reviewer sign-in, provision one persistent dedicated fictional workspace from the committed golden-scenario template; later sign-ins reuse its mapping.
-- Allow an approved Google prototype reviewer to select any seeded fictional participant independently in each browser tab.
-- Send that selection as `X-MedBuddy-Demo-Member`; server-side actor resolution accepts it only for an eligible Google prototype reviewer and a seeded member.
-- Bind each seeded credential account to exactly one fictional participant. Ignore persona-selection headers from credential accounts.
-- Store only password hashes in Secret Manager or ignored local configuration.
-- Permit an explicit idempotent reset of only the authenticated prototype reviewer's fictional demo workspace. The reset provisions a replacement and never rewrites the old workspace or handoffs.
-- Provide no registration, password reset, account management, or public-user workflow.
-- Use service-account OIDC—not human credentials—for Cloud Tasks invocation.
-
-Updating the TDD to record this decision is the first implementation task and must precede application work.
-
-## 3. Architecture
-
-Build one modular monolith with one npm-workspace lockfile, one Next.js application, and one Cloud Run deployment. Parallelism comes from stable module interfaces and replaceable adapters, not independently deployed services.
-
-As-built navigation: root [`README.md`](../README.md) and [`docs/engineering/ARCHITECTURE.md`](../docs/engineering/ARCHITECTURE.md). Doc catalog: [`docs/INDEX.md`](../docs/INDEX.md).
+Deliver a private Telegram bot that provides repeated value to one family. The first product-value milestone is a complete vertical path:
 
 ```text
-apps/
-  web/
-    src/auth/                  Auth configuration and actor resolution
-    src/composition/           Demo and production wiring
-    # app/                     Deferred: Next.js pages and thin route handlers
-
-packages/
-  contracts/                   Zod schemas, branded IDs, errors, fixtures (colocated)
-  chat/                        Messages, polling, reactions, retries
-  care-record/                 Facts, reviews, conflicts, handoffs
-  intelligence/                Conversation, capture, image analysis, grounding
-  platform/                    Firestore, Tasks, Storage, in-memory adapters
-
-# Deferred target paths (not in tree yet; fixtures live under packages today):
-# fixtures/                    Repo-root scenarios and medication snapshots
-# scripts/                     Seed and medication-snapshot utilities
-# tests/integration|e2e        Cross-module and browser golden path
-
-infra/                         GCP Terraform foundation
-tasks/                         Plan and executable checklist
-docs/                          PRD, TDD, INDEX, engineering/ARCHITECTURE, ops notes
+natural Telegram message
+  -> consent and membership gate
+  -> attributed candidate facts
+  -> contributor review
+  -> source-linked 14-day pre-visit brief
 ```
 
-Dependency direction (arrow points from dependent to dependency; corrected to match as-built `package.json` wiring — chat also depends on care-record, and platform depends only on contracts):
+Images, after-visit documents, and richer conversation follow this path. Web-demo polish, additional channels, and public onboarding do not block it.
+
+## 2. Planning Principles
+
+1. Build vertical slices that can be exercised in Telegram.
+2. Use fictional data until the live-data safety checkpoint explicitly passes.
+3. Reuse the modular monolith, existing contracts, intelligence, persistence, and Terraform foundations.
+4. Keep Telegram details at adapter boundaries.
+5. Make deterministic code—not the model—authoritative for consent, membership, provenance, retention, deletion, and medical refusal.
+6. Stop and test family value after the pre-visit brief before expanding scope.
+
+## 3. Architecture Decisions
+
+- **Channel:** Telegram Bot API using a Cloud Run HTTPS webhook with secret-token verification.
+- **Scope:** Exactly one allowlisted private group, two adult participants, and one dependent care subject in the first deployment.
+- **Authority:** One adult technical steward; every adult independently consents; any membership change fails closed.
+- **Storage:** Firestore for canonical records and private Cloud Storage for retained media.
+- **Work:** Cloud Tasks for bounded asynchronous capture; synchronous deterministic safety routing occurs before model work.
+- **Intelligence:** Vertex through the existing adapter; model output remains a validated proposal and cannot write canonical facts directly.
+- **Interaction:** Passive `👀` capture acknowledgement, commands for review and summaries, mention/reply for conversation.
+- **Retention:** 30 days for raw media and unreviewed candidates; 180 days for reviewed structured facts and handoffs.
+- **Presentation:** Telegram is the product surface. The existing web app remains a test and diagnostic surface.
+
+## 4. Dependency Graph
 
 ```text
-apps/web ──→ contracts
-        ──→ chat ──→ care-record ──→ contracts
-        ──→ care-record
-        ──→ platform adapters ──→ contracts
-
-intelligence ──→ contracts   (not yet wired into apps/web)
+Product direction + approved spec
+  -> Telegram and care-subject contracts
+     -> Telegram API adapter
+     -> steward/consent/membership policy
+        -> webhook and normalized message persistence
+           -> retention/deletion safety gate
+              -> live text capture and review
+                 -> timeline and pre-visit brief
+                    -> media ingestion
+                       -> after-visit draft
+                          -> richer conversational agent
+                             -> one-family live alpha
 ```
 
-Rules:
+## 5. Phases and Tasks
 
-- Every module may import `contracts`.
-- Modules import only another module's public package entry point, never its internal files.
-- `contracts` imports no MedBuddy package; `chat`, `care-record`, and `intelligence` import only `contracts`; `platform` may import those modules through public entry points; and app/root composition may import all approved public entry points.
-- `npm run check:boundaries` rejects forbidden dependency directions, package subpaths, cross-module relative imports, undeclared workspace dependencies, and packages without an explicit policy. It runs as part of `npm run check`.
-- `apps/web` performs composition and HTTP translation; it contains no canonical business policy.
-- `platform` implements I/O seams; it contains no consent, safety, review, or handoff policy.
-- In-memory adapters are first-class test implementations, not disposable mocks.
+### Phase A — Contract and non-sensitive channel proof
 
-## 4. Module Interfaces and Ownership
+#### A1 — Define Telegram boundary contracts
 
-### 4.1 Public interfaces
+Add strict contracts for incoming updates, external chat/user/message identity, normalized source metadata, webhook deduplication, and outbound actions.
 
-The serial contract gate defines these interfaces before parallel work begins:
+**Acceptance:**
 
-```ts
-interface ChatService {
-  appendMessage(
-    actor: ActorContext,
-    input: AppendMessageInput,
-  ): Promise<AppendMessageResult>;
+- Synthetic Telegram updates parse into channel-neutral source messages.
+- Unknown update shapes fail without partial state.
+- External identifiers never become canonical medical facts.
 
-  listMessages(
-    actor: ActorContext,
-    query: MessageCursorQuery,
-  ): Promise<MessagePage>;
+**Verification:**
 
-  requestCaptureRetry(
-    actor: ActorContext,
-    messageId: MessageId,
-  ): Promise<void>;
-}
-
-interface ConversationResponder {
-  respond(input: ConversationRequest): Promise<ConversationResult>;
-}
-
-interface ConversationRequest {
-  actor: ActorContext;
-  messageId: MessageId;
-  context: ConversationContext; // bounded canonical messages from Chat
-}
-
-interface DemoWorkspaceProvisioner {
-  getOrCreate(accountId: AccountId): Promise<DemoWorkspaceMapping>;
-  reset(input: DemoWorkspaceResetInput): Promise<DemoWorkspaceMapping>;
-}
-
-interface CaptureProcessor {
-  process(input: CaptureJobInput): Promise<CaptureOutcome>;
-}
-
-interface CareRecordService {
-  applyReview(
-    actor: ActorContext,
-    input: ReviewInput,
-  ): Promise<ReviewEvent>;
-
-  createHandoff(
-    actor: ActorContext,
-    input: CreateHandoffInput,
-  ): Promise<HandoffVersion>;
-}
-
-interface MedicationGrounding {
-  lookup(query: MedicationQuery): Promise<MedicationSourceCard[]>;
-}
+```bash
+npm test --workspace @medbuddy/contracts -- --run telegram
+npm run check
 ```
 
-All request, result, event, error, Firestore-document, task-payload, and model-proposal types have Zod schemas in `packages/contracts`. Types are inferred from schemas rather than re-declared in each module.
+**Dependencies:** None
 
-### 4.2 Data ownership
+**Estimated scope:** Medium, 3–5 files
 
-| Data | Owning module | Canonical writer |
-| --- | --- | --- |
-| Workspaces and members | Care record/domain | Server-side domain service |
-| Messages and message processing state | Chat | `ChatService` and narrow capture-state port |
-| Candidate facts and conflict links | Care record | `CareRecordService` |
-| Review events and corrections | Care record | `CareRecordService` |
-| Handoff versions | Care record | Transactional handoff assembler |
-| Medication source cards | Intelligence/grounding | Build-time snapshot script |
-| Attachments | Chat metadata; platform object storage | Server-side upload flow |
-| Reviewer demo-workspace mappings | Auth/composition | Persistent account-to-fictional-workspace mapping; platform only adapts storage |
-| Agent and capture proposals | Intelligence | Never canonical until validated |
+#### A2 — Define care-subject and steward contracts
 
-The intelligence module does not write Firestore. It returns typed proposals. Care-record code validates and persists facts; chat code updates processing state and exposes `👀`.
+Separate the dependent care subject from participant identity and replace the assumption that the health subject must be the sole adult owner.
 
-### 4.3 Chat and intelligence flow
+**Acceptance:**
 
-1. `ChatService` validates the effective actor and persists the human message.
-2. Chat dispatches `{workspaceId, messageId}` to capture.
-3. Capture reloads canonical text, attachments, and nearby context by ID.
-4. Capture returns a typed focal-message result.
-5. Care-record code validates and stores candidate facts idempotently.
-6. Chat marks the message `CAPTURED` and exposes `👀` only after that transaction succeeds.
-7. When the message mentions `@MedBuddy`, Chat constructs bounded `ConversationContext` from canonical messages in that workspace and invokes `ConversationResponder`.
-8. The response is appended through the same server-side message writer used for all MedBuddy messages.
+- One dependent subject can be linked to one steward and multiple adult participants.
+- Facts reference a subject while provenance references a contributor.
+- Existing adult-owner fixtures either migrate explicitly or remain supported through a clear compatibility path.
 
-The Chat workstream uses fixed adapters for steps 2–8. The intelligence workstream tests those interfaces without a browser or Firestore.
+**Verification:**
 
-## 5. Serial Contract Gate
+```bash
+npm test --workspace @medbuddy/contracts -- --run care-subject consent
+npm test --workspace @medbuddy/care-record -- --run authorization
+```
 
-The contract gate is the only blocking foundation. One owner completes and merges it before the three implementation streams branch.
+**Dependencies:** None
 
-Deliverables:
+**Estimated scope:** Medium, 3–5 files
 
-- Root npm workspace and one authoritative lockfile.
-- Shared TypeScript, lint, and Vitest configuration.
-- Branded identifiers and schemas for auth, chat, capture, facts, provenance, reviews, handoffs, grounding, and errors.
-- Valid and invalid fixtures for the complete fictional scenario.
-- Public module interfaces and in-memory adapter contracts.
-- Firestore collection/document schemas and ownership.
-- Updated TDD authentication and modular-monolith sections.
+#### A3 — Implement the Telegram Bot API adapter
 
-Contract-change policy after the gate:
+Provide a small outbound client for identity checks, messages, reactions, files, and webhook setup. Do not add a general Telegram framework unless direct HTTP becomes materially harder.
 
-1. Change `packages/contracts` first.
-2. Prefer additive optional fields.
-3. Update shared fixtures.
-4. Run every affected module suite.
-5. Merge the contract change before dependent code.
-6. Never bypass a mismatch with direct Firestore access or an internal-file import.
+**Acceptance:**
 
-Estimated elapsed time: **1–2 hours**.
+- All outbound methods have bounded timeouts and stable failure codes.
+- The bot token is injected and never logged.
+- Contract tests cover retries, rate limits, malformed responses, and the 20 MB download boundary.
 
-## 6. Parallel Workstreams
+**Verification:**
 
-### Stream 1: Canonical domain and platform
+```bash
+npm test --workspace @medbuddy/platform -- --run telegram
+npm audit --omit=dev
+```
 
-Owns:
+**Dependencies:** A1
 
-- `packages/care-record`
-- `packages/platform`
-- Firestore schemas and repository adapters
-- Cloud Tasks and Cloud Storage adapters
-- seed/configuration scripts
-- final production composition and deployment
+**Estimated scope:** Medium, 3–5 files
 
-Delivers:
+### Checkpoint A — Fictional Telegram boundary proof
 
-- consent and effective-actor authorization;
-- atomic fact validation and provenance;
-- review authority, conflict preservation, corrections, and supersession;
-- immutable reference-plus-snapshot handoffs;
-- in-memory and Firestore repository adapters;
-- idempotent task dispatch and authenticated callbacks;
-- private attachment storage;
-- GCP configuration and deployment.
+- All existing tests and checks pass.
+- A local synthetic webhook harness accepts `/status` for the allowlisted fictional test group.
+- Invalid secrets, chats, and duplicate updates create no state or response.
+- No real health information has been introduced.
 
-Independent completion evidence:
+### Phase B — Live-data safety boundary
 
-- Domain suite runs with no Next.js, Gemini, or GCP dependency.
-- The same repository contract tests pass for in-memory and emulator adapters.
-- Duplicate task delivery cannot create duplicate facts or reactions.
-- Handoff v1 remains snapshot-identical after v2.
+#### B1 — Add the verified, idempotent webhook
 
-Estimated focused effort: **6–8 hours**.
+Expose the Cloud Run route, verify Telegram's secret header, enforce the allowlisted group, persist update deduplication metadata, and return quickly before background work.
 
-### Stream 2: Authenticated Chat App
+**Acceptance:**
 
-Owns:
+- Replayed updates produce no duplicate action.
+- Unknown chats and invalid secrets fail closed.
+- HTTP errors and logs contain no message content or Telegram identity.
 
-- `packages/chat`
-- browser-facing `apps/web` pages and route handlers
-- authentication UI and effective-actor resolution
+**Verification:**
 
-Delivers:
+```bash
+npm test --workspace @medbuddy/web -- --run telegram-webhook
+npm run build --workspace @medbuddy/web
+```
 
-- Google and seeded credential login;
-- first-sign-in provisioning and explicit reset of a Google prototype reviewer's fictional demo workspace through the public contract;
-- per-tab fictional persona selection for eligible Google prototype reviewers;
-- timeline, composer, attachment input, polling, reactions, and retry controls;
-- review and printable handoff screens;
-- fixed conversation and capture adapters for isolated development;
-- readable mobile-sized presentation.
+**Dependencies:** A1, A3
 
-Independent completion evidence:
+**Estimated scope:** Medium, 3–5 files
 
-- The complete browser flow runs in in-memory mode without GCP or Gemini.
-- Human and fixed MedBuddy messages use the same message contract.
-- Credential sessions remain bound to their configured participants.
-- Separate Google prototype-reviewer tabs may select separate fictional personas in that reviewer's workspace.
-- Critical states have readable text and non-color indicators.
+#### B2 — Implement activation, consent, and membership blocking
 
-Estimated focused effort: **6–8 hours**.
+Add `/enable`, `/consent`, `/status`, `/privacy`, and `/pause`. Record the approved membership snapshot and stop processing after joins, leaves, or unresolved membership state.
 
-### Stream 3: Intelligence pipelines
+**Acceptance:**
 
-Owns:
+- Pre-consent messages and blocked-period messages are never processed later.
+- Both adults consent before capture starts.
+- Membership changes pause all health processing and output until resolved.
 
-- `packages/intelligence`
-- model and image fixtures
-- medication snapshot tooling
+**Verification:**
 
-Delivers:
+```bash
+npm test --workspace @medbuddy/care-record -- --run telegram-consent membership
+npm test --workspace @medbuddy/web -- --run telegram-commands
+```
 
-- friendly `@MedBuddy` conversation;
-- passive text and readable-label image capture;
-- nearby context with focal-message-only extraction;
-- targeted medication grounding;
-- deterministic medication-change refusal;
-- captured, empty, uncertain, and failed outcomes;
-- Vertex AI and fixed-output adapters.
+**Dependencies:** A2, B1
 
-Independent completion evidence:
+**Estimated scope:** Medium, 3–5 files
 
-- All pipeline tests run headlessly without browser or Firestore.
-- Model output cannot authorize or persist canonical state.
-- Passive empty results produce `IGNORED`.
-- Explicit empty results produce `NEEDS_MANUAL_REVIEW`.
-- Injection fixtures cannot change policy, tools, attribution, or safety text.
-- Medication responses contain only source-card facts and mandatory limitations.
+#### B3 — Implement retention and deletion
 
-Estimated focused effort: **6–8 hours**.
+Add retention metadata and idempotent deletion for media, candidates, facts, handoffs, participant data, and workspaces. State clearly what cannot be removed from Telegram.
 
-## 7. Integration and Merge Sequence
+**Acceptance:**
 
-Use separate `codex/` branches and worktrees. After the contract gate, workstreams must avoid editing files owned by another stream.
+- Raw media and unreviewed candidates expire after 30 days.
+- Reviewed facts and handoffs expire after 180 days.
+- `/delete_my_data` and `/delete_workspace` remove MedBuddy-controlled data without content-bearing logs.
 
-1. Merge the contract/foundation PR.
-2. Branch all three workstreams from that merged commit.
-3. Merge Stream 1 pure domain and in-memory adapters.
-4. Merge Stream 2 Chat App operating with fixed adapters.
-5. Merge Stream 3 intelligence modules operating with fixtures.
-6. Merge Stream 1 production Firestore, Tasks, Storage, and Vertex composition.
-7. Create one integration PR wiring production adapters.
-8. Deploy and execute the golden path.
+**Verification:**
 
-Checkpoints:
+```bash
+npm test --workspace @medbuddy/contracts -- --run retention
+npm test --workspace @medbuddy/platform -- --run retention deletion
+```
 
-| Checkpoint | Required proof |
-| --- | --- |
-| A: Contract gate | Contract tests, `npm run check:boundaries`, and fixtures pass. |
-| B: Independent modules | Chat works with fakes; intelligence works headlessly; care record works in memory. |
-| C: Cross-module | Message → capture → fact → `👀` → review → handoff v1 passes. |
-| D: External adapters | Emulator tests and one live provider/storage/task smoke test pass. |
-| E: Deployed scenario | Three authenticated tabs complete v1/v2 and v1 remains unchanged. |
+**Dependencies:** A2
 
-The integration owner resolves composition issues through public interfaces. A failing integration must not be “fixed” by moving policy into route handlers or by letting intelligence write canonical records.
+**Estimated scope:** Medium, 3–5 files
 
-## 8. Authentication Implementation
+#### B4 — Complete deployment security and privacy controls
 
-Use Auth.js with Google and Credentials providers.
+Add Secret Manager wiring, private storage lifecycle, least-privilege IAM, log redaction, cost limits, privacy policy, and a Java 21+ Firestore emulator verification path. Triage every reachable high dependency advisory.
 
-Configuration:
+**Acceptance:**
 
-- `ALLOWED_GOOGLE_EMAILS`: normalized comma-separated exact emails.
-- `ALLOWED_GOOGLE_DOMAINS`: normalized comma-separated domains.
-- `TEST_USERS_JSON`: Secret Manager/local secret containing username, password hash, and fixed `memberId`.
-- Auth.js session secret and Google OAuth client credentials remain outside Git.
+- No secrets exist in source, Terraform state output, logs, or build artifacts.
+- Firestore emulator parity tests execute rather than skip.
+- The bot privacy policy accurately describes Telegram, Vertex, storage, retention, deletion, and limitations.
 
-`ActorContext` includes:
+**Verification:**
 
-- authenticated account ID;
-- authentication method;
-- effective workspace member ID;
-- whether the account may assume a demo persona.
+```bash
+npm ci --ignore-scripts
+npm run check
+npm test
+npm audit --omit=dev
+make infra-plan
+```
 
-Resolution:
+**Dependencies:** B1, B3
 
-- Google: require a verified allowed email; accept `X-MedBuddy-Demo-Member` only for a seeded member in the requested workspace.
-- Credentials: resolve the fixed member ID from configuration and ignore the demo-member header.
-- Cloud Tasks: authenticate separately through service-account OIDC.
-- Unauthenticated or unmapped requests fail before domain invocation.
+**Estimated scope:** Split into focused security, emulator, and privacy-policy commits; each 3–5 files
 
-Deliberately deferred:
+### Checkpoint B — Approval to introduce real family data
 
-- signup, reset, email verification, account administration;
-- general multi-tenant account provisioning;
-- advanced abuse detection, lockout, or malicious-user hardening.
+- Activation and consent work in the deployed private fictional test group.
+- Membership changes visibly pause processing.
+- Retention and deletion have automated proof.
+- Logs, traces, screenshots, and test artifacts contain no content.
+- Dependency and emulator blockers are resolved or explicitly accepted with a dated mitigation.
+- The workspace steward explicitly approves live use.
 
-Still mandatory:
+No real family health data may enter the bot before this checkpoint passes.
 
-- hashed passwords;
-- secure HTTP-only sessions;
-- server-side authorization;
-- boundary validation and upload limits;
-- generic login errors;
-- bounded authentication attempts;
-- secret and health-data hygiene.
+### Phase C — First product-value slice
 
-## 9. Test Strategy
+#### C1 — Connect text capture end to end
 
-### Contract tests
+Wire an eligible Telegram message through normalized persistence, Cloud Tasks, the existing capture processor, strict proposal validation, and candidate-fact persistence.
 
-- Parse all shared valid fixtures.
-- Reject invalid IDs, states, task payloads, model proposals, and error responses.
-- Ensure Firestore records and HTTP shapes use the same canonical schemas.
+**Acceptance:**
 
-### Module-interface tests
+- A synthetic observation creates atomic subject-linked, contributor-attributed candidates.
+- Provider failure, malformed output, and empty extraction remain visible and retryable without duplicate facts.
+- A successful retained candidate produces exactly one `👀` reaction.
 
-- Exercise only public module interfaces.
-- Inject in-memory repositories and fixed remote adapters.
-- Assert observable results rather than internal method calls.
+**Verification:**
 
-### Adapter contract tests
+```bash
+npm test -- --run telegram-text-capture
+npm test --workspace @medbuddy/intelligence -- --run capture injection
+```
 
-- Define one reusable behavior suite per repository or dispatcher seam.
-- Run it against in-memory and emulator implementations.
-- Add one minimal live smoke test per external service after emulator coverage.
+**Dependencies:** B2, B4
 
-### Authentication tests
+**Estimated scope:** Split into orchestration and outbound-reaction tasks; each 3–5 files
 
-- Exact email and domain allowlists.
-- Rejection of unverified or unlisted Google emails.
-- Credential password verification and fixed-member binding.
-- Google persona-header validation.
-- Credential persona-header rejection.
-- Unauthenticated request rejection.
+#### C2 — Add contributor review in Telegram
 
-### Safety and pipeline tests
+Implement `/review` and compact inline actions for confirm, correct, reject, and uncertain.
 
-- Medication-change refusal and follow-up proposal.
-- Passive and explicit empty-result distinction.
-- Three technical attempts and manual retry.
-- Focal-message-only extraction.
-- Prompt injection through chat and image content.
-- Source-only medication response and mandatory limitations.
+**Acceptance:**
 
-### Integration and browser tests
+- Contributors may act only on their own claims.
+- Corrections append and preserve originals.
+- Callback retries are idempotent and unauthorized actions fail closed.
 
-- Persist message → capture → fact → `👀` → review → handoff.
-- Duplicate task idempotency.
-- Provider error and visible retry.
-- Three authenticated tabs with separate credential accounts.
-- Google prototype reviewer with independent per-tab personas.
-- Image attachment and targeted medication grounding.
-- Print v1, create v2, reopen unchanged v1.
+**Verification:**
 
-## 10. Definition of Done
+```bash
+npm test -- --run telegram-review
+npm test --workspace @medbuddy/care-record -- --run review corrections
+```
 
-Every task must satisfy its acceptance criteria and:
+**Dependencies:** C1
 
-- run its focused tests;
-- keep regression tests passing;
-- pass typecheck, lint, and build once those commands exist;
-- be runtime-verified through its public interface;
-- include no unrelated refactor;
-- include no secrets, PII, real health information, raw source datasets, or raw traces;
-- update public interfaces and architectural documentation when behavior changes;
-- remain within the assigned module ownership;
-- receive human approval before merge or deployment.
+**Estimated scope:** Medium, 3–5 files
 
-## 11. Estimates and Critical Path
+#### C3 — Add timeline and pre-visit brief
 
-| Phase | Elapsed target | Parallelism |
-| --- | ---: | --- |
-| Contract gate | 1–2h | Serial |
-| Three module streams | 6–8h | Three-way parallel |
-| Cross-module integration | 2–3h | Primarily integration owner |
-| External adapters/deployment | 2–3h | Stream 1 with smoke-test support |
-| Golden-path stabilization | 2–3h | Coordinated |
-| **Optimistic elapsed total** | **13–19h** | Assumes three active implementers/agents |
+Implement `/timeline [window]` and `/prepare_visit [window]` over reviewed facts, visible uncertainty, conflicts, source references, and unresolved questions.
 
-These are elapsed estimates, not summed labor. GCP permissions, Google OAuth configuration, model availability, and first-time framework setup are the main contingency risks.
+**Acceptance:**
 
-## 12. Risks and Mitigations
+- The default brief covers 14 days and states its range.
+- Every material statement traces to a source fact and message.
+- The brief excludes rejected facts and clearly labels uncertainty or incompleteness.
+
+**Verification:**
+
+```bash
+npm test -- --run telegram-pre-visit-golden-path
+npm test --workspace @medbuddy/care-record -- --run handoff timeline
+```
+
+**Dependencies:** C2
+
+**Estimated scope:** Medium, 3–5 files
+
+### Checkpoint C — First demonstrated product value
+
+- A natural fictional Telegram observation becomes a reviewed fact.
+- `/prepare_visit 14d` produces a useful, source-linked brief inside Telegram.
+- The family manually evaluates clarity, interruption level, attribution, and usefulness.
+- Feedback changes the workflow before media scope begins.
+
+### Phase D — Documents and after-visit value
+
+#### D1 — Ingest Telegram media safely
+
+Admit supported images and documents, verify size and content type, store private bytes with checksums and retention, and pass bounded content to multimodal extraction.
+
+**Acceptance:**
+
+- Oversized, unsupported, spoofed, or failed downloads create no retained artifact.
+- Files use workspace/message-scoped private paths and expire after 30 days.
+- A skin photo records the artifact and reporter description without producing a diagnosis.
+
+**Verification:**
+
+```bash
+npm test -- --run telegram-media
+npm test --workspace @medbuddy/platform -- --run storage telegram
+```
+
+**Dependencies:** C3
+
+**Estimated scope:** Split download/admission and model-input work; each 3–5 files
+
+#### D2 — Draft and review after-visit communication
+
+Implement `/after_visit` over recent supplied documents, reports, and reviewed facts. Preserve document text, caregiver reports, AI organization, uncertainty, and source links as different provenance.
+
+**Acceptance:**
+
+- The draft requires confirmation before becoming a handoff.
+- Medication and treatment changes are reported, never recommended.
+- Missing, conflicting, or unreadable content remains visible.
+
+**Verification:**
+
+```bash
+npm test -- --run telegram-after-visit
+npm test --workspace @medbuddy/intelligence -- --run readable-label medication-refusal
+```
+
+**Dependencies:** D1
+
+**Estimated scope:** Medium, 3–5 files
+
+### Phase E — Real conversational agent and rollout
+
+#### E1 — Add source-grounded mentioned conversation
+
+Replace the fixed acknowledgement for Telegram with a bounded conversational agent that has read-only timeline, fact, and document tools. Keep medical refusal and canonical writes outside model authority.
+
+**Acceptance:**
+
+- Mentions and direct replies receive natural, context-aware responses.
+- Factual claims cite approved workspace sources or state that the record is insufficient.
+- Prompt injection cannot grant access, mutate facts, reveal secrets, or bypass safety routing.
+
+**Verification:**
+
+```bash
+npm test -- --run telegram-conversation
+npm test --workspace @medbuddy/intelligence -- --run conversation injection medication-refusal
+```
+
+**Dependencies:** C3, D2
+
+**Estimated scope:** Medium, 3–5 files
+
+#### E2 — Run the one-family alpha
+
+Deploy the approved build, activate the real private group, monitor metadata-only health, and collect anonymized product feedback without copying family content into the repository.
+
+**Acceptance:**
+
+- Both adults complete disclosure and consent themselves.
+- The bot remains useful and non-intrusive during ordinary use.
+- The family chooses whether to keep it after one week and records only anonymized workflow findings.
+
+**Verification:**
+
+- Complete the live-use runbook outside repository artifacts containing health data.
+- Confirm deletion and pause controls manually with non-sensitive content first.
+- Record product decisions, not raw conversations.
+
+**Dependencies:** E1 and explicit Checkpoint B approval
+
+**Estimated scope:** Operational checkpoint, not an unattended implementation task
+
+## 6. Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| Shared schemas change during parallel work | High rework | Merge and freeze the contract gate first; require contract-first changes. |
-| “Modular” code becomes pass-through layers | Medium complexity | Keep public interfaces small; put policy in deep owning modules. |
-| Chat begins depending directly on Gemini | High coupling | Use `ConversationResponder`; Chat tests only against a fixed adapter. |
-| Intelligence writes Firestore directly | High safety risk | Return typed proposals; care record remains canonical writer. |
-| Firestore schemas become shared-edit hotspots | High merge risk | Assign collection ownership and use repository interfaces. |
-| Auth expands beyond prototype needs | Medium schedule risk | No signup, password reset, account management, or public-user workflow; only allowlisted Google, seeded credentials, and explicit reviewer-demo workspace reset. |
-| Google OAuth setup blocks UI work | Medium | Develop Stream 2 with fixed credential/in-memory mode first. |
-| GCP IAM or region blocks deployment | High | Complete local in-memory and emulator proof; document exact blocker. |
-| Live model output is unstable | Medium | Fixed-output tests are release-blocking; live quality remains manual. |
-| Time runs short | High | Cut stretch work, polish, and generalized medication coverage first. |
+| Passive access surprises a participant | High | Plain disclosure, individual active consent, `/status`, `/privacy`, and membership fail-close. |
+| Child health data leaks into public artifacts | High | Runtime-only data, log redaction, synthetic tests, pre-commit privacy review, no live screenshots. |
+| Model invents or medicalizes an observation | High | Strict proposals, provenance, review, deterministic refusals, no diagnosis from photos. |
+| Telegram cannot provide complete membership history | High | Start with a new allowlisted group, use service updates, snapshot approval, and pause on uncertainty. |
+| Telegram retains its own cloud history | Medium | Disclose clearly; deletion promises cover only MedBuddy-controlled copies. |
+| Bot becomes noisy | Medium | Reactions for passive capture; text only on command, mention, direct reply, or narrow escalation. |
+| Infrastructure work delays value again | High | Stop after each vertical checkpoint; no multi-tenant or channel-general platform work. |
+| Existing dependency advisories affect live data | High | Reachability triage and remediation before Checkpoint B. |
+| Family workflow is not actually useful | High | Evaluate immediately after the pre-visit brief and prioritize observed friction over planned scope. |
 
-## 13. Assumptions
+## 7. Cut Order
 
-- Three implementation workstreams are available concurrently.
-- One modular monolith and one deployment remain sufficient.
-- In-memory adapters provide the principal development seam.
-- Only fictional data is used.
-- Credential accounts support both human testing and AI-driven browser verification.
-- Multiple tabs observe shared data through polling; realtime synchronization is not required.
-- Deterministic safety, authorization, provenance, idempotency, and immutable history are never traded for schedule.
-- Implementation starts only after separate approval of these committed planning artifacts.
+If time or complexity grows, cut in this order:
 
-## 14. GitHub Issue DAG
+1. Rich conversational personality.
+2. Documents other than JPEG/PNG/WebP.
+3. `/after_visit` formatting variants.
+4. `/timeline` formatting options.
+5. Automated urgent-language response beyond medication-decision refusal.
 
-The implementation is published as a shared contract gate, three independent workstream DAGs, and a convergence DAG. The three workstream DAGs have no edges to one another: they depend only on the external contract gate and meet only after their terminal tickets complete.
+Do not cut consent, membership blocking, provenance, review, retention, deletion, log redaction, or the source-linked pre-visit brief.
 
-Human checkpoint tickets gather feedback after five or six implementation tickets in each workstream. They block subsequent work so feedback can change direction before additional scope is built.
+## 8. Definition of Done
 
-```mermaid
-flowchart TD
-    F1["F1 TDD and workspace foundation"]
-    F2["F2 Auth, chat, and capture contracts"]
-    F3["F3 Care-record, grounding, and persistence contracts"]
-    FH["FH Human contract checkpoint"]
+Every implementation task:
 
-    F1 --> F2
-    F1 --> F3
-    F2 --> FH
-    F3 --> FH
+- satisfies its acceptance criteria;
+- adds or updates deterministic tests;
+- passes `npm run check` and affected test suites;
+- introduces no real family data, secrets, or content-bearing logs;
+- documents external configuration and failure behavior;
+- receives human review at its checkpoint; and
+- merges through a feature PR with preserved commit history.
 
-    subgraph D1["DAG 1 — Canonical Domain and Platform"]
-        A1["A1 Workspace authorization"]
-        A2["A2 Attributed facts and conflicts"]
-        A3["A3 Immutable handoff v1/v2"]
-        A4["A4 In-memory repository parity"]
-        A5["A5 Firestore, task, and storage adapters"]
-        AH["AH Human domain checkpoint"]
-        A6["A6 Production composition and seed"]
-
-        A1 --> A2 --> A3
-        A1 --> A4 --> A5
-        A3 --> AH
-        A5 --> AH
-        AH --> A6
-    end
-
-    subgraph D2["DAG 2 — Authenticated Chat App"]
-        B1["B1 Login and effective actor"]
-        B2["B2 Chat service and HTTP interface"]
-        B3["B3 Chat timeline"]
-        B4["B4 Personas, attachments, and retry"]
-        B5["B5 Review and printable handoff"]
-        BH["BH Human Chat App checkpoint"]
-        B6["B6 Apply feedback and freeze browser interface"]
-
-        B1 --> B2 --> B3
-        B3 --> B4
-        B3 --> B5
-        B4 --> BH
-        B5 --> BH
-        BH --> B6
-    end
-
-    subgraph D3["DAG 3 — Intelligence Pipelines"]
-        C1["C1 Medication-decision refusal"]
-        C2["C2 Medication source-card lookup"]
-        C3["C3 Conversational responder"]
-        C4["C4 Passive text capture"]
-        C5["C5 Readable-label image capture"]
-        C6["C6 Failure and injection suite"]
-        CH["CH Human intelligence checkpoint"]
-        C7["C7 Vertex adapters and live smoke"]
-
-        C1 --> C3
-        C2 --> C3
-        C4 --> C5
-        C3 --> C6
-        C5 --> C6
-        C6 --> CH
-        CH --> C7
-    end
-
-    FH --> A1
-    FH --> B1
-    FH --> C1
-    FH --> C2
-    FH --> C4
-
-    subgraph X["Convergence DAG"]
-        X1["X1 In-memory golden-path integration"]
-        XH["XH Human integrated-demo checkpoint"]
-        X2["X2 Deploy and run live golden path"]
-        XF["XF Final human acceptance"]
-
-        X1 --> XH
-        XH --> X2
-        X2 --> XF
-    end
-
-    A6 --> X1
-    B6 --> X1
-    C7 --> X1
-```
-
-### 14.1 Foundation gate
-
-| Key | Ticket | Blocked by |
-| --- | --- | --- |
-| F1 | Establish the documented workspace foundation | None |
-| F2 | Publish auth, chat, and capture contracts | F1 |
-| F3 | Publish care-record, grounding, and persistence contracts | F1 |
-| FH | Human checkpoint: approve the contract gate | F2, F3 |
-
-### 14.2 DAG 1: Canonical domain and platform
-
-| Key | Ticket | Blocked by |
-| --- | --- | --- |
-| A1 | Enforce approved-workspace authority | FH |
-| A2 | Review attributed facts without rewriting contributors | A1 |
-| A3 | Preserve immutable handoff v1 and v2 | A2 |
-| A4 | Run canonical behavior through in-memory persistence | A1 |
-| A5 | Prove Firestore, task, and attachment adapter parity | A4 |
-| AH | Human checkpoint: validate domain history and persistence | A3, A5 |
-| A6 | Compose the production platform and fictional seed | AH |
-
-### 14.3 DAG 2: Authenticated Chat App
-
-| Key | Ticket | Blocked by |
-| --- | --- | --- |
-| B1 | Authenticate reviewers and fixed test participants | FH |
-| B2 | Send and retrieve conversation messages | B1 |
-| B3 | Use the persisted Chat App | B2 |
-| B4 | Switch demo personas and handle attachments and retries | B3 |
-| B5 | Review facts and print immutable handoffs | B3 |
-| BH | Human checkpoint: evaluate the complete fake-backed Chat App | B4, B5 |
-| B6 | Apply Chat App feedback and freeze its interface | BH |
-
-### 14.4 DAG 3: Intelligence pipelines
-
-| Key | Ticket | Blocked by |
-| --- | --- | --- |
-| C1 | Refuse medication decisions deterministically | FH |
-| C2 | Answer from bounded medication source cards | FH |
-| C3 | Respond conversationally without exceeding grounded facts | C1, C2 |
-| C4 | Extract atomic facts from passive text | FH |
-| C5 | Extract facts from readable medication labels | C4 |
-| C6 | Contain provider failures and prompt injection | C3, C5 |
-| CH | Human checkpoint: evaluate conversation and extraction | C6 |
-| C7 | Connect approved intelligence behavior to Vertex AI | CH |
-
-### 14.5 Convergence DAG
-
-| Key | Ticket | Blocked by |
-| --- | --- | --- |
-| X1 | Complete the in-memory MedBuddy golden path | A6, B6, C7 |
-| XH | Human checkpoint: review the integrated prototype | X1 |
-| X2 | Deploy and verify the live golden path | XH |
-| XF | Human checkpoint: accept the prototype | X2 |
-
-GitHub publication uses native `blocked by` relationships. Agent-executable issues receive `ready-for-agent`; FH, AH, BH, CH, XH, and XF receive `human-checkpoint` and deliberately do not receive `ready-for-agent`.
+The family alpha is not complete merely because the bot is online. It is complete when the safe vertical path works and the participating family finds enough repeated value to keep using it.

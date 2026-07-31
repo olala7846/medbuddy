@@ -1,6 +1,13 @@
 # MedBuddy Product Requirements Document
 
-**Status:** Approved
+> **Earlier product baseline:** This document captures the caregiver-handoff
+> direction that produced the current foundation. New product work follows
+> [`../PRODUCT_DIRECTION.md`](../PRODUCT_DIRECTION.md) and
+> [`TELEGRAM_FAMILY_ALPHA_SPEC.md`](./TELEGRAM_FAMILY_ALPHA_SPEC.md). Preserve
+> this PRD for rationale; do not use its reviewer-oriented scope to override the
+> live family-alpha priority.
+
+**Status:** Historical baseline; superseded for current work
 
 **Version:** 1.0
 
