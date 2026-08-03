@@ -84,6 +84,29 @@ describe("conversation responder", () => {
     expect(provider.requests).toEqual([]);
   });
 
+  it.each([
+    "@MedBuddy Can you diagnose this rash?",
+    "@MedBuddy What medicine should I take for this symptom?",
+  ])("refuses diagnosis or prescribing before invoking the provider: %s", async (body) => {
+    const provider = new FixedConversationProvider(new Map());
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    const result = await responder.respond({
+      ...request,
+      context: {
+        ...request.context,
+        messages: [{ ...focalMessage, body }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: "REFUSED_MEDICAL_ADVICE",
+      retryable: false,
+      responseText: expect.stringContaining("cannot diagnose"),
+    });
+    expect(provider.requests).toEqual([]);
+  });
+
   it("returns a friendly non-medication acknowledgment without a medication claim", async () => {
     const responder = new ConversationResponder(
       createFixtureMedicationGrounding(),

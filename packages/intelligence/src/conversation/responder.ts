@@ -10,7 +10,10 @@ import {
 import { z } from "zod";
 
 import { type MedicationLookupRenderResult } from "../grounding/render.js";
-import { routeMedicationDecision } from "../safety/route.js";
+import {
+  routeDiagnosisOrPrescribingRequest,
+  routeMedicationDecision,
+} from "../safety/route.js";
 import { lookupMedication } from "./tools.js";
 
 export const ConversationInstructionSchema = z.union([
@@ -41,7 +44,7 @@ export class ConversationProviderError extends Error {
   }
 }
 
-/** A provider may select a fixed safe action, but never author response prose. */
+/** A provider may return bounded prose, but deterministic safety routes run first. */
 export interface ConversationProvider {
   respond(input: { focalMessage: Message; context: ConversationContext }): Promise<unknown>;
 }
@@ -87,8 +90,8 @@ function technicalFailure(): ConversationResult {
 
 /**
  * Handles a Chat-supplied, bounded conversation turn without canonical writes.
- * Medication decisions are rejected before provider invocation; all medication
- * prose is deterministically rendered from the lookup result.
+ * Diagnosis, prescribing, and medication decisions are rejected before provider
+ * invocation; source-card medication prose is deterministically rendered.
  */
 export class ConversationResponder implements ConversationResponderPort {
   constructor(
@@ -109,7 +112,8 @@ export class ConversationResponder implements ConversationResponderPort {
       return technicalFailure();
     }
 
-    const refusal = routeMedicationDecision(focalMessage);
+    const refusal = routeDiagnosisOrPrescribingRequest(focalMessage)
+      ?? routeMedicationDecision(focalMessage);
     if (refusal !== null) {
       return {
         kind: refusal.kind,

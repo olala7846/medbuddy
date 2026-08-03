@@ -59,7 +59,11 @@ export type ConversationTurnRequest = z.infer<typeof ConversationTurnRequestSche
 export type ConversationRequest = z.infer<typeof ConversationRequestSchema>;
 
 export interface ConversationResult {
-  kind: "RESPONDED" | "REFUSED_MEDICATION_DECISION" | "TECHNICAL_FAILURE";
+  kind:
+    | "RESPONDED"
+    | "REFUSED_MEDICAL_ADVICE"
+    | "REFUSED_MEDICATION_DECISION"
+    | "TECHNICAL_FAILURE";
   responseText?: string;
   retryable: boolean;
 }

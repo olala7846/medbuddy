@@ -38,6 +38,7 @@ function signedBody(events: unknown[]) {
 
 function createHarness(options: {
   modelFailure?: boolean;
+  modelThrows?: boolean;
   replyFailure?: boolean;
 } = {}) {
   const persistence = new InMemoryPersistence();
@@ -45,6 +46,7 @@ function createHarness(options: {
   const responder: ConversationResponder = {
     async respond(request) {
       modelRequests.push(structuredClone(request));
+      if (options.modelThrows) throw new Error("fictional model exception");
       if (options.modelFailure) return { kind: "TECHNICAL_FAILURE", retryable: true };
       return { kind: "RESPONDED", responseText: "A fictional model reply.", retryable: false };
     },
@@ -206,6 +208,7 @@ describe("LINE webhook", () => {
 
   it.each([
     ["model", { modelFailure: true }, "MODEL_FAILURE"],
+    ["model exception", { modelThrows: true }, "MODEL_FAILURE"],
     ["reply", { replyFailure: true }, "REPLY_FAILURE"],
   ] as const)("contains a %s failure and still suppresses redelivery", async (_label, options, code) => {
     const harness = createHarness(options);

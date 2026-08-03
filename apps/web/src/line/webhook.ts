@@ -150,13 +150,20 @@ export class LineWebhookHandler {
       return;
     }
 
-    const result = await this.dependencies.conversation.respond({
-      workspaceId: ids.workspaceId,
-      authorMemberId: ids.memberId,
-      messageId: ids.messageId,
-      body: event.body,
-      createdAt: event.createdAt,
-    });
+    let result;
+    try {
+      result = await this.dependencies.conversation.respond({
+        workspaceId: ids.workspaceId,
+        authorMemberId: ids.memberId,
+        messageId: ids.messageId,
+        body: event.body,
+        createdAt: event.createdAt,
+      });
+    } catch {
+      await this.completeFailed(ids.receiptKey);
+      this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "MODEL_FAILURE" });
+      return;
+    }
     if (result.kind === "TECHNICAL_FAILURE") {
       await this.completeFailed(ids.receiptKey);
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "MODEL_FAILURE" });

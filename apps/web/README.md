@@ -57,9 +57,9 @@ Playwright starts a fresh dev process on `http://localhost:3100`, uses one Chrom
 
 Read-only review and printing of stored handoff v1/v2 are in scope. Review mutations, creation of new handoffs, workspace reset UI, production authentication, cloud persistence, background durability, WebSockets, deployment, and cross-browser certification remain deferred.
 
-### Dependency audit note (2026-07-31)
+### Dependency audit note (2026-08-03)
 
-Adding Next.js increases `npm audit` from the checkpoint's 10 findings to 13 (5 moderate, 8 high, 0 critical). The three additional high findings are reported through Next.js's pinned PostCSS build dependency and optional Sharp image dependency. This host processes only repository-authored CSS, does not use `next/image`, binds the dev server to loopback, and has no deployment path. npm currently offers only an incompatible forced downgrade to Next 9.3.3, so no forced remediation was applied. Recheck for a compatible patched Next.js release by 2026-08-31; the checkpoint's existing cloud-adapter findings remain tracked separately.
+`npm audit --omit=dev` reports 9 findings (5 moderate, 4 high, 0 critical). The high findings are transitive paths through Firestore's CLI cleanup dependencies and Next.js's PostCSS build and optional Sharp image dependencies. The LINE composition does not invoke those cleanup paths, process user-authored CSS or images, or use `next/image`; its public route accepts bounded JSON only. The existing moderate cloud-storage path is also outside the LINE composition. These findings are therefore not reachable through this prototype's LINE webhook, but remain deployment debt. Recheck and upgrade compatible dependencies before enabling real family data.
 
 ## Public entry
 
