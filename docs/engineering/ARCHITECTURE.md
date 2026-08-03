@@ -1,8 +1,8 @@
 # MedBuddy architecture (as-built)
 
-> **Current target:** Reuse this modular foundation for the live Telegram
-> family alpha defined in [`../../PRODUCT_DIRECTION.md`](../../PRODUCT_DIRECTION.md)
-> and [`../TELEGRAM_FAMILY_ALPHA_SPEC.md`](../TELEGRAM_FAMILY_ALPHA_SPEC.md).
+> **Current target:** Reuse this modular foundation for the LINE-first
+> conversational prototype defined in [`../../PRODUCT_DIRECTION.md`](../../PRODUCT_DIRECTION.md)
+> and [`../LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md`](../LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md).
 > The fake-backed web host is a verification surface, not the product priority.
 
 **Audience:** engineers and agents touching code structure  
@@ -20,11 +20,11 @@ Designed for ≤100 users. No microservices.
 | Package | Owns | Must not own |
 | --- | --- | --- |
 | `@medbuddy/contracts` | Zod schemas, branded IDs, errors, public ports, golden scenario fixtures | Runtime I/O, policy decisions |
-| `@medbuddy/chat` | `ChatService`: append/list messages, capture retry | Storage vendor details |
+| `@medbuddy/chat` | Chat workflows: existing capture-aware service and isolated external text conversation | Storage vendor and channel details |
 | `@medbuddy/care-record` | Eligibility, facts, review, handoff, authorization helpers | Model prompts, HTTP |
 | `@medbuddy/intelligence` | Conversation responder, capture processing, safety routing, medication grounding | Canonical fact mutation authority, consent grants |
 | `@medbuddy/platform` | Firestore, Cloud Tasks, Storage, in-memory adapters, demo workspace persistence | Consent, safety, review, handoff **policy** |
-| `@medbuddy/web` | Auth/actor resolution, HTTP/route adapters, composition root | Canonical business policy (target; some orchestration still lives here) |
+| `@medbuddy/web` | Auth/actor resolution, LINE and browser HTTP adapters, composition root | Canonical business policy (target; some orchestration still lives here) |
 
 ## Dependency direction
 
@@ -36,7 +36,7 @@ Arrow points from dependent to dependency:
             ──→ care-record
             ──→ platform ──→ contracts
 
-@medbuddy/intelligence ──→ contracts   (not yet wired into web)
+@medbuddy/web ──→ intelligence ──→ contracts
 ```
 
 `platform` depends only on `contracts` and GCP SDKs.
@@ -54,7 +54,8 @@ Rules:
 | Surface | May | Must not |
 | --- | --- | --- |
 | Browser | Display, input, demo persona header (when allowed), poll | Write DB/storage directly; decide authz or safety |
-| Conversational agent | Friendly reply, read-only med lookup, request follow-up/handoff prep | Mutate facts, grant access, resolve conflicts, advise med changes |
+| Conversational agent | Bounded thread-aware text reply after deterministic refusal | Mutate facts, access another workspace, use tools, grant access, advise med changes |
+| LINE webhook | Verify raw body, validate provider event, derive opaque IDs, reply with event token | Parse before verification; log content, tokens, or provider identifiers |
 | Capture pipeline | Propose candidate facts from a focal message | Skip validation, invent provenance, process pre-approval history as approved |
 | Deterministic domain services | Consent eligibility, authz, review, handoff immutability, refusals | Defer those decisions to the model |
 
@@ -77,13 +78,13 @@ tasks/                        plan.md, todo.md
 
 - Root `fixtures/`, `scripts/`, `tests/{unit,integration,e2e}`
 - Root medication snapshot script
-- Telegram webhook, Bot API adapter, command flow, and live channel composition
+- Rolling/long-term memory, agent tools, and specialized medical conversation
 
 Tests live next to each package (`packages/*/tests`, `apps/web/tests`).
 
 ## Composition note
 
-`@medbuddy/web` currently depends on `care-record`, `chat`, `contracts`, and `platform`. `@medbuddy/intelligence` is implemented and tested but not yet a workspace dependency of the web app; wire it through the composition root when connecting conversation and capture handlers end-to-end.
+`@medbuddy/web` composes the LINE boundary with Chat, Intelligence, and Platform. Provider and channel types terminate at their adapters; the conversation interface remains channel-neutral.
 
 ## Where to go next
 

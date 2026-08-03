@@ -1,6 +1,6 @@
 # Spec: Telegram Family Alpha
 
-**Status:** Approved for implementation
+**Status:** Superseded by [`LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md`](./LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md) on 2026-08-03; retained as historical design input
 
 **Date:** 2026-07-31
 
