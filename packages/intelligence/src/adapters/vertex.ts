@@ -77,11 +77,11 @@ export function loadVertexConfiguration(
   const parsed = VertexConfigurationSchema.safeParse({
     projectId: environment.MEDBUDDY_VERTEX_PROJECT,
     location: environment.MEDBUDDY_VERTEX_LOCATION ?? (
-      environment.MEDBUDDY_VERTEX_MODEL === undefined || environment.MEDBUDDY_VERTEX_MODEL === "gemini-3.6-flash"
+      environment.MEDBUDDY_VERTEX_MODEL === undefined || environment.MEDBUDDY_VERTEX_MODEL === "gemini-2.5-flash"
         ? "global"
         : "us-central1"
     ),
-    model: environment.MEDBUDDY_VERTEX_MODEL ?? "gemini-3.6-flash",
+    model: environment.MEDBUDDY_VERTEX_MODEL ?? "gemini-2.5-flash",
   });
   if (!parsed.success) {
     throw new Error("MEDBUDDY_VERTEX_PROJECT is required when Vertex is enabled.");

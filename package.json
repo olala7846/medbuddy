@@ -17,6 +17,8 @@
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "lint": "eslint .",
     "dev": "npm run dev --workspace @medbuddy/web",
+    "build": "npm run build --workspace @medbuddy/web",
+    "start": "npm run start --workspace @medbuddy/web",
     "test": "vitest run",
     "smoke:line": "vitest run --run line",
     "test:e2e": "playwright test",
