@@ -104,9 +104,10 @@ for secret_name in medbuddy-line-channel-secret medbuddy-line-channel-access-tok
 done
 ```
 
-From the repository root, deploy the source with a scale-to-zero, low-cost prototype ceiling. Secret versions are pinned rather than resolved from `latest` at runtime:
+From the repository root, deploy the source with a scale-to-zero, low-cost prototype ceiling. Secret versions are pinned rather than resolved from `latest` at runtime. Set `LINE_SECRET_VERSION` to the enabled version containing the validated credentials:
 
 ```bash
+LINE_SECRET_VERSION=2
 gcloud run deploy medbuddy-line \
   --project=med-buddy-503802 \
   --region=us-west1 \
@@ -117,7 +118,7 @@ gcloud run deploy medbuddy-line \
   --max-instances=2 \
   --timeout=30s \
   --set-env-vars=MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802,MEDBUDDY_VERTEX_ENABLED=true,MEDBUDDY_VERTEX_PROJECT=med-buddy-503802,MEDBUDDY_VERTEX_LOCATION=global,MEDBUDDY_VERTEX_MODEL=gemini-2.5-flash \
-  --set-secrets=MEDBUDDY_LINE_CHANNEL_SECRET=medbuddy-line-channel-secret:1,MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN=medbuddy-line-channel-access-token:1
+  --set-secrets=MEDBUDDY_LINE_CHANNEL_SECRET=medbuddy-line-channel-secret:${LINE_SECRET_VERSION},MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN=medbuddy-line-channel-access-token:${LINE_SECRET_VERSION}
 ```
 
 Cloud Run prints the generated HTTPS service URL. No custom domain is required. The LINE webhook URL is that service URL plus `/api/line/webhook`.
@@ -145,7 +146,7 @@ gcloud run services logs read medbuddy-line \
 6. Set the webhook URL to `https://<cloud-run-host>/api/line/webhook`.
 7. Enable **Use webhook** and **Webhook redelivery**, then use **Verify**. The signed empty-event verification request should return `200`.
 8. For group testing, enable **Allow bot to join group chats**. DMs need no group setting.
-9. In LINE Official Account Manager response settings, disable greeting and automatic replies that would create a second response beside the webhook agent.
+9. If LINE produces an additional automatic response, use LINE Official Account Manager response settings to disable greeting and automatic replies. Regional account-manager interfaces may hide these controls when they are already inactive.
 10. Scan the QR code on the channel's **Messaging API** tab to add the Official Account as a friend.
 
 The implementation uses LINE's documented `x-line-signature`, `webhookEventId`, `mention.mentionees[].isSelf`, and one-time `replyToken` behavior. See the official references in [`LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md`](./LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md).
@@ -161,3 +162,25 @@ The implementation uses LINE's documented `x-line-signature`, `webhookEventId`, 
 7. Review Firestore to confirm the DM and group use different opaque workspace documents.
 
 Do not proceed to real family data until privacy disclosure, retention, deletion, and a production log review are implemented and explicitly approved.
+
+## Deployed fictional smoke record (2026-08-03)
+
+The first live LINE conversation slice is deployed and operational:
+
+| Item | Verified state |
+| --- | --- |
+| GCP project and region | `med-buddy-503802`, `us-west1` |
+| Cloud Run service | `medbuddy-line` |
+| Verified revision | `medbuddy-line-00002-7hm` |
+| Registered LINE webhook | `https://medbuddy-line-643586490631.us-west1.run.app/api/line/webhook` |
+| Runtime identity | `medbuddy-runtime@med-buddy-503802.iam.gserviceaccount.com` |
+| Secret storage | Secret Manager, pinned enabled version `2`; incorrect version `1` disabled |
+| Vertex model boundary | `gemini-2.5-flash`, global endpoint, ADC service identity |
+| LINE webhook API test | Success, HTTP `200` |
+| Live fictional DM evidence | Two metadata-only `line_event_completed` entries; no failure or duplicate entry observed in the smoke window |
+
+No LINE user, group, message, or channel identifier; credential; prompt; model output; or conversation content is recorded in this repository. The public service URL and non-secret deployment metadata above are sufficient to reproduce and diagnose the prototype.
+
+The Compute Engine default service account had a pre-existing project-level `roles/editor` grant when the source-build role was added. That broad legacy grant was not changed during the bot deployment because its other consumers were unknown. Review and narrow it before approving real family data.
+
+The deployed smoke proves the fictional text loop only. It does not remove the release gates for disclosure, consent, retention, deletion, dependency remediation, or production log review.
