@@ -105,9 +105,10 @@ export class LineWebhookHandler {
     if (dependencies.channelSecret.length === 0) throw new Error("LINE channel secret is required.");
   }
 
-  async handle(input: { rawBody: string; signature: string; correlationId: string }): Promise<{ status: 200 | 400 | 401 | 413 }> {
+  async handle(input: { rawBody: string | Uint8Array; signature: string; correlationId: string }): Promise<{ status: 200 | 400 | 401 | 413 }> {
     const correlationId = CorrelationIdSchema.parse(input.correlationId);
-    if (Buffer.byteLength(input.rawBody, "utf8") > MAX_WEBHOOK_BYTES) {
+    const rawBytes = typeof input.rawBody === "string" ? Buffer.from(input.rawBody, "utf8") : input.rawBody;
+    if (rawBytes.byteLength > MAX_WEBHOOK_BYTES) {
       this.dependencies.logger.write({ event: "line_webhook_rejected", correlationId, code: "BODY_TOO_LARGE" });
       return { status: 413 };
     }
@@ -118,7 +119,8 @@ export class LineWebhookHandler {
 
     let body: z.infer<typeof WebhookBodySchema>;
     try {
-      body = WebhookBodySchema.parse(JSON.parse(input.rawBody) as unknown);
+      const rawText = new TextDecoder("utf-8", { fatal: true }).decode(rawBytes);
+      body = WebhookBodySchema.parse(JSON.parse(rawText) as unknown);
     } catch {
       this.dependencies.logger.write({ event: "line_webhook_rejected", correlationId, code: "INVALID_BODY" });
       return { status: 400 };

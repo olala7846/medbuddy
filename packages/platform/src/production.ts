@@ -10,6 +10,13 @@ export interface ProductionPlatformOptions extends CloudTasksDispatcherOptions {
   storageBucket: string;
 }
 
+/** Minimal Firestore-only platform for synchronous external conversations. */
+export function createConversationPlatform(projectId: string) {
+  return {
+    persistence: new FirestorePersistence(new Firestore({ projectId })),
+  };
+}
+
 /**
  * Creates adapters only. Constructing this value does not contact GCP or
  * authorize a caller; request and domain policy stay in the web/domain layers.
