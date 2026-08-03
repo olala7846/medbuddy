@@ -1,7 +1,7 @@
 import {
-  ConversationRequestSchema,
+  ConversationTurnRequestSchema,
   type ConversationContext,
-  type ConversationRequest,
+  type ConversationTurnRequest,
   type ConversationResponder as ConversationResponderPort,
   type ConversationResult,
   type MedicationGrounding,
@@ -92,8 +92,8 @@ export class ConversationResponder implements ConversationResponderPort {
     private readonly provider: ConversationProvider,
   ) {}
 
-  async respond(input: ConversationRequest): Promise<ConversationResult> {
-    const request = ConversationRequestSchema.safeParse(input);
+  async respond(input: ConversationTurnRequest): Promise<ConversationResult> {
+    const request = ConversationTurnRequestSchema.safeParse(input);
     if (!request.success) {
       return technicalFailure();
     }

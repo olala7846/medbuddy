@@ -28,20 +28,12 @@ export interface ChatService {
   requestCaptureRetry(actor: ActorContext, messageId: MessageId): Promise<void>;
 }
 
-export const ConversationRequestSchema = z
+export const ConversationTurnRequestSchema = z
   .object({
-    actor: ActorContextSchema,
     messageId: MessageIdSchema,
     context: ConversationContextSchema,
   })
   .superRefine((request, issueContext) => {
-    if (request.context.workspaceId !== request.actor.workspaceId) {
-      issueContext.addIssue({
-        code: "custom",
-        message: "Conversation context must belong to the effective actor workspace.",
-        path: ["context", "workspaceId"],
-      });
-    }
     if (!request.context.messages.some((message) => message.id === request.messageId)) {
       issueContext.addIssue({
         code: "custom",
@@ -51,6 +43,19 @@ export const ConversationRequestSchema = z
     }
   });
 
+export const ConversationRequestSchema = ConversationTurnRequestSchema.and(z.object({
+  actor: ActorContextSchema,
+})).superRefine((request, issueContext) => {
+  if (request.context.workspaceId !== request.actor.workspaceId) {
+    issueContext.addIssue({
+      code: "custom",
+      message: "Conversation context must belong to the effective actor workspace.",
+      path: ["context", "workspaceId"],
+    });
+  }
+});
+
+export type ConversationTurnRequest = z.infer<typeof ConversationTurnRequestSchema>;
 export type ConversationRequest = z.infer<typeof ConversationRequestSchema>;
 
 export interface ConversationResult {
@@ -60,7 +65,7 @@ export interface ConversationResult {
 }
 
 export interface ConversationResponder {
-  respond(input: ConversationRequest): Promise<ConversationResult>;
+  respond(input: ConversationTurnRequest): Promise<ConversationResult>;
 }
 
 export interface CaptureProcessor {

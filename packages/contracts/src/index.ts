@@ -4,6 +4,7 @@ export * from "./capture.js";
 export * from "./demo.js";
 export * from "./chat.js";
 export * from "./errors.js";
+export * from "./external-conversation.js";
 export * from "./grounding.js";
 export * from "./handoff.js";
 export * from "./ids.js";
