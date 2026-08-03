@@ -22,6 +22,9 @@ import {
   ReviewEventDocumentSchema,
   WorkspaceDocumentSchema,
   DemoWorkspaceMappingSchema,
+  ExternalEventReceiptKeySchema,
+  ExternalEventReceiptSchema,
+  type ExternalEventReceiptStore,
 } from "@medbuddy/contracts";
 import type { DemoWorkspaceMappingRepository, DemoWorkspacePersistence, DemoWorkspaceResetResultRepository, DemoWorkspaceSeed, DemoWorkspaceTransaction } from "../demo-workspace/persistence.js";
 
@@ -94,6 +97,7 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
   readonly messages: MessageRepository;
   readonly attachments: AttachmentRepository;
   readonly careRecords: CareRecordRepository;
+  readonly externalEvents: ExternalEventReceiptStore;
 
   constructor(private readonly firestore: Firestore) {
     this.workspaces = {
@@ -154,6 +158,35 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
         this.get(this.handoffRef(workspaceId, handoffVersionId), HandoffVersionDocumentSchema),
       createHandoff: async (version) =>
         this.runRawTransaction((transaction) => this.createHandoffInTransaction(transaction, version)),
+    };
+    this.externalEvents = {
+      claim: async (keyValue, claimedAt) => {
+        const key = ExternalEventReceiptKeySchema.parse(keyValue);
+        const reference = this.externalEventRef(key);
+        return this.runRawTransaction(async (transaction) => {
+          const existing = await transaction.get(reference);
+          if (existing.exists) return "DUPLICATE";
+          transaction.create(reference, ExternalEventReceiptSchema.parse({
+            key,
+            claimedAt,
+            outcome: "CLAIMED",
+          }));
+          return "CLAIMED";
+        });
+      },
+      complete: async (keyValue, outcome) => {
+        const key = ExternalEventReceiptKeySchema.parse(keyValue);
+        const reference = this.externalEventRef(key);
+        await this.runRawTransaction(async (transaction) => {
+          const snapshot = await transaction.get(reference);
+          if (!snapshot.exists) throw new Error("Cannot complete an unclaimed external event.");
+          const existing = ExternalEventReceiptSchema.parse(data(snapshot.data()));
+          if (existing.outcome !== "CLAIMED" && existing.outcome !== outcome) {
+            throw new Error("External event already has a different terminal outcome.");
+          }
+          transaction.update(reference, { outcome });
+        });
+      },
     };
   }
 
@@ -225,6 +258,10 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
 
   private async runRawTransaction<Result>(operation: (transaction: Transaction) => Promise<Result>): Promise<Result> {
     return this.firestore.runTransaction(operation);
+  }
+
+  private externalEventRef(key: string): FirebaseFirestore.DocumentReference {
+    return this.firestore.collection("externalEventReceipts").doc(key);
   }
 
   private transactionRepositories(transaction: Transaction, writes?: TransactionWriteBuffer): FirestoreRepositories {

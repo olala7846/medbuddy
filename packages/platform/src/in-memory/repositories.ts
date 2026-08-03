@@ -12,8 +12,15 @@ import type {
   ReviewEventDocument,
   WorkspaceDocument,
   WorkspaceRepository,
+  ExternalEventReceipt,
+  ExternalEventReceiptStore,
 } from "@medbuddy/contracts";
-import { MessageDocumentSchema, MessageWriteSchema } from "@medbuddy/contracts";
+import {
+  ExternalEventReceiptKeySchema,
+  ExternalEventReceiptSchema,
+  MessageDocumentSchema,
+  MessageWriteSchema,
+} from "@medbuddy/contracts";
 import { InMemoryTransactionQueue } from "./transactions.js";
 
 interface InMemoryStore {
@@ -25,6 +32,7 @@ interface InMemoryStore {
   reviews: Map<string, ReviewEventDocument>;
   handoffs: Map<string, HandoffVersionDocument>;
   idempotentResults: Map<string, unknown>;
+  externalEvents: Map<string, ExternalEventReceipt>;
 }
 
 export interface InMemoryRepositories {
@@ -55,6 +63,7 @@ function createStore(): InMemoryStore {
     reviews: new Map(),
     handoffs: new Map(),
     idempotentResults: new Map(),
+    externalEvents: new Map(),
   };
 }
 
@@ -72,6 +81,7 @@ function cloneStore(source: InMemoryStore): InMemoryStore {
     reviews: cloneMap(source.reviews),
     handoffs: cloneMap(source.handoffs),
     idempotentResults: cloneMap(source.idempotentResults),
+    externalEvents: cloneMap(source.externalEvents),
   };
 }
 
@@ -230,6 +240,27 @@ export class InMemoryPersistence {
   readonly messages = this.repositories.messages;
   readonly attachments = this.repositories.attachments;
   readonly careRecords = this.repositories.careRecords;
+  readonly externalEvents: ExternalEventReceiptStore = {
+    claim: async (keyValue, claimedAt) => this.#transactions.run(async () => {
+      const key = ExternalEventReceiptKeySchema.parse(keyValue);
+      if (this.#store.externalEvents.has(key)) return "DUPLICATE";
+      this.#store.externalEvents.set(key, ExternalEventReceiptSchema.parse({
+        key,
+        claimedAt,
+        outcome: "CLAIMED",
+      }));
+      return "CLAIMED";
+    }),
+    complete: async (keyValue, outcome) => this.#transactions.run(async () => {
+      const key = ExternalEventReceiptKeySchema.parse(keyValue);
+      const existing = this.#store.externalEvents.get(key);
+      if (existing === undefined) throw new Error("Cannot complete an unclaimed external event.");
+      if (existing.outcome !== "CLAIMED" && existing.outcome !== outcome) {
+        throw new Error("External event already has a different terminal outcome.");
+      }
+      this.#store.externalEvents.set(key, { ...existing, outcome });
+    }),
+  };
 
   /**
    * Runs caller-supplied storage operations against an isolated copy, exposing
@@ -292,5 +323,6 @@ export class InMemoryPersistence {
     this.#store.reviews = draft.reviews;
     this.#store.handoffs = draft.handoffs;
     this.#store.idempotentResults = draft.idempotentResults;
+    this.#store.externalEvents = draft.externalEvents;
   }
 }
