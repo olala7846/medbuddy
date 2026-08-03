@@ -97,6 +97,37 @@ describe("conversation responder", () => {
     });
   });
 
+  it("returns bounded conversational text from the provider", async () => {
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      new FixedConversationProvider(new Map([[focalMessage.id, {
+        kind: "REPLY",
+        text: "I can help think that through with you.",
+      }]])),
+    );
+
+    await expect(responder.respond(request)).resolves.toEqual({
+      kind: "RESPONDED",
+      retryable: false,
+      responseText: "I can help think that through with you.",
+    });
+  });
+
+  it("rejects empty or oversized conversational model text", async () => {
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      new FixedConversationProvider(new Map([[focalMessage.id, {
+        kind: "REPLY",
+        text: "x".repeat(5_001),
+      }]])),
+    );
+
+    await expect(responder.respond(request)).resolves.toEqual({
+      kind: "TECHNICAL_FAILURE",
+      retryable: true,
+    });
+  });
+
   it.each([
     ["provider failure", new ConversationProviderError("PROVIDER_ERROR")],
     ["malformed provider output", { kind: "LOOKUP_MEDICATION", query: {} }],

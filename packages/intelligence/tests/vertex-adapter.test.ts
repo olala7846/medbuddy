@@ -162,4 +162,43 @@ describe("Vertex adapters", () => {
       contents: [{ role: "user", parts: [{ text: focalMessage.body }] }],
     }]);
   });
+
+  it("sends only bounded supplied thread context to the conversational model", async () => {
+    const requests: unknown[] = [];
+    const recordingClient: VertexModelClient = {
+      async generate(input) {
+        requests.push(input);
+        return { candidates: [{ content: { parts: [{ text: '{"kind":"REPLY","text":"A fictional reply."}' }] } }] };
+      },
+    };
+    const priorModelMessage = MessageSchema.parse({
+      ...focalMessage,
+      id: "message:prior-model",
+      authorMemberId: "MEDBUDDY",
+      body: "A prior fictional reply.",
+      revision: 1,
+    });
+    const currentMessage = MessageSchema.parse({
+      ...focalMessage,
+      id: "message:current-human",
+      body: "A fictional follow-up.",
+      revision: 2,
+    });
+
+    await expect(new VertexConversationProvider(recordingClient).respond({
+      focalMessage: currentMessage,
+      context: {
+        workspaceId: currentMessage.workspaceId,
+        messages: [priorModelMessage, currentMessage],
+      },
+    })).resolves.toEqual({ kind: "REPLY", text: "A fictional reply." });
+
+    expect(requests).toEqual([{
+      systemInstruction: expect.stringContaining("general conversational assistant"),
+      contents: [
+        { role: "model", parts: [{ text: "A prior fictional reply." }] },
+        { role: "user", parts: [{ text: "A fictional follow-up." }] },
+      ],
+    }]);
+  });
 });

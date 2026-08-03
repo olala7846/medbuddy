@@ -16,6 +16,10 @@ import { lookupMedication } from "./tools.js";
 export const ConversationInstructionSchema = z.union([
   z.object({ kind: z.literal("ACKNOWLEDGE") }).strict(),
   z.object({
+    kind: z.literal("REPLY"),
+    text: z.string().trim().min(1).max(5_000),
+  }).strict(),
+  z.object({
     kind: z.literal("LOOKUP_MEDICATION"),
     query: z.object({
       medicationCode: z.string().trim().min(1).optional(),
@@ -133,6 +137,9 @@ export class ConversationResponder implements ConversationResponderPort {
   private async respondToInstruction(instruction: ConversationInstruction): Promise<ConversationResult> {
     if (instruction.kind === "ACKNOWLEDGE") {
       return { kind: "RESPONDED", responseText: acknowledgmentText, retryable: false };
+    }
+    if (instruction.kind === "REPLY") {
+      return { kind: "RESPONDED", responseText: instruction.text, retryable: false };
     }
 
     return {
