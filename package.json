@@ -18,6 +18,7 @@
     "lint": "eslint .",
     "dev": "npm run dev --workspace @medbuddy/web",
     "test": "vitest run",
+    "smoke:line": "vitest run --run line",
     "test:e2e": "playwright test",
     "test:vertex-smoke": "MEDBUDDY_RUN_VERTEX_SMOKE=true vitest run --run vertex-smoke"
   },

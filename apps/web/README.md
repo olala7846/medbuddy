@@ -2,6 +2,18 @@
 
 Application shell and runnable local browser host: authentication, actor resolution, HTTP route adapters, and composition roots for demo and production wiring.
 
+## LINE webhook
+
+`POST /api/line/webhook` is the server-only LINE Messaging API boundary. It verifies the exact bounded raw body before parsing, maps one DM/group/room to an opaque workspace, invokes the isolated conversation path, and uses the event reply token once. Group and legacy-room messages require LINE's explicit self-mention marker.
+
+Run the credential-free signed synthetic path with:
+
+```bash
+npm run smoke:line
+```
+
+Live configuration and the fictional-only rollout checkpoint are documented in [`../../docs/LINE_SETUP.md`](../../docs/LINE_SETUP.md).
+
 ## Run the fictional local demo
 
 From the repository root:
@@ -59,9 +71,8 @@ Adding Next.js increases `npm audit` from the checkpoint's 10 findings to 13 (5 
 - `@medbuddy/contracts`
 - `@medbuddy/chat`
 - `@medbuddy/care-record`
+- `@medbuddy/intelligence`
 - `@medbuddy/platform`
-
-Does **not** yet depend on `@medbuddy/intelligence` (wire when connecting responder/capture end-to-end).
 
 ## Must not
 
@@ -72,7 +83,8 @@ Does **not** yet depend on `@medbuddy/intelligence` (wire when connecting respon
 
 ```text
 src/auth/            Session providers and actor resolution
-src/composition/     Config, demo workspace, production wiring
+src/composition/     Config, demo workspace, production and LINE wiring
+src/line/            LINE signature, identity, reply, HTTP, runtime, and webhook adapters
 src/local-demo/      Process-local sessions, deterministic dispatcher, HTTP helpers
 src/*.ts             Route adapters and persona/chat helpers
 app/                 Next.js pages and localhost-only route handlers

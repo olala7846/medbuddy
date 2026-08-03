@@ -22,6 +22,7 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | Implement a workflow | ARCHITECTURE + owning package README | [TDD.md](./TDD.md) matching section; [../tasks/todo.md](../tasks/todo.md) |
 | Safety / medication limits | PROTOTYPE_CHALLENGE + ARCHITECTURE trust boundaries | TDD §5; `packages/intelligence` README |
 | Deploy or GCP adapters | [infra/README.md](../infra/README.md) | [DEPLOYMENT_READINESS.md](./DEPLOYMENT_READINESS.md), [GCP_ADAPTERS.md](./GCP_ADAPTERS.md) |
+| Configure or smoke-test LINE | [LINE_SETUP.md](./LINE_SETUP.md) | [LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md](./LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md) |
 | Why a product decision exists | [discovery/prd-decision-log.md](./discovery/prd-decision-log.md) | [discovery/product-intent.md](./discovery/product-intent.md) |
 | Execution status | [../tasks/todo.md](../tasks/todo.md) | [../tasks/plan.md](../tasks/plan.md) |
 
@@ -67,6 +68,7 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | [../infra/README.md](../infra/README.md) | Terraform bootstrap and foundation |
 | [DEPLOYMENT_READINESS.md](./DEPLOYMENT_READINESS.md) | Deployment blockers and readiness |
 | [GCP_ADAPTERS.md](./GCP_ADAPTERS.md) | Client/adapter operational notes |
+| [LINE_SETUP.md](./LINE_SETUP.md) | LINE console, secrets, deployment configuration, and fictional live smoke |
 
 ### Execution (not specs)
 
