@@ -17,6 +17,7 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | --- | --- | --- |
 | Orient to the product | [../PRODUCT_DIRECTION.md](../PRODUCT_DIRECTION.md) | [TELEGRAM_FAMILY_ALPHA_SPEC.md](./TELEGRAM_FAMILY_ALPHA_SPEC.md); earlier [PRD.md](./PRD.md) |
 | Implement the current alpha | [TELEGRAM_FAMILY_ALPHA_SPEC.md](./TELEGRAM_FAMILY_ALPHA_SPEC.md) | [../tasks/plan.md](../tasks/plan.md); owning package README |
+| Review the proposed agent memory architecture | [proposals/AGENT_MEMORY_ARCHITECTURE.md](./proposals/AGENT_MEMORY_ARCHITECTURE.md) | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md); current Intelligence and Chat packages |
 | Package boundaries / deps | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) | [TDD.md](./TDD.md) §4–5, §17 |
 | Implement a workflow | ARCHITECTURE + owning package README | [TDD.md](./TDD.md) matching section; [../tasks/todo.md](../tasks/todo.md) |
 | Safety / medication limits | PROTOTYPE_CHALLENGE + ARCHITECTURE trust boundaries | TDD §5; `packages/intelligence` README |
@@ -50,6 +51,12 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | Doc | Role |
 | --- | --- |
 | [decisions/0001-prioritize-live-telegram-family-alpha.md](./decisions/0001-prioritize-live-telegram-family-alpha.md) | Why live Telegram family value supersedes web-demo polish |
+
+### Proposals
+
+| Doc | Role |
+| --- | --- |
+| [proposals/AGENT_MEMORY_ARCHITECTURE.md](./proposals/AGENT_MEMORY_ARCHITECTURE.md) | Proposed memory layers, retrieval policy, implementation sequence, and framework/GCP choices |
 
 ### Operations
 
