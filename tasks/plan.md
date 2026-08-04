@@ -313,7 +313,10 @@ assemble character-bounded context without changing the family-map module.
 **Acceptance criteria:**
 
 - Every valid supported text event persists; mentions control only whether a
-  response candidate is generated.
+  response candidate is generated. Text is accepted through 100,000 UTF-16
+  units and rejected above that boundary without content logging.
+- Group and legacy-room unsends remain observable when LINE omits the sender;
+  conversation and target identity do not depend on `source.userId`.
 - LINE rejection/timeout never publishes MedBuddy conversation evidence; LINE
   success publishes once through a deterministic idempotent operation.
 - Existing family-map updates, final-acknowledgment semantics, replay behavior,

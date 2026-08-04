@@ -6,7 +6,7 @@ import type {
   SourceEventPayload,
   ThreadConversation,
 } from "@medbuddy/contracts";
-import { ExternalConversationIdentitySchema } from "@medbuddy/contracts";
+import { ExternalConversationIdentitySchema, SOURCE_TEXT_MAX_UTF16 } from "@medbuddy/contracts";
 import { z } from "zod";
 
 import { deriveLineConversationIds } from "./identity.js";
@@ -24,7 +24,7 @@ const MentionSchema = z.object({
 const TextMessageSchema = z.object({
   id: ProviderIdSchema,
   type: z.literal("text"),
-  text: z.string().min(1).max(5_000),
+  text: z.string().min(1).max(SOURCE_TEXT_MAX_UTF16),
   mention: MentionSchema.optional(),
 }).passthrough();
 const AttachmentMessageSchema = z.discriminatedUnion("type", [
@@ -134,8 +134,9 @@ function identityFor(input: {
   source: z.infer<typeof SourceSchema>;
   messageId: string;
   eventId: string;
+  missingSenderFallback?: string;
 }): ExternalConversationIdentity | null {
-  const senderId = input.source.userId;
+  const senderId = input.source.userId ?? input.missingSenderFallback;
   if (senderId === undefined) return null;
   const isDirectMessage = input.source.type === "user";
   const conversationId = input.source.type === "user"
@@ -181,7 +182,12 @@ function toObservedEvent(value: unknown): EligibleLineEvent | null {
   }
   const unsent = UnsendEventSchema.safeParse(value);
   if (unsent.success) {
-    const identity = identityFor({ source: unsent.data.source, messageId: unsent.data.unsend.messageId, eventId: unsent.data.webhookEventId });
+    const identity = identityFor({
+      source: unsent.data.source,
+      messageId: unsent.data.unsend.messageId,
+      eventId: unsent.data.webhookEventId,
+      missingSenderFallback: "line-unsend-system",
+    });
     if (identity === null) return null;
     return {
       identity,

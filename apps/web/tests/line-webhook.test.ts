@@ -427,7 +427,7 @@ describe("LINE webhook", () => {
       mode: "active",
       timestamp: timestamp + 2,
       webhookEventId: "fictional-unsend-event",
-      source: { type: "group", groupId: "fictional-edit-group", userId: "fictional-user-a" },
+      source: { type: "group", groupId: "fictional-edit-group" },
       unsend: { messageId: "fictional-edit-message" },
     };
     await harness.handler.handle({ ...signedBody([original, edited]), correlationId: "request:fictional-edit" });
@@ -444,7 +444,94 @@ describe("LINE webhook", () => {
       { payload: { kind: "TEXT_EDIT", body: "Corrected fictional text." } },
     ]);
     await harness.handler.handle({ ...signedBody([unsent]), correlationId: "request:fictional-unsend" });
-    await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toHaveLength(3);
+    await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toMatchObject([
+      { payload: { kind: "TEXT" } },
+      { payload: { kind: "TEXT_EDIT" } },
+      { payload: { kind: "UNSEND", targetMessageId: ids.messageId } },
+    ]);
+  });
+
+  it("preserves a sender-less legacy-room unsend in the original workspace", async () => {
+    const harness = createHarness();
+    const original = textEvent({
+      webhookEventId: "fictional-room-original-event",
+      source: { type: "room", roomId: "fictional-unsend-room", userId: "fictional-user-a" },
+      message: { id: "fictional-room-message", type: "text", text: "Fictional room text." },
+    });
+    const unsent = {
+      type: "unsend",
+      mode: "active",
+      timestamp: timestamp + 1,
+      webhookEventId: "fictional-room-unsend-event",
+      source: { type: "room", roomId: "fictional-unsend-room" },
+      unsend: { messageId: "fictional-room-message" },
+    };
+    await harness.handler.handle({ ...signedBody([original, unsent]), correlationId: "request:fictional-room-unsend" });
+    const ids = deriveLineConversationIds({
+      channel: "LINE",
+      conversationType: "GROUP",
+      conversationId: "fictional-unsend-room",
+      senderId: "fictional-user-a",
+      messageId: "fictional-room-message",
+      eventId: "fictional-room-original-event",
+    });
+
+    await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toMatchObject([
+      { payload: { kind: "TEXT" } },
+      { payload: { kind: "UNSEND", targetMessageId: ids.messageId } },
+    ]);
+  });
+
+  it.each([5_001, 100_000])("accepts and persists %i-character LINE text", async (length) => {
+    const harness = createHarness();
+    const body = "x".repeat(length);
+    const eventId = `fictional-boundary-event-${length}`;
+    const messageId = `fictional-boundary-message-${length}`;
+    await harness.handler.handle({
+      ...signedBody([textEvent({
+        webhookEventId: eventId,
+        source: { type: "group", groupId: "fictional-boundary-group", userId: "fictional-user-a" },
+        message: { id: messageId, type: "text", text: body },
+      })]),
+      correlationId: `request:fictional-boundary-${length}`,
+    });
+    const ids = deriveLineConversationIds({
+      channel: "LINE",
+      conversationType: "GROUP",
+      conversationId: "fictional-boundary-group",
+      senderId: "fictional-user-a",
+      messageId,
+      eventId,
+    });
+
+    await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toMatchObject([
+      { payload: { kind: "TEXT", body } },
+    ]);
+    expect(harness.modelRequests).toEqual([]);
+  });
+
+  it("rejects above-100,000 text without persisting or logging its content", async () => {
+    const harness = createHarness();
+    const body = `private-boundary-marker-${"x".repeat(100_001)}`;
+    await expect(harness.handler.handle({
+      ...signedBody([textEvent({
+        webhookEventId: "fictional-over-boundary-event",
+        source: { type: "group", groupId: "fictional-over-boundary-group", userId: "fictional-user-a" },
+        message: { id: "fictional-over-boundary-message", type: "text", text: body },
+      })]),
+      correlationId: "request:fictional-over-boundary",
+    })).resolves.toEqual({ status: 200 });
+    const ids = deriveLineConversationIds({
+      channel: "LINE",
+      conversationType: "GROUP",
+      conversationId: "fictional-over-boundary-group",
+      senderId: "fictional-user-a",
+      messageId: "fictional-over-boundary-message",
+      eventId: "fictional-over-boundary-event",
+    });
+
+    await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toEqual([]);
+    expect(JSON.stringify(harness.logs)).not.toContain("private-boundary-marker");
   });
 
   it("records and dispatches a supported attachment without model or reply exposure", async () => {

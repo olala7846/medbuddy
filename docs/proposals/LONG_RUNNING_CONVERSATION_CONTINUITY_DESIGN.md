@@ -384,7 +384,12 @@ Firestore may rerun transaction callbacks after contention, so callbacks perform
 ## 13. Edits, tombstones, deletion, and retention
 
 - A LINE group `messageEdited` webhook appends a new immutable `TEXT_EDIT` source event linked through the original opaque message ID. DMs and legacy rooms do not receive edit events under the current LINE contract.
-- An `unsend` webhook appends `UNSEND`. The effective projection removes the target text from recent context and future level-1 inputs.
+- An `unsend` webhook appends `UNSEND`. For documented group and legacy-room
+  unsends where LINE omits `source.userId`, the conversation scope and target
+  message ID are derived from the group/room and unsent message IDs; a
+  deterministic system actor supplies attribution without inventing a sender.
+  The effective projection removes the target text from recent context and
+  future level-1 inputs.
 - Existing ready segments are never invalidated or regenerated. They may retain a paraphrase of content later edited or unsent.
 - An unsent attachment is removed from recent/future projection, but its private
   bytes are not automatically erased in Effort 2. Attachment state or deletion

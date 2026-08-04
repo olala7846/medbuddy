@@ -43,7 +43,7 @@
   action wrappers/separators.
 - [x] Keep the selected recent window contiguous by stopping at the first
   older non-fitting turn.
-- [ ] Preserve sender-less LINE group/room unsends and accept text through the
+- [x] Preserve sender-less LINE group/room unsends and accept text through the
   100,000-character contract boundary.
 - [ ] Invalidate compaction candidates on later in-range mutations, bound
   compaction input, and make failed work recoverable.
