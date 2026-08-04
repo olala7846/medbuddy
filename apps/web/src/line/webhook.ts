@@ -90,6 +90,36 @@ export type LineWebhookLogEntry = {
 
 export type LineOperationalLogEntry = LineWebhookLogEntry | ConversationTelemetryEntry;
 
+const LineWebhookLogEntrySchema = z.object({
+  event: z.enum(["line_webhook_rejected", "line_event_ignored", "line_event_duplicate", "line_event_completed", "line_event_failed"]),
+  correlationId: CorrelationIdSchema,
+  conversationType: z.enum(["GROUP", "DM"]).optional(),
+  code: z.enum(["INVALID_SIGNATURE", "INVALID_BODY", "BODY_TOO_LARGE", "MODEL_FAILURE", "REPLY_FAILURE", "RECEIPT_FAILURE"]).optional(),
+}).strict();
+const ConversationTelemetryEntrySchema = z.object({
+  event: z.enum([
+    "family_map_tool_requested",
+    "family_map_updated",
+    "family_map_no_change",
+    "family_map_revision_conflict",
+    "family_map_rejected",
+    "family_map_failed",
+    "conversation_tool_loop_completed",
+    "conversation_tool_loop_exhausted",
+  ]),
+  outcome: z.enum(["CONTENT_TOO_LARGE", "INVALID_SOURCE", "TECHNICAL_FAILURE"]).optional(),
+  priorRevision: z.number().int().nonnegative().optional(),
+  resultingRevision: z.number().int().nonnegative().optional(),
+  characterCountClass: z.enum(["EMPTY", "SHORT", "MEDIUM", "LARGE"]).optional(),
+  toolAttemptCount: z.number().int().min(0).max(2),
+  modelStepCount: z.number().int().min(1).max(3),
+}).strict();
+
+export const LineOperationalLogEntrySchema = z.union([
+  LineWebhookLogEntrySchema,
+  ConversationTelemetryEntrySchema,
+]);
+
 export interface LineWebhookLogger {
   write(entry: LineOperationalLogEntry): void;
 }

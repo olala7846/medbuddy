@@ -9,6 +9,20 @@ const RequiredProductionConfigSchema = z.object({
   MEDBUDDY_ATTACHMENT_BUCKET: z.string().trim().min(3),
 });
 
+const RequiredContinuityConfigSchema = z.object({
+  MEDBUDDY_GCP_PROJECT_ID: z.string().trim().min(1),
+  MEDBUDDY_TASKS_LOCATION: z.string().trim().min(1),
+  MEDBUDDY_TASKS_QUEUE: z.string().trim().min(1),
+  MEDBUDDY_CONTINUITY_CALLBACK_URL: z.string().url(),
+  MEDBUDDY_ATTACHMENT_CALLBACK_URL: z.string().url(),
+  MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL: z.string().email(),
+  MEDBUDDY_ATTACHMENT_BUCKET: z.string().trim().min(3),
+  MEDBUDDY_VERTEX_ENABLED: z.literal("true"),
+  MEDBUDDY_VERTEX_PROJECT: z.string().trim().min(1),
+  MEDBUDDY_VERTEX_LOCATION: z.string().trim().min(1),
+  MEDBUDDY_VERTEX_MODEL: z.literal("gemini-3.6-flash"),
+});
+
 export type ProductionConfig = {
   projectId: string;
   tasksLocation: string;
@@ -16,6 +30,19 @@ export type ProductionConfig = {
   captureCallbackUrl: string;
   taskServiceAccountEmail: string;
   attachmentBucket: string;
+};
+
+export type ContinuityConfiguration = {
+  projectId: string;
+  tasksLocation: string;
+  tasksQueue: string;
+  continuityCallbackUrl: string;
+  attachmentCallbackUrl: string;
+  taskServiceAccountEmail: string;
+  attachmentBucket: string;
+  vertexProjectId: string;
+  vertexLocation: string;
+  vertexModel: "gemini-3.6-flash";
 };
 
 const RequiredLineConfigSchema = z.object({
@@ -72,5 +99,29 @@ export function loadProductionConfig(environment: Record<string, string | undefi
     captureCallbackUrl: value.MEDBUDDY_CAPTURE_CALLBACK_URL,
     taskServiceAccountEmail: value.MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL,
     attachmentBucket: value.MEDBUDDY_ATTACHMENT_BUCKET,
+  };
+}
+
+/** Validates the complete private continuity runtime without echoing any value. */
+export function loadContinuityConfiguration(
+  environment: Record<string, string | undefined>,
+): ContinuityConfiguration {
+  const parsed = RequiredContinuityConfigSchema.safeParse(environment);
+  if (!parsed.success) {
+    const missingKeys = [...new Set(parsed.error.issues.map((issue) => String(issue.path[0])))].sort();
+    throw new ProductionConfigurationError(missingKeys);
+  }
+  const value = parsed.data;
+  return {
+    projectId: value.MEDBUDDY_GCP_PROJECT_ID,
+    tasksLocation: value.MEDBUDDY_TASKS_LOCATION,
+    tasksQueue: value.MEDBUDDY_TASKS_QUEUE,
+    continuityCallbackUrl: value.MEDBUDDY_CONTINUITY_CALLBACK_URL,
+    attachmentCallbackUrl: value.MEDBUDDY_ATTACHMENT_CALLBACK_URL,
+    taskServiceAccountEmail: value.MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL,
+    attachmentBucket: value.MEDBUDDY_ATTACHMENT_BUCKET,
+    vertexProjectId: value.MEDBUDDY_VERTEX_PROJECT,
+    vertexLocation: value.MEDBUDDY_VERTEX_LOCATION,
+    vertexModel: value.MEDBUDDY_VERTEX_MODEL,
   };
 }

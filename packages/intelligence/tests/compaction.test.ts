@@ -20,6 +20,7 @@ class RecordingClient implements VertexModelClient {
 function response(summary: unknown) {
   return {
     candidates: [{ content: { parts: [{ text: JSON.stringify(summary) }] } }],
+    usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 40, totalTokenCount: 160 },
   };
 }
 
@@ -43,7 +44,10 @@ describe("compaction summary generation", () => {
   it("makes exactly one bounded provider call and returns the four-field summary", async () => {
     const client = new RecordingClient(response(validSummary));
     const generator = new CompactionSummaryGenerator(client);
-    await expect(generator.generate(request)).resolves.toEqual(validSummary);
+    await expect(generator.generate(request)).resolves.toEqual({
+      summary: validSummary,
+      usage: { inputTokens: 120, outputTokens: 40 },
+    });
     expect(client.requests).toHaveLength(1);
     expect(client.requests[0]).not.toHaveProperty("tools");
     expect(JSON.stringify(client.requests[0])).not.toMatch(/familyMap|careRecord|repository|storage/i);

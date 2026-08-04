@@ -10,24 +10,42 @@ import {
   ContinuityTaskInputSchema,
   type ContinuityRepository,
   type ContinuityTaskInput,
-  type SegmentSummary,
 } from "@medbuddy/contracts";
 import { verifyTaskCallback, type TaskTokenVerifier } from "@medbuddy/platform";
 import { createConversationPlatform, GoogleTaskTokenVerifier } from "@medbuddy/platform";
 import {
   CompactionSummaryGenerator,
+  type GeneratedCompactionSummary,
   loadVertexConfiguration,
   VertexRestClient,
 } from "@medbuddy/intelligence";
+import { z } from "zod";
 
-export type ContinuityWorkerLogEntry = {
-  event: "continuity_task_rejected" | "continuity_job_completed" | "continuity_job_failed" | "continuity_job_reused";
-  code?: "UNAUTHORIZED" | "INVALID_BODY" | "RETRYABLE" | "EXHAUSTED";
-  level?: number;
-  attempt?: number;
-  inputCharacters?: number;
-  outputCharacters?: number;
-};
+export const ContinuityWorkerLogEntrySchema = z.object({
+  event: z.enum([
+    "continuity_task_rejected",
+    "continuity_job_started",
+    "continuity_job_completed",
+    "continuity_job_failed",
+    "continuity_job_reused",
+    "continuity_publication_conflict",
+  ]),
+  code: z.enum(["UNAUTHORIZED", "INVALID_BODY", "RETRYABLE", "EXHAUSTED"]).optional(),
+  level: z.number().int().positive().max(32).optional(),
+  attempt: z.number().int().min(0).max(COMPACTION_MAX_ATTEMPTS).optional(),
+  inputCharacters: z.number().int().nonnegative().max(30_000).optional(),
+  outputCharacters: z.number().int().nonnegative().max(4_000).optional(),
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  durationClass: z.enum(["UNDER_1S", "UNDER_5S", "UNDER_15S", "AT_LEAST_15S"]).optional(),
+  backlogClass: z.enum(["AT_MOST_10K", "AT_MOST_20K", "AT_MOST_30K", "OVER_30K"]).optional(),
+  omissionCount: z.number().int().nonnegative().optional(),
+  modelId: z.literal("gemini-3.6-flash").optional(),
+  promptVersion: z.literal("continuity-summary-v1").optional(),
+  policyVersion: z.literal("continuity-v1").optional(),
+}).strict();
+
+export type ContinuityWorkerLogEntry = z.infer<typeof ContinuityWorkerLogEntrySchema>;
 
 export interface ContinuityWorkerLogger {
   write(entry: ContinuityWorkerLogEntry): void;
@@ -41,7 +59,21 @@ export interface CompactionSummaryPort {
     lastSourceSequence: number;
     allowedSourceSequences: readonly number[];
     renderedInput: string;
-  }): Promise<SegmentSummary>;
+  }): Promise<GeneratedCompactionSummary>;
+}
+
+function durationClass(milliseconds: number): ContinuityWorkerLogEntry["durationClass"] {
+  if (milliseconds < 1_000) return "UNDER_1S";
+  if (milliseconds < 5_000) return "UNDER_5S";
+  if (milliseconds < 15_000) return "UNDER_15S";
+  return "AT_LEAST_15S";
+}
+
+function backlogClass(characters: number): ContinuityWorkerLogEntry["backlogClass"] {
+  if (characters <= 10_000) return "AT_MOST_10K";
+  if (characters <= 20_000) return "AT_MOST_20K";
+  if (characters <= 30_000) return "AT_MOST_30K";
+  return "OVER_30K";
 }
 
 export class ContinuityCompactionWorker {
@@ -49,8 +81,9 @@ export class ContinuityCompactionWorker {
     continuity: ContinuityRepository;
     generator: CompactionSummaryPort;
     now: () => string;
-    modelId: string;
-    promptVersion: string;
+    clock?: () => number;
+    modelId: "gemini-3.6-flash";
+    promptVersion: "continuity-summary-v1";
     logger: ContinuityWorkerLogger;
   }) {}
 
@@ -81,6 +114,7 @@ export class ContinuityCompactionWorker {
       status: "RUNNING",
       attempts: attempt,
     }));
+    const startedAt = this.dependencies.clock?.() ?? Date.now();
     try {
       const sources = await this.dependencies.continuity.listSourceEvents(input.workspaceId);
       const rangeSources = sources.filter((event) =>
@@ -111,7 +145,17 @@ export class ContinuityCompactionWorker {
         policyVersion: active.policyVersion,
         inputCharacters: renderedInput.length,
       };
-      const summary = await this.dependencies.generator.generate({
+      this.dependencies.logger.write({
+        event: "continuity_job_started",
+        level: active.level,
+        attempt,
+        inputCharacters: renderedInput.length,
+        backlogClass: backlogClass(renderedInput.length),
+        modelId: this.dependencies.modelId,
+        promptVersion: this.dependencies.promptVersion,
+        ...(active.policyVersion === "continuity-v1" ? { policyVersion: active.policyVersion } : {}),
+      });
+      const generated = await this.dependencies.generator.generate({
         workspaceId: input.workspaceId,
         level: active.level,
         firstSourceSequence: active.firstSourceSequence,
@@ -122,7 +166,7 @@ export class ContinuityCompactionWorker {
       const segment = createReadySegment({
         plan,
         currentSources: rangeSources,
-        summary,
+        summary: generated.summary,
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
         createdAt: this.dependencies.now(),
@@ -134,6 +178,11 @@ export class ContinuityCompactionWorker {
         attempt,
         inputCharacters: segment.inputCharacters,
         outputCharacters: segment.outputCharacters,
+        ...(generated.usage === undefined ? {} : generated.usage),
+        durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
+        modelId: this.dependencies.modelId,
+        promptVersion: this.dependencies.promptVersion,
+        ...(active.policyVersion === "continuity-v1" ? { policyVersion: active.policyVersion } : {}),
       });
       return "PUBLISHED";
     } catch (error) {
@@ -148,6 +197,7 @@ export class ContinuityCompactionWorker {
         code: exhausted ? "EXHAUSTED" : "RETRYABLE",
         level: active.level,
         attempt,
+        durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
       });
       if (exhausted) return "EXHAUSTED";
       throw error;
@@ -238,7 +288,7 @@ export function createContinuityTaskComposition(
 let taskHandler: ContinuityTaskHandler | undefined;
 const productionContinuityLogger: ContinuityWorkerLogger = {
   write(entry) {
-    console.info(JSON.stringify(entry));
+    console.info(JSON.stringify(ContinuityWorkerLogEntrySchema.parse(entry)));
   },
 };
 

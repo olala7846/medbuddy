@@ -13,6 +13,7 @@ import { LineWebhookHandler } from "../../src/line/index.js";
 import {
   LineConfigurationError,
   ProductionConfigurationError,
+  loadContinuityConfiguration,
   loadLineConfiguration,
   loadProductionConfig,
 } from "../../src/composition/config.js";
@@ -24,6 +25,12 @@ const productionEnvironment = {
   MEDBUDDY_CAPTURE_CALLBACK_URL: "https://fictional.example.test/api/internal/capture",
   MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL: "tasks@fictional-project.iam.gserviceaccount.com",
   MEDBUDDY_ATTACHMENT_BUCKET: "fictional-medbuddy-private",
+  MEDBUDDY_CONTINUITY_CALLBACK_URL: "https://fictional.example.test/api/internal/continuity",
+  MEDBUDDY_ATTACHMENT_CALLBACK_URL: "https://fictional.example.test/api/internal/attachment",
+  MEDBUDDY_VERTEX_ENABLED: "true",
+  MEDBUDDY_VERTEX_PROJECT: "fictional-project",
+  MEDBUDDY_VERTEX_LOCATION: "global",
+  MEDBUDDY_VERTEX_MODEL: "gemini-3.6-flash",
 };
 
 describe("production composition configuration", () => {
@@ -63,16 +70,42 @@ describe("production composition configuration", () => {
     expect(() => loadLineConfiguration(incomplete)).not.toThrow("fictional-channel-access-token");
   });
 
+  it("requires the approved private task, storage, and Gemini settings without echoing values", () => {
+    expect(loadContinuityConfiguration(productionEnvironment)).toEqual({
+      projectId: "fictional-project",
+      tasksLocation: "us-central1",
+      tasksQueue: "capture",
+      continuityCallbackUrl: "https://fictional.example.test/api/internal/continuity",
+      attachmentCallbackUrl: "https://fictional.example.test/api/internal/attachment",
+      taskServiceAccountEmail: "tasks@fictional-project.iam.gserviceaccount.com",
+      attachmentBucket: "fictional-medbuddy-private",
+      vertexProjectId: "fictional-project",
+      vertexLocation: "global",
+      vertexModel: "gemini-3.6-flash",
+    });
+    const wrongModel = { ...productionEnvironment, MEDBUDDY_VERTEX_MODEL: "fictional-wrong-model" };
+    expect(() => loadContinuityConfiguration(wrongModel)).toThrow(ProductionConfigurationError);
+    expect(() => loadContinuityConfiguration(wrongModel)).toThrow("MEDBUDDY_VERTEX_MODEL");
+    expect(() => loadContinuityConfiguration(wrongModel)).not.toThrow("fictional-wrong-model");
+  });
+
   it("constructs the LINE conversation boundary without contacting live providers", () => {
     const handler = createLineWebhookComposition({
-      MEDBUDDY_GCP_PROJECT_ID: "fictional-project",
+      ...productionEnvironment,
       MEDBUDDY_LINE_CHANNEL_SECRET: "fictional-channel-secret",
       MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN: "fictional-channel-access-token",
-      MEDBUDDY_VERTEX_ENABLED: "true",
-      MEDBUDDY_VERTEX_PROJECT: "fictional-project",
     }, { logger: { write() {} } });
 
     expect(handler).toBeInstanceOf(LineWebhookHandler);
+  });
+
+  it("rejects a LINE runtime configured with a model other than the approved target", () => {
+    expect(() => createLineWebhookComposition({
+      ...productionEnvironment,
+      MEDBUDDY_LINE_CHANNEL_SECRET: "fictional-channel-secret",
+      MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN: "fictional-channel-access-token",
+      MEDBUDDY_VERTEX_MODEL: "fictional-wrong-model",
+    }, { logger: { write() {} } })).toThrow("MEDBUDDY_VERTEX_MODEL");
   });
 });
 

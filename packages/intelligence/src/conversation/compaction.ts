@@ -39,7 +39,17 @@ const VertexSummaryResponseSchema = z.object({
       parts: z.array(z.object({ text: z.string() }).passthrough()).min(1),
     }).passthrough(),
   }).passthrough()).min(1),
+  usageMetadata: z.object({
+    // https://cloud.google.com/vertex-ai/generative-ai/docs/reference/rest/v1/GenerateContentResponse
+    promptTokenCount: z.number().int().nonnegative(),
+    candidatesTokenCount: z.number().int().nonnegative(),
+  }).passthrough().optional(),
 }).passthrough();
+
+export type GeneratedCompactionSummary = {
+  summary: SegmentSummary;
+  usage?: { inputTokens: number; outputTokens: number };
+};
 
 const SYSTEM_INSTRUCTION = [
   "Summarize only the delimited conversation evidence into JSON with exactly four fields: overview, keyEvents, openLoops, caveats.",
@@ -53,7 +63,7 @@ const SYSTEM_INSTRUCTION = [
 export class CompactionSummaryGenerator {
   constructor(private readonly client: VertexModelClient) {}
 
-  async generate(inputValue: CompactionSummaryRequest): Promise<SegmentSummary> {
+  async generate(inputValue: CompactionSummaryRequest): Promise<GeneratedCompactionSummary> {
     const input = CompactionSummaryRequestSchema.parse({
       ...inputValue,
       allowedSourceSequences: [...inputValue.allowedSourceSequences],
@@ -75,6 +85,7 @@ export class CompactionSummaryGenerator {
     const transport = VertexSummaryResponseSchema.safeParse(response);
     const text = transport.success ? transport.data.candidates[0]?.content.parts[0]?.text : undefined;
     if (text === undefined) throw new Error("Malformed compaction provider response.");
+    const usageMetadata = transport.success ? transport.data.usageMetadata : undefined;
 
     let decoded: unknown;
     try {
@@ -93,6 +104,14 @@ export class CompactionSummaryGenerator {
         throw new Error("Compaction summary excerpt references an unavailable source sequence.");
       }
     }
-    return parsed.data;
+    return {
+      summary: parsed.data,
+      ...(usageMetadata === undefined ? {} : {
+        usage: {
+          inputTokens: usageMetadata.promptTokenCount,
+          outputTokens: usageMetadata.candidatesTokenCount,
+        },
+      }),
+    };
   }
 }

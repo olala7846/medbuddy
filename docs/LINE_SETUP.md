@@ -23,15 +23,38 @@ You must provide these values outside source control and chat:
 
 Vertex authentication uses Application Default Credentials; do not create or commit a service-account key file. The deployed runtime identity needs the minimum Firestore and Vertex permissions required to store thread messages/receipts and invoke the configured model.
 
-Optional Vertex settings are:
+Effort 2 selects these Vertex settings:
 
 ```text
 MEDBUDDY_VERTEX_ENABLED=true
 MEDBUDDY_VERTEX_LOCATION=global
-MEDBUDDY_VERTEX_MODEL=gemini-2.5-flash
+MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash
 ```
 
-`gemini-2.5-flash` is the currently verified Vertex model for this smoke path. Google lists its retirement for October 16, 2026, so select and test a supported successor before that date rather than silently changing the production model.
+`gemini-3.6-flash` is the user-selected Effort 2 target. It has not yet passed
+the configuration-gated fictional smoke in the target project and region. Do
+not deploy Effort 2 or claim live-model verification until that smoke succeeds.
+
+The private continuity runtime also requires:
+
+```text
+MEDBUDDY_TASKS_LOCATION=<queue-region>
+MEDBUDDY_TASKS_QUEUE=<private-queue>
+MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL=<task-caller-service-account>
+MEDBUDDY_CONTINUITY_CALLBACK_URL=https://<cloud-run-host>/api/internal/continuity
+MEDBUDDY_ATTACHMENT_CALLBACK_URL=https://<cloud-run-host>/api/internal/attachment
+MEDBUDDY_ATTACHMENT_BUCKET=<private-bucket>
+```
+
+The callback service must verify the task OIDC audience and service-account
+identity. The bucket must remain private. Bucket/object names, provider IDs,
+filenames, bytes, checksums, conversation content, summaries, and prompts must
+not enter logs or model context.
+
+The attachment callback remains a deployment blocker until the approved
+adapter-private provider locator is implemented and verified. The source
+ledger, compaction task, and synthetic attachment validation can be tested
+locally without deploying that incomplete path.
 
 Use Secret Manager-backed environment variables in Cloud Run. To avoid putting secret values in shell history, create the secret containers and add values interactively through standard input:
 

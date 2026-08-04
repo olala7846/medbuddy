@@ -10,6 +10,7 @@ import { orderedSourceDigest } from "@medbuddy/chat";
 import {
   ContinuityCompactionWorker,
   ContinuityTaskHandler,
+  ContinuityWorkerLogEntrySchema,
   type ContinuityWorkerLogEntry,
 } from "../src/composition/continuity.js";
 
@@ -63,7 +64,7 @@ async function harness(options: { attempts?: number; fail?: boolean } = {}) {
       async generate(input) {
         calls.push(input);
         if (options.fail) throw new Error("fictional provider failure");
-        return summary;
+        return { summary, usage: { inputTokens: 120, outputTokens: 40 } };
       },
     },
     now: () => now,
@@ -87,12 +88,20 @@ async function harness(options: { attempts?: number; fail?: boolean } = {}) {
 
 describe("private continuity task", () => {
   it("authenticates before parsing and invokes Gemini at most once", async () => {
-    const { calls, handler } = await harness();
+    const { calls, handler, logs } = await harness();
     await expect(handler.handle({
       authorization: "Bearer fictional-task-token",
       body: { workspaceId, jobId },
     })).resolves.toEqual({ status: 200 });
     expect(calls).toHaveLength(1);
+    expect(logs).toContainEqual(expect.objectContaining({
+      event: "continuity_job_completed",
+      inputTokens: 120,
+      outputTokens: 40,
+      modelId: "gemini-3.6-flash",
+      promptVersion: "continuity-summary-v1",
+      policyVersion: "continuity-v1",
+    }));
   });
 
   it("rejects unauthorized or malformed callbacks without model work", async () => {
@@ -113,5 +122,29 @@ describe("private continuity task", () => {
     expect(calls).toHaveLength(1);
     expect(await continuity.getActiveCompactionJob("workspace:orchard" as never)).toBeNull();
     expect(logs.every((entry) => !JSON.stringify(entry).includes(workspaceId))).toBe(true);
+  });
+
+  it("allows bounded cost metadata and rejects content or high-cardinality identifiers", () => {
+    expect(ContinuityWorkerLogEntrySchema.parse({
+      event: "continuity_job_completed",
+      level: 1,
+      attempt: 1,
+      inputCharacters: 1_024,
+      outputCharacters: 256,
+      inputTokens: 300,
+      outputTokens: 80,
+      durationClass: "UNDER_5S",
+      backlogClass: "AT_MOST_20K",
+      omissionCount: 0,
+      modelId: "gemini-3.6-flash",
+      promptVersion: "continuity-summary-v1",
+      policyVersion: "continuity-v1",
+    })).toMatchObject({ event: "continuity_job_completed", level: 1 });
+    for (const field of ["workspaceId", "jobId", "body", "prompt", "summary", "attachmentId", "objectPath"]) {
+      expect(() => ContinuityWorkerLogEntrySchema.parse({
+        event: "continuity_job_completed",
+        [field]: "fictional-prohibited-value",
+      })).toThrow();
+    }
   });
 });
