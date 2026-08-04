@@ -51,7 +51,8 @@
 - [x] Self-schedule remaining compaction backlog after publication and claim
   model attempts atomically.
 - [x] Reject attachment media-class/MIME mismatches.
-- [ ] Reconcile stale app/web documentation and rerun all verification gates.
+- [x] Reconcile stale app/web Storage and continuity documentation.
+- [ ] Rerun all verification gates.
 
 ## Final gates
 

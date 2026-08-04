@@ -4,7 +4,12 @@ Application shell and runnable local browser host: authentication, actor resolut
 
 ## LINE webhook
 
-`POST /api/line/webhook` is the server-only LINE Messaging API boundary. It verifies the exact bounded raw body before parsing, maps one DM/group/room to an opaque workspace, invokes the isolated conversation path, and uses the event reply token once. Group and legacy-room messages require LINE's explicit self-mention marker.
+`POST /api/line/webhook` is the server-only LINE Messaging API boundary. It verifies the exact bounded raw body before parsing, maps one DM/group/room to an opaque workspace, persists supported events into the continuity ledger, and uses the event reply token once. Group and legacy-room messages are always observed; LINE's explicit self-mention marker controls only whether MedBuddy replies.
+
+`POST /api/internal/continuity` and `POST /api/internal/attachment` are
+OIDC-authenticated Cloud Tasks boundaries. They compact bounded conversation
+history and ingest validated LINE image/PDF bytes into private Cloud Storage;
+neither accepts public browser traffic.
 
 Run the credential-free signed synthetic path with:
 
@@ -59,7 +64,7 @@ Read-only review and printing of stored handoff v1/v2 are in scope. Review mutat
 
 ### Dependency audit note (2026-08-03)
 
-`npm audit --omit=dev` reports 9 findings (5 moderate, 4 high, 0 critical). The high findings are transitive paths through Firestore's CLI cleanup dependencies and Next.js's PostCSS build and optional Sharp image dependencies. The LINE composition does not invoke those cleanup paths, process user-authored CSS or images, or use `next/image`; its public route accepts bounded JSON only. The existing moderate cloud-storage path is also outside the LINE composition. These findings are therefore not reachable through this prototype's LINE webhook, but remain deployment debt. Recheck and upgrade compatible dependencies before enabling real family data.
+`npm audit --omit=dev` reports 9 findings (5 moderate, 4 high, 0 critical). The high findings are transitive paths through Firestore's CLI cleanup dependencies and Next.js's PostCSS build and optional Sharp image dependencies. The application does not invoke those cleanup paths, process user-authored CSS, or use `next/image`. Private LINE attachment ingestion does use `@google-cloud/storage`, but the reported moderate chain concerns UUID buffer APIs and retry machinery that this adapter does not call directly; the audit-suggested remediation is an incompatible major downgrade. These findings remain deployment debt, not a claim that Storage is outside the LINE composition. Recheck and upgrade compatible dependencies before enabling real family data.
 
 ## Public entry
 
