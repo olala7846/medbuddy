@@ -14,7 +14,11 @@ const attachmentId = AttachmentIdSchema.parse("attachment:fictional-1");
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const checksum = createHash("sha256").update(png).digest("hex");
 
-async function harness(options: { failDownload?: boolean } = {}) {
+async function harness(options: {
+  failDownload?: boolean;
+  mediaClass?: "IMAGE" | "PDF";
+  downloadedMimeType?: "image/png" | "application/pdf";
+} = {}) {
   const continuity = new InMemoryContinuityRepository();
   const accepted = await continuity.acceptSourceEvent({
     receiptKey: "event:fictional-attachment",
@@ -23,13 +27,13 @@ async function harness(options: { failDownload?: boolean } = {}) {
     occurredAt: "2026-08-04T12:00:00.000Z",
     acceptedAt: "2026-08-04T12:00:01.000Z",
     authorMemberId: MemberIdSchema.parse("member:fictional-a"),
-    payload: { kind: "ATTACHMENT", attachmentId, mediaClass: "IMAGE" },
+    payload: { kind: "ATTACHMENT", attachmentId, mediaClass: options.mediaClass ?? "IMAGE" },
   });
   await continuity.putAttachment({
     id: attachmentId,
     workspaceId,
     sourceEventId: accepted.event.id,
-    mediaClass: "IMAGE",
+    mediaClass: options.mediaClass ?? "IMAGE",
     state: "PENDING",
     attempts: 0,
   });
@@ -42,7 +46,7 @@ async function harness(options: { failDownload?: boolean } = {}) {
       async download(input) {
         downloads.push(input);
         if (options.failDownload) throw new Error("fictional LINE outage");
-        return { mimeType: "image/png", bytes: png, checksum };
+        return { mimeType: options.downloadedMimeType ?? "image/png", bytes: png, checksum };
       },
     },
     storage: { async saveValidated(input) { saves.push(input); } },
@@ -90,6 +94,24 @@ describe("private attachment task", () => {
     await expect(continuity.getAttachment(workspaceId, attachmentId)).resolves.toMatchObject({
       state: "FAILED",
       attempts: 3,
+    });
+  });
+
+  it.each([
+    ["IMAGE", "application/pdf"],
+    ["PDF", "image/png"],
+  ] as const)("rejects a %s record downloaded as %s before private storage", async (mediaClass, downloadedMimeType) => {
+    const { continuity, handler, saves } = await harness({ mediaClass, downloadedMimeType });
+    await expect(handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, attachmentId },
+    })).resolves.toEqual({ status: 500 });
+
+    expect(saves).toEqual([]);
+    await expect(continuity.getAttachment(workspaceId, attachmentId)).resolves.toMatchObject({
+      mediaClass,
+      state: "PENDING",
+      attempts: 1,
     });
   });
 

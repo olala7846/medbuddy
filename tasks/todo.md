@@ -50,7 +50,7 @@
 - [ ] Prevent historical summaries from authorizing family-map mutation.
 - [ ] Self-schedule remaining compaction backlog after publication and claim
   model attempts atomically.
-- [ ] Reject attachment media-class/MIME mismatches.
+- [x] Reject attachment media-class/MIME mismatches.
 - [ ] Reconcile stale app/web documentation and rerun all verification gates.
 
 ## Final gates

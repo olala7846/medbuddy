@@ -48,6 +48,15 @@ function byteSizeClass(byteSize: number): AttachmentWorkerLogEntry["byteSizeClas
   return "AT_MOST_10MIB";
 }
 
+function mediaClassMatchesMimeType(
+  mediaClass: "IMAGE" | "PDF" | "OTHER",
+  mimeType: DownloadedLineContent["mimeType"],
+): boolean {
+  if (mediaClass === "IMAGE") return mimeType.startsWith("image/");
+  if (mediaClass === "PDF") return mimeType === "application/pdf";
+  return false;
+}
+
 export class AttachmentIngestionWorker {
   constructor(private readonly dependencies: {
     continuity: ContinuityRepository;
@@ -80,6 +89,9 @@ export class AttachmentIngestionWorker {
     const pending = attachment;
     try {
       const downloaded = await this.dependencies.content.download(input);
+      if (!mediaClassMatchesMimeType(attachment.mediaClass, downloaded.mimeType)) {
+        throw new Error("Downloaded attachment MIME type does not match its accepted media class.");
+      }
       await this.dependencies.storage.saveValidated({
         workspaceId: input.workspaceId,
         attachmentId: input.attachmentId,
