@@ -93,11 +93,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
     });
   }
 
-  async publishOutboundCandidate(candidateId: Parameters<ContinuityRepository["publishOutboundCandidate"]>[0], acceptedAt: string): Promise<SourceEvent> {
-    const match = [...this.candidates.values()].find((candidate) => candidate.id === candidateId);
-    if (match === undefined) throw new Error("Outbound candidate does not exist.");
-    return this.queue.run(match.workspaceId, () => {
-      const key = this.key(match.workspaceId, candidateId);
+  async publishOutboundCandidate(workspaceId: Parameters<ContinuityRepository["publishOutboundCandidate"]>[0], candidateId: Parameters<ContinuityRepository["publishOutboundCandidate"]>[1], acceptedAt: string): Promise<SourceEvent> {
+    return this.queue.run(workspaceId, () => {
+      const key = this.key(workspaceId, candidateId);
       const candidate = this.candidates.get(key);
       if (candidate === undefined) throw new Error("Outbound candidate does not exist.");
       if (candidate.state === "PUBLISHED") {

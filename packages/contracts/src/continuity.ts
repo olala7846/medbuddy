@@ -214,7 +214,7 @@ export interface ContinuityRepository {
   acceptSourceEvent(input: AcceptSourceEventInput): Promise<AcceptSourceEventResult>;
   listSourceEvents(workspaceId: z.infer<typeof WorkspaceIdSchema>, afterSequence?: number): Promise<readonly SourceEvent[]>;
   createOutboundCandidate(candidate: OutboundCandidate): Promise<OutboundCandidate>;
-  publishOutboundCandidate(candidateId: z.infer<typeof OutboundCandidateIdSchema>, acceptedAt: string): Promise<SourceEvent>;
+  publishOutboundCandidate(workspaceId: z.infer<typeof WorkspaceIdSchema>, candidateId: z.infer<typeof OutboundCandidateIdSchema>, acceptedAt: string): Promise<SourceEvent>;
   getOutboundCandidate(workspaceId: z.infer<typeof WorkspaceIdSchema>, candidateId: z.infer<typeof OutboundCandidateIdSchema>): Promise<OutboundCandidate | null>;
   putAttachment(attachment: ContinuityAttachment): Promise<ContinuityAttachment>;
   getAttachment(workspaceId: z.infer<typeof WorkspaceIdSchema>, attachmentId: z.infer<typeof AttachmentIdSchema>): Promise<ContinuityAttachment | null>;

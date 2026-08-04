@@ -101,8 +101,8 @@ export function describeContinuityRepositoryContract(
       await continuity.createOutboundCandidate(candidate);
       await expect(continuity.listSourceEvents("workspace:orchard" as never)).resolves.toHaveLength(1);
       const [published, duplicate] = await Promise.all([
-        continuity.publishOutboundCandidate(candidate.id, acceptedAt),
-        continuity.publishOutboundCandidate(candidate.id, acceptedAt),
+        continuity.publishOutboundCandidate(candidate.workspaceId, candidate.id, acceptedAt),
+        continuity.publishOutboundCandidate(candidate.workspaceId, candidate.id, acceptedAt),
       ]);
       expect(published).toEqual(duplicate);
       expect(published.sourceSequence).toBe(2);
