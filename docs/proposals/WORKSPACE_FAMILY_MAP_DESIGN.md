@@ -10,7 +10,7 @@
 
 ## 1. Objective
 
-Make MedBuddy understand how observed participants in one LINE conversation are related so it can use natural family references such as “Mom” and “Grandpa” instead of repeatedly saying “the patient.”
+Make MedBuddy understand how explicitly identified people in one LINE conversation are related so it can use natural family references such as “Mom” and “Grandpa” instead of repeatedly saying “the patient.” People may be chat participants or named relatives who never send a LINE message.
 
 Each LINE group, legacy room, or DM remains one isolated workspace. A DM uses the same model as a group: it is a workspace containing the user and MedBuddy. The first implementation stores one small, raw-text family map per workspace and gives the conversational agent one bounded tool that can replace that map.
 
@@ -22,8 +22,9 @@ Success means a participant can state or correct a direct relationship in ordina
 
 - One current family map for each workspace.
 - Lazy discovery of human members when they send messages.
-- Workspace-local names for observed members.
-- Direct, explicitly stated family relationships between observed members.
+- Workspace-local names for observed participants and explicitly named relatives.
+- Direct, explicitly stated family relationships between workspace people, including nonparticipating relatives.
+- A consistent human-readable raw-text organization for participants, named relatives, and direct relationships.
 - A non-clinical caregiver relationship, which conveys context but no medical authority.
 - Natural-language inspection, addition, correction, and forgetting.
 - Equal update authority for every human member of the workspace.
@@ -41,7 +42,7 @@ Success means a participant can state or correct a direct relationship in ordina
 - Health observations, diagnoses, medication facts or instructions, treatment changes, or claims of medical authority.
 - Automatically persisting inferred or indirect relationships.
 - Storing every derived relationship such as both `parent` and `grandparent` edges.
-- People who have not participated in the workspace conversation.
+- Unnamed, vaguely referenced, or model-invented people.
 - LINE roster or profile API calls.
 - Identity linkage between workspaces or channels.
 - Participant-private memory, administrators, voting, or conflict resolution.
@@ -58,9 +59,11 @@ Success means a participant can state or correct a direct relationship in ordina
 | Term | Meaning |
 | --- | --- |
 | Workspace | Exactly one LINE group, legacy room, or DM. It is the isolation boundary for messages, members, and the family map. |
-| Observed member | A human sender whose signed LINE event has been accepted and converted into an opaque member ID in this workspace. |
-| Workspace family map | The one current, bounded raw-text document describing names and direct relationships among observed members in one workspace. |
-| Direct relationship | A relationship explicitly stated between two observed members, such as “Mei is Kai’s mother.” |
+| Workspace person | A person explicitly identified in this workspace, either as an observed participant or a named relative. |
+| Observed participant | A human sender whose signed LINE event has been accepted and converted into an opaque member ID in this workspace. |
+| Named relative | An explicitly named workspace person who has no LINE participant identity in this workspace. |
+| Workspace family map | The one current, bounded, human-readable raw-text document describing workspace people and their direct relationships. |
+| Direct relationship | A relationship explicitly stated between two workspace people, such as “Mei is Kai’s mother.” |
 | Derived relationship | A relationship inferred from direct relationships, such as concluding that Lin is Kai’s grandmother. It may guide a response but is not persisted. |
 | Explicit update | An unambiguous statement, correction, or forget request that authorizes an immediate family-map write without another confirmation. |
 | Family-map revision | A workspace-local integer used for compare-and-set replacement. It is concurrency metadata, not retained content history. |
@@ -75,12 +78,14 @@ The workspace family map is a narrow form of shared semantic memory. Raw message
 2. An unambiguous explicit relationship statement is sufficient authorization to update the map.
 3. A direct correction applies immediately; MedBuddy does not ask for another confirmation.
 4. After a successful write, MedBuddy visibly acknowledges what it will use in this workspace.
-5. Any observed member may add, correct, clear, or replace the shared map.
+5. Any observed participant may add, correct, clear, or replace the shared map.
 6. The latest successfully applied explicit correction wins.
 7. Only direct relationships are stored. The model derives relative terms at response time.
 8. The map never grants permissions, clinical authority, or authority over reviewed care facts.
 9. A tool failure or conflict must never produce a false claim that the map was saved.
 10. The same external LINE user in two conversations has unrelated workspace-scoped member identities and unrelated family maps.
+11. An explicitly named relative does not need to send a LINE message before MedBuddy can remember them.
+12. A join event or greeting alone never links a participant identity to a named relative. An attributed identity or uniquely resolving direct-relationship statement may link them; ambiguous matches require clarification.
 
 ## 5. User-visible scenarios
 
@@ -93,17 +98,19 @@ member_a: I’m Mei. Kai is my son.
 MedBuddy: Okay—I’ll remember that Mei is Kai’s mother in this chat.
 ```
 
-The agent replaces the complete family map once. It does not store any further derived relationship.
+Kai may be a named relative who has never sent a LINE message. The agent replaces the complete family map once. It does not store any further derived relationship.
 
 ### 5.2 Use relative language
 
 Given this map:
 
 ```text
-Members
-- member_a: Mei
-- member_b: Kai
-- member_c: Lin
+Participants
+- Mei (member_a)
+
+Named relatives
+- Kai
+- Lin
 
 Direct relationships
 - Mei is Kai's mother.
@@ -148,11 +155,11 @@ Empty replacement content represents a cleared map. No old family-map text remai
 
 ### 5.7 Ask for clarification instead of guessing
 
-If “she” could identify more than one observed member, the agent asks which member the user means and does not call the tool. This is target clarification, not a second permission prompt.
+If “she” could identify more than one workspace person, the agent asks which person the user means and does not call the tool. This is target clarification, not a second permission prompt.
 
 The implementation also applies a narrow deterministic guard before model
 invocation for an explicit relationship sentence whose target is only a
-third-person pronoun while multiple observed members are possible. This keeps
+third-person pronoun while multiple observed participants are possible. This keeps
 the clarification/no-write invariant even when the model would otherwise
 invent a member mapping.
 
@@ -244,7 +251,7 @@ The only model-visible declaration is conceptually:
 ```json
 {
   "name": "update_workspace_family_map",
-  "description": "Replace the complete family map for this chat after an explicit statement, correction, or forget request. Store only observed member names and direct family or non-clinical caregiver relationships. Preserve all still-correct entries.",
+  "description": "Replace the complete human-readable family map for this chat after an explicit name, direct relationship, correction, or forget statement. Store explicitly named workspace people, including named relatives who are not LINE participants, and only explicit direct family or non-clinical caregiver relationships. Preserve all still-correct entries and use the required Participants, Named relatives, and Direct relationships headings.",
   "parameters": {
     "type": "object",
     "properties": {
@@ -254,7 +261,7 @@ The only model-visible declaration is conceptually:
       },
       "content": {
         "type": "string",
-        "description": "The complete replacement family map, or an empty string to clear it. Application validation rejects content over 4,000 characters."
+        "description": "The complete replacement family map, or an empty string to clear it. Copy opaque participant IDs byte-for-byte. Application validation rejects content over 4,000 characters."
       }
     },
     "required": ["expectedRevision", "content"]
@@ -314,14 +321,23 @@ Example section:
 
 ```text
 BEGIN WORKSPACE FAMILY MAP (revision 3; user-maintained context)
-Members
-- member:line-fictional-a: Mei
-- member:line-fictional-b: Kai
+Participants
+- Mei (member:line-fictional-a)
+
+Named relatives
+- Kai
+- Lin
 
 Direct relationships
 - Mei is Kai's mother.
+- Lin is Mei's mother.
 END WORKSPACE FAMILY MAP
 ```
+
+Every non-empty replacement uses the three headings in that order, retaining
+empty sections when necessary. Participant lines carry exact opaque IDs;
+named-relative and relationship lines remain readable. Relationship prose may
+follow the language used in the workspace conversation.
 
 The map is conversational context only. It is never consulted by deterministic medication refusal, authorization, care-record review, or any future medical-decision policy.
 
@@ -451,7 +467,8 @@ The persisted update and the outbound LINE reply are intentionally not one distr
 | --- | --- |
 | Cross-workspace read or write | Workspace ID is bound by application code; every context and repository contract checks scope; no model-provided workspace parameter exists. |
 | Raw LINE identifier disclosure | Continue PR #78’s opaque, workspace-scoped identity derivation; never log or persist raw identifiers. |
-| Member impersonation inside a group | Every observed member has equal update authority by product decision; updates are visibly acknowledged so another member can correct them. No update grants additional authority. |
+| Member impersonation inside a group | Every observed participant has equal update authority by product decision; updates are visibly acknowledged so another participant can correct them. No update grants additional authority. |
+| Incorrect participant/name-only linking | A join event or greeting cannot link identity. Only attributed identity or uniquely resolving direct-relationship evidence may link one participant to one named relative; ambiguous matches require clarification. |
 | Model writes medical content into the map | Tool description and evaluations restrict content to names and direct relationships; the map is never a medical source or input to deterministic medical policy. A semantic enforcement layer is deferred and this remains a known prototype limitation. |
 | Prompt injection stored in raw text | New semantic prompt-injection hardening is explicitly deferred. Basic delimiting, least-privilege tool scope, loop limits, and deterministic safety remain. |
 | Unbounded cost or loop | 4,000-character map cap, bounded recent messages, bounded tool attempts, one successful update, one final message, and an overall deadline. |
@@ -498,6 +515,8 @@ Implementation follows test-driven development after both this design and a sepa
 - Source member and source message must belong to the workspace.
 - Context rejects a map or message from another workspace.
 - Prompt rendering attributes every human message with its opaque member ID.
+- Prompt rendering permits explicitly named nonparticipants while prohibiting invented people and vague identity links.
+- Every non-empty replacement uses the readable Participants, Named relatives, and Direct relationships organization.
 - Deterministic medical refusals run without model or tool invocation.
 - Model output and tool arguments are rejected when malformed.
 - Loop stops after one successful update.
@@ -527,6 +546,9 @@ Use a deterministic provider for contract tests and configuration-gated Vertex e
 10. A rejected or failed update never produces a success acknowledgment.
 11. A conflict retry incorporates the current map rather than erasing another update.
 12. Attempts to store medication instructions or prompt-control text do not influence deterministic medical safety; failures are recorded as known evaluation gaps rather than hidden.
+13. A fictional multilingual turn naming two nonparticipating children stores both people and both direct parent-child relationships.
+14. A later sibling question uses the shared-parent facts conversationally without persisting a sibling edge.
+15. A name-only relative is linked to a participant only from attributed, uniquely resolving conversational evidence, never a join event or greeting.
 
 ### 14.4 End-to-end synthetic tests
 
@@ -541,8 +563,8 @@ Use a deterministic provider for contract tests and configuration-gated Vertex e
 
 ## 15. Acceptance criteria
 
-1. A fictional member can explicitly state a direct relationship in a LINE group; exactly one family-map update succeeds and the reply acknowledges it.
-2. A later turn from another observed member receives the correct map and can interpret “Mom” relative to the speaker.
+1. A fictional participant can explicitly state a direct relationship involving a named nonparticipant in a LINE group; exactly one family-map update succeeds and the reply acknowledges it.
+2. A later turn from another observed participant receives the correct map and can interpret “Mom” relative to the speaker.
 3. The persisted map contains only the direct relationship, not a derived grandparent relationship.
 4. Any observed group member can correct the map; the correction takes effect without an additional confirmation.
 5. Inspection and forgetting work through ordinary conversation with no UI or command syntax.
@@ -554,6 +576,8 @@ Use a deterministic provider for contract tests and configuration-gated Vertex e
 11. Deterministic diagnosis, prescribing, and medication-decision refusal remains unchanged and runs before the agent loop.
 12. No real identifiers, family relationships, chat content, prompts, tool arguments, credentials, or health information enter repository artifacts or operational logs.
 13. `npm run check`, `npm test`, and `npm run build --workspace @medbuddy/web` pass after implementation.
+14. The stored raw text is readable in Firestore and consistently separates participants, named relatives, and direct relationships.
+15. Two explicitly named sons of the same parent can be described as siblings in a later response without persisting that derived relationship.
 
 ## 16. Rollout and fictional smoke
 
@@ -603,7 +627,7 @@ apps/web/                 composition only; existing LINE adapter remains transp
 
 - Add another tool, another successful update per turn, or multiple outbound messages.
 - Add a relationship schema or semantic content validator.
-- Add LINE roster/profile calls, cross-workspace identity, nonparticipant people, or private memory.
+- Add LINE roster/profile calls, cross-workspace identity, unnamed people, or private memory.
 - Change retention, rollout, or medical-safety behavior.
 - Add a dependency, database, queue, worker, or agent framework.
 

@@ -31,6 +31,11 @@ npm test --workspace @medbuddy/intelligence
 Vertex live smoke and family-map behavior evaluations are opt-in at the repo root
 (`npm run test:vertex-smoke`) and use fictional inputs only.
 
+The family-map prompt keeps one readable raw-text document with `Participants`,
+`Named relatives`, and `Direct relationships` sections. Explicitly named
+relatives need not be LINE participants; indirect relationships remain
+response-time inferences rather than stored facts.
+
 ## Composition note
 
 `@medbuddy/web` composes the direct Vertex adapter for LINE. Chat supplies the

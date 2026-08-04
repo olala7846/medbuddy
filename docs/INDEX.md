@@ -56,6 +56,7 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | [decisions/0001-prioritize-live-telegram-family-alpha.md](./decisions/0001-prioritize-live-telegram-family-alpha.md) | Why live Telegram family value supersedes web-demo polish |
 | [decisions/0002-line-first-conversational-prototype.md](./decisions/0002-line-first-conversational-prototype.md) | Why LINE conversation now precedes memory and structured care workflows |
 | [decisions/0003-add-workspace-family-map.md](./decisions/0003-add-workspace-family-map.md) | Why Effort 1 uses one raw workspace map and one bounded replacement tool |
+| [decisions/0004-expand-family-map-to-named-relatives.md](./decisions/0004-expand-family-map-to-named-relatives.md) | Why explicitly named nonparticipants belong in the readable workspace map |
 
 ### Proposals
 

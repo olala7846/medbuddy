@@ -3,6 +3,10 @@
 **Status:** Accepted and implemented
 **Date:** 2026-08-04
 
+> **Amended by ADR-0004:** explicitly named relatives no longer need to be
+> observed LINE participants, while the same bounded raw-text tool and storage
+> contract remain.
+
 ## Context
 
 The LINE conversation loop works, but an agent that sees only recent messages
@@ -19,14 +23,14 @@ and source-message identity; the model supplies only expected revision and the
 complete replacement content. Firestore and in-memory adapters enforce a
 4,000-character limit, source validation, and compare-and-set revisions.
 
-The map records explicitly stated direct relationships among observed members.
+The initial map recorded explicitly stated direct relationships among observed members.
 It is not a reviewed care record, cannot grant authority, and is never consulted
 by deterministic medical refusal.
 
 ## Consequences
 
 - Groups and DMs share one workspace-scoped model without cross-chat identity.
-- Any observed member may correct or clear the map through ordinary language.
+- Any observed participant may correct or clear the map through ordinary language.
 - There is no history, undo, roster lookup, relationship ontology, or general
   multi-tool runtime.
 - Rolling continuity, retrieval, extra tools, and stronger semantic validation

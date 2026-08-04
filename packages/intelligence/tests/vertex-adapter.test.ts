@@ -284,10 +284,28 @@ describe("Vertex adapters", () => {
       "BEGIN WORKSPACE FAMILY MAP (revision 3; user-maintained context)\nMembers\n- member:vertex: Mei\nEND WORKSPACE FAMILY MAP",
     );
     expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
-      "If someone says ‘She is my mother’ and ‘she’ cannot be mapped to exactly one observed opaque member, ask who they mean and do not call the tool.",
+      "Never invent a person or name from a vague reference.",
     );
     expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
       "copy the full opaque ID byte-for-byte including its member: prefix",
+    );
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
+      "Explicitly named relatives do not need to be LINE participants",
+    );
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
+      "Participants\n- Mei (member:example)\n\nNamed relatives\n- Kai\n\nDirect relationships\n- Mei is the mother of Kai.",
+    );
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
+      "A LINE join event or greeting alone never links a participant identity",
+    );
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
+      "if the stated name appears in more than one Named relatives entry",
+    );
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
+      "never preserve or emit the Members heading",
+    );
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).not.toContain(
+      "Never invent a member or add a person who has not been observed in this workspace.",
     );
   });
 

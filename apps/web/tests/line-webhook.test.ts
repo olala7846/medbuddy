@@ -392,6 +392,13 @@ describe("LINE webhook", () => {
     const harness = createHarness();
     const request = signedBody([
       { type: "follow", mode: "active", webhookEventId: "fictional-follow" },
+      {
+        type: "join",
+        mode: "active",
+        webhookEventId: "fictional-join",
+        replyToken: "fictional-join-reply",
+        source: { type: "group", groupId: "fictional-joined-group" },
+      },
       textEvent({
         webhookEventId: "fictional-missing-sender",
         source: { type: "group", groupId: "fictional-group-a" },
