@@ -1,6 +1,6 @@
 # Design: Workspace Family Map
 
-**Status:** Proposed for review; not approved for implementation
+**Status:** Approved and implemented
 
 **Date:** 2026-08-04
 

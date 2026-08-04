@@ -20,10 +20,10 @@ Designed for ≤100 users. No microservices.
 | Package | Owns | Must not own |
 | --- | --- | --- |
 | `@medbuddy/contracts` | Zod schemas, branded IDs, errors, public ports, golden scenario fixtures | Runtime I/O, policy decisions |
-| `@medbuddy/chat` | Chat workflows: existing capture-aware service and isolated external text conversation | Storage vendor and channel details |
+| `@medbuddy/chat` | Chat workflows, isolated external turns, family-map context and turn-bound update capability | Storage vendor and channel details |
 | `@medbuddy/care-record` | Eligibility, facts, review, handoff, authorization helpers | Model prompts, HTTP |
-| `@medbuddy/intelligence` | Conversation responder, capture processing, safety routing, medication grounding | Canonical fact mutation authority, consent grants |
-| `@medbuddy/platform` | Firestore, Cloud Tasks, Storage, in-memory adapters, demo workspace persistence | Consent, safety, review, handoff **policy** |
+| `@medbuddy/intelligence` | Bounded model/tool/model loop, Vertex function transport, capture, safety, medication grounding | Repositories, canonical fact mutation authority, consent grants |
+| `@medbuddy/platform` | Firestore and in-memory family-map adapters, Cloud Tasks, Storage, demo persistence | Consent, safety, review, handoff **policy** |
 | `@medbuddy/web` | Auth/actor resolution, LINE and browser HTTP adapters, composition root | Canonical business policy (target; some orchestration still lives here) |
 
 ## Dependency direction
@@ -54,7 +54,7 @@ Rules:
 | Surface | May | Must not |
 | --- | --- | --- |
 | Browser | Display, input, demo persona header (when allowed), poll | Write DB/storage directly; decide authz or safety |
-| Conversational agent | Bounded thread-aware text reply after deterministic refusal | Mutate facts, access another workspace, use tools, grant access, advise med changes |
+| Conversational agent | Reply after deterministic refusal; call the one server-bound family-map replacement tool | Access repositories/another workspace, mutate medical facts, grant access, advise medication changes |
 | LINE webhook | Verify raw body, validate provider event, derive opaque IDs, reply with event token | Parse before verification; log content, tokens, or provider identifiers |
 | Capture pipeline | Propose candidate facts from a focal message | Skip validation, invent provenance, process pre-approval history as approved |
 | Deterministic domain services | Consent eligibility, authz, review, handoff immutability, refusals | Defer those decisions to the model |
@@ -78,13 +78,13 @@ tasks/                        plan.md, todo.md
 
 - Root `fixtures/`, `scripts/`, `tests/{unit,integration,e2e}`
 - Root medication snapshot script
-- Rolling/long-term memory, agent tools, and specialized medical conversation
+- Rolling conversation summaries, retrieval memory, additional agent tools, and specialized medical conversation
 
 Tests live next to each package (`packages/*/tests`, `apps/web/tests`).
 
 ## Composition note
 
-`@medbuddy/web` composes the LINE boundary with Chat, Intelligence, and Platform. Provider and channel types terminate at their adapters; the conversation interface remains channel-neutral.
+`@medbuddy/web` composes the LINE boundary with Chat, Intelligence, and Platform. Chat binds workspace, actor, and source-message scope before exposing the family-map capability. Provider and channel types terminate at their adapters; the conversation interface remains channel-neutral.
 
 ## Where to go next
 

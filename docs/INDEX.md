@@ -17,6 +17,7 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | --- | --- | --- |
 | Orient to the product | [../PRODUCT_DIRECTION.md](../PRODUCT_DIRECTION.md) | [LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md](./LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md); earlier [PRD.md](./PRD.md) |
 | Implement the current prototype | [LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md](./LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md) | [../tasks/plan.md](../tasks/plan.md); owning package README |
+| Work on workspace relationship memory | [proposals/WORKSPACE_FAMILY_MAP_DESIGN.md](./proposals/WORKSPACE_FAMILY_MAP_DESIGN.md) | [decisions/0003-add-workspace-family-map.md](./decisions/0003-add-workspace-family-map.md); ARCHITECTURE |
 | Review the proposed agent memory architecture | [proposals/AGENT_MEMORY_ARCHITECTURE.md](./proposals/AGENT_MEMORY_ARCHITECTURE.md) | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md); current Intelligence and Chat packages |
 | Package boundaries / deps | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) | [TDD.md](./TDD.md) §4–5, §17 |
 | Implement a workflow | ARCHITECTURE + owning package README | [TDD.md](./TDD.md) matching section; [../tasks/todo.md](../tasks/todo.md) |
@@ -54,13 +55,14 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | --- | --- |
 | [decisions/0001-prioritize-live-telegram-family-alpha.md](./decisions/0001-prioritize-live-telegram-family-alpha.md) | Why live Telegram family value supersedes web-demo polish |
 | [decisions/0002-line-first-conversational-prototype.md](./decisions/0002-line-first-conversational-prototype.md) | Why LINE conversation now precedes memory and structured care workflows |
+| [decisions/0003-add-workspace-family-map.md](./decisions/0003-add-workspace-family-map.md) | Why Effort 1 uses one raw workspace map and one bounded replacement tool |
 
 ### Proposals
 
 | Doc | Role |
 | --- | --- |
 | [proposals/AGENT_MEMORY_ARCHITECTURE.md](./proposals/AGENT_MEMORY_ARCHITECTURE.md) | Proposed memory layers, retrieval policy, implementation sequence, and framework/GCP choices |
-| [proposals/WORKSPACE_FAMILY_MAP_DESIGN.md](./proposals/WORKSPACE_FAMILY_MAP_DESIGN.md) | Proposed LINE workspace family-map behavior, tool seam, persistence, and verification contract |
+| [proposals/WORKSPACE_FAMILY_MAP_DESIGN.md](./proposals/WORKSPACE_FAMILY_MAP_DESIGN.md) | Approved and implemented LINE workspace family-map behavior, tool seam, persistence, and verification contract |
 
 ### Operations
 
