@@ -156,7 +156,11 @@ export class ChatService implements ChatServicePort {
     const contextMessages = [...await this.dependencies.messages.listMessages(message.workspaceId)].sort(compareMessages).slice(-20);
     const result = await this.dependencies.responder.respond({
       messageId: message.id,
-      context: { workspaceId: message.workspaceId, messages: contextMessages },
+      context: {
+        workspaceId: message.workspaceId,
+        messages: contextMessages,
+        familyMap: { workspaceId: message.workspaceId, content: "", revision: 0 },
+      },
     });
     if (result.kind !== "RESPONDED" || result.responseText === undefined) return;
     const responseId = createMessageId({ workspaceId: message.workspaceId, idempotencyKey: message.id, author: "MEDBUDDY" });

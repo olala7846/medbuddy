@@ -1,6 +1,10 @@
 # `@medbuddy/platform`
 
-I/O adapters: Firestore repositories, Cloud Tasks dispatcher/verify, Cloud Storage attachments, in-memory test implementations, demo-workspace persistence, production factory.
+I/O adapters: Firestore repositories (including the current workspace family map), Cloud Tasks dispatcher/verify, Cloud Storage attachments, in-memory test implementations, demo-workspace persistence, production factory.
+
+The Firestore and in-memory family-map adapters implement the same source-bound,
+workspace-isolated compare-and-set contract. Firestore stores only
+`workspaces/{workspaceId}/workspaceMemory/familyMap`; there is no history collection.
 
 ## Public entry
 

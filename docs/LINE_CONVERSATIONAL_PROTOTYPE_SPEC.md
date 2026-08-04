@@ -6,6 +6,13 @@
 
 **Source of priority:** [`../PRODUCT_DIRECTION.md`](../PRODUCT_DIRECTION.md)
 
+> **Effort 1 follow-up:** The base loop below now includes the approved
+> workspace family map and its single server-bound update tool. See
+> [`proposals/WORKSPACE_FAMILY_MAP_DESIGN.md`](./proposals/WORKSPACE_FAMILY_MAP_DESIGN.md).
+> Statements below that describe the original one-call/no-tool baseline are
+> superseded only for this narrow capability; repository access, medical writes,
+> additional tools, and broader memory remain prohibited or deferred.
+
 ## Objective
 
 Prove that MedBuddy can safely participate in a LINE DM or group conversation. A signed synthetic LINE text event must map to an isolated workspace, use a real model boundary, and produce one reply through the LINE reply API. Live credentials are not required for development or automated verification.
@@ -63,7 +70,8 @@ Claim-before-side-effect gives retry deduplication and at-most-once processing. 
 ## Model and Medical Safety
 
 - The model receives bounded text context from one workspace only.
-- The model has no tools, storage handles, credentials, or canonical write authority.
+- The model has one server-bound family-map replacement tool, but no repository,
+  storage handle, credentials, or canonical medical write authority.
 - Output is validated as bounded text before persistence or reply.
 - Existing deterministic routes refuse diagnosis, prescribing, and medication-start/stop/change decisions before provider invocation.
 - The system instruction states general limitations but is not treated as a security boundary.
@@ -122,7 +130,7 @@ Allowed fields are stable event name, correlation ID, conversation type, outcome
 
 ## Deferred
 
-Rolling or long-term memory, summaries, embeddings, retrieval, tools, specialized medical prompts, care-fact extraction, review, visit briefs, attachments, cross-thread identity, participant-private memory, multiple channel implementations, and a new UI.
+Rolling conversation summaries, embeddings, retrieval, additional tools, specialized medical prompts, care-fact extraction, review, visit briefs, attachments, cross-thread identity, participant-private memory, multiple channel implementations, and a new UI.
 
 ## Official LINE Sources
 

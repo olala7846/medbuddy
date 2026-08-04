@@ -6,6 +6,7 @@ import {
   MessageIdSchema,
   WorkspaceIdSchema,
 } from "./ids.js";
+import { WorkspaceFamilyMapContentSchema } from "./workspace-family-map.js";
 
 const TimestampSchema = z.string().datetime({ offset: true });
 
@@ -65,6 +66,11 @@ export const ConversationContextSchema = z
   .object({
     workspaceId: WorkspaceIdSchema,
     messages: z.array(MessageSchema).min(1).max(20),
+    familyMap: z.object({
+      workspaceId: WorkspaceIdSchema,
+      content: WorkspaceFamilyMapContentSchema,
+      revision: z.number().int().nonnegative(),
+    }).strict().optional(),
   })
   .superRefine((context, issueContext) => {
     for (const [index, message] of context.messages.entries()) {
@@ -76,7 +82,22 @@ export const ConversationContextSchema = z
         });
       }
     }
-  });
+    if (context.familyMap !== undefined && context.familyMap.workspaceId !== context.workspaceId) {
+      issueContext.addIssue({
+        code: "custom",
+        message: "Conversation family map must belong to the requested workspace.",
+        path: ["familyMap", "workspaceId"],
+      });
+    }
+  })
+  .transform((context) => ({
+    ...context,
+    familyMap: context.familyMap ?? {
+      workspaceId: context.workspaceId,
+      content: "",
+      revision: 0,
+    },
+  }));
 
 export const MessageCursorQuerySchema = z.object({
   workspaceId: WorkspaceIdSchema,

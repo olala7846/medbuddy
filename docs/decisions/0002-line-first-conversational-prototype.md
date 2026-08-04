@@ -1,5 +1,9 @@
 # ADR-0002: Deliver a LINE-First Conversational Prototype
 
+> **Follow-up:** ADR-0003 implements the first bounded memory/tool increment: one
+> workspace family map and one server-bound replacement tool. The broader
+> deferrals below remain in force.
+
 ## Status
 
 Accepted; supersedes ADR-0001 for channel and delivery sequence.

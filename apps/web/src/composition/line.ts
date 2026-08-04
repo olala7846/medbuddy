@@ -25,11 +25,17 @@ export function createLineWebhookComposition(
   const responder = new ConversationResponder(
     new CommittedSourceCardGrounding([]),
     new VertexConversationProvider(new VertexRestClient(vertex)),
+    25_000,
+    options.logger,
   );
   return new LineWebhookHandler({
     channelSecret: line.channelSecret,
     receipts: persistence.externalEvents,
-    conversation: new ThreadConversationService({ messages: persistence.messages, responder }),
+    conversation: new ThreadConversationService({
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      responder,
+    }),
     replyClient: new LineMessagingReplyClient(line.channelAccessToken),
     logger: options.logger,
   });

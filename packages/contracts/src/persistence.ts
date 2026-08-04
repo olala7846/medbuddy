@@ -23,6 +23,7 @@ export const COLLECTION_OWNERSHIP = {
   medicationSources: "intelligence",
   agentRuns: "platform",
   attachments: "chat",
+  workspaceFamilyMaps: "chat",
 } as const;
 
 export const ApprovalStateSchema = z.enum(["PENDING", "APPROVED", "BLOCKED", "REVOKED"]);

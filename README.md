@@ -2,7 +2,7 @@
 
 MedBuddy is becoming an AI participant in an existing family conversation without making medical decisions.
 
-The current goal is the first usable LINE conversational prototype: a verified LINE text event maps to one isolated group/DM workspace, crosses a real bounded model interface, and replies to the same LINE conversation. Memory, tools, and specialized medical behavior follow only after this loop works. See [`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md).
+The current LINE prototype maps a verified text event to one isolated group/DM workspace, supplies recent attributed messages plus one bounded workspace family map to Vertex, and replies to the same conversation. The model may replace that map through one server-bound tool; it still has no repository access or authority to write medical facts. See [`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md).
 
 ## Start here (progressive disclosure)
 
@@ -21,10 +21,10 @@ Do not load the full PRD or TDD by default. Use [docs/INDEX.md](./docs/INDEX.md)
 ```text
 apps/web/                 HTTP shell: auth, composition, route adapters
 packages/contracts/       Zod schemas, branded IDs, ports, golden fixtures
-packages/chat/            Message append, list, capture retry
+packages/chat/            Message workflows, isolated LINE turns, family-map binding
 packages/care-record/     Eligibility, facts, review, handoff
-packages/intelligence/    Conversation, capture, safety, medication grounding
-packages/platform/        Firestore, Tasks, Storage, in-memory adapters
+packages/intelligence/    Bounded agent loop, Vertex tools, safety, capture, grounding
+packages/platform/        Firestore/in-memory family maps, Tasks, Storage
 docs/                     Product, engineering, ops, discovery
 infra/                    Terraform prototype foundation
 tasks/                    Execution plan and checklist (not product specs)
@@ -64,6 +64,7 @@ See package READMEs and [docs/ops notes via INDEX](./docs/INDEX.md) for deployme
 
 - Current direction: [PRODUCT_DIRECTION.md](./PRODUCT_DIRECTION.md)
 - Current LINE prototype spec: [docs/LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md](./docs/LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md)
+- Implemented family-map design: [docs/proposals/WORKSPACE_FAMILY_MAP_DESIGN.md](./docs/proposals/WORKSPACE_FAMILY_MAP_DESIGN.md)
 - LINE console and live fictional-smoke setup: [docs/LINE_SETUP.md](./docs/LINE_SETUP.md)
 - Superseded Telegram family-alpha spec: [docs/TELEGRAM_FAMILY_ALPHA_SPEC.md](./docs/TELEGRAM_FAMILY_ALPHA_SPEC.md)
 - Earlier product PRD: [docs/PRD.md](./docs/PRD.md)

@@ -15,6 +15,7 @@ import {
   describeWorkspaceRepositoryContract,
 } from "@medbuddy/contracts/adapter-contract-tests";
 import { describeTransactionalPersistenceContract } from "@medbuddy/contracts/transaction-contract-tests";
+import { describeWorkspaceFamilyMapRepositoryContract } from "@medbuddy/contracts/workspace-family-map-adapter-contract-tests";
 import { InMemoryPersistence } from "../src/index.js";
 
 function workspaceFixture() {
@@ -71,6 +72,10 @@ describe("in-memory persistence", () => {
   describeMessageRepositoryContract(() => new InMemoryPersistence().messages);
   describeAttachmentRepositoryContract(() => new InMemoryPersistence().attachments);
   describeCareRecordRepositoryContract(() => new InMemoryPersistence().careRecords);
+  describeWorkspaceFamilyMapRepositoryContract(() => {
+    const persistence = new InMemoryPersistence();
+    return { familyMaps: persistence.familyMaps, messages: persistence.messages };
+  });
 
   it("claims an opaque external event exactly once under concurrency", async () => {
     const persistence = new InMemoryPersistence();

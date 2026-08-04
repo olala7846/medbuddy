@@ -17,6 +17,7 @@ import {
   describeWorkspaceRepositoryContract,
 } from "@medbuddy/contracts/adapter-contract-tests";
 import { describeTransactionalPersistenceContract } from "@medbuddy/contracts/transaction-contract-tests";
+import { describeWorkspaceFamilyMapRepositoryContract } from "@medbuddy/contracts/workspace-family-map-adapter-contract-tests";
 
 import { FirestorePersistence } from "../src/index.js";
 import { FictionalDemoWorkspaceProvisioner } from "@medbuddy/web/server";
@@ -35,6 +36,10 @@ describeEmulator("Firestore emulator persistence", () => {
   describeMessageRepositoryContract(() => persistence().messages);
   describeAttachmentRepositoryContract(() => persistence().attachments);
   describeCareRecordRepositoryContract(() => persistence().careRecords);
+  describeWorkspaceFamilyMapRepositoryContract(() => {
+    const platform = persistence();
+    return { familyMaps: platform.familyMaps, messages: platform.messages };
+  });
 
   it("buffers generic cross-repository transaction writes until all reads complete", async () => {
     const platform = persistence();
@@ -180,6 +185,54 @@ describeEmulator("Firestore emulator persistence", () => {
       { id: "message:revision-2", revision: 3 },
       { id: "message:revision-3", revision: 4 },
     ]);
+  });
+
+  it("atomically replaces the one current workspace family map", async () => {
+    const platform = persistence();
+    const source = MessageDocumentSchema.parse({
+      id: "message:family-map-source",
+      workspaceId: "workspace:family-map",
+      authorMemberId: "member:family-map",
+      body: "A fictional direct relationship statement.",
+      createdAt: "2026-08-04T12:00:00.000Z",
+      attachmentIds: [],
+      captureIntent: "PASSIVE",
+      processingStatus: "IGNORED",
+      processingAttempts: 0,
+    });
+    await platform.messages.putMessage(source);
+
+    const first = await platform.familyMaps.replace({
+      workspaceId: source.workspaceId,
+      actorMemberId: source.authorMemberId as never,
+      sourceMessageId: source.id,
+      expectedRevision: 0,
+      content: `Members\n- ${source.authorMemberId}: Mei`,
+      updatedAt: source.createdAt,
+    });
+    expect(first).toMatchObject({ kind: "UPDATED", familyMap: { revision: 1 } });
+    await expect(platform.familyMaps.replace({
+      workspaceId: source.workspaceId,
+      actorMemberId: source.authorMemberId as never,
+      sourceMessageId: source.id,
+      expectedRevision: 0,
+      content: "Different",
+      updatedAt: source.createdAt,
+    })).resolves.toMatchObject({ kind: "REVISION_CONFLICT", familyMap: { revision: 1 } });
+  });
+
+  it("rejects a family-map document whose embedded workspace differs from its path", async () => {
+    const firestore = new Firestore({ projectId: `medbuddy-platform-test-${randomUUID()}` });
+    const platform = new FirestorePersistence(firestore);
+    await firestore.collection("workspaces").doc("workspace:map-path")
+      .collection("workspaceMemory").doc("familyMap").set({
+        workspaceId: "workspace:map-other",
+        content: "",
+        revision: 1,
+      });
+
+    await expect(platform.familyMaps.get("workspace:map-path" as never))
+      .rejects.toThrow("does not match");
   });
 
   it("provisions and resets fictional workspaces without read-after-write transactions", async () => {

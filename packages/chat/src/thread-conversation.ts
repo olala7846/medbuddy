@@ -2,6 +2,7 @@ import {
   type ConversationResponder,
   type Message,
   type MessageRepository,
+  type WorkspaceFamilyMapRepository,
   ThreadConversationInputSchema,
   type ThreadConversation,
   type ThreadConversationInput,
@@ -19,6 +20,7 @@ function compareMessages(left: Message, right: Message): number {
 export class ThreadConversationService implements ThreadConversation {
   constructor(private readonly dependencies: {
     messages: MessageRepository;
+    familyMaps: WorkspaceFamilyMapRepository;
     responder: ConversationResponder;
   }) {}
 
@@ -52,9 +54,29 @@ export class ThreadConversationService implements ThreadConversation {
     const context = [...await this.dependencies.messages.listMessages(input.workspaceId)]
       .sort(compareMessages)
       .slice(-MAX_CONTEXT_MESSAGES);
+    const familyMap = await this.dependencies.familyMaps.get(input.workspaceId);
     const result = await this.dependencies.responder.respond({
       messageId: input.messageId,
-      context: { workspaceId: input.workspaceId, messages: context },
+      context: {
+        workspaceId: input.workspaceId,
+        messages: context,
+        familyMap: {
+          workspaceId: familyMap.workspaceId,
+          content: familyMap.content,
+          revision: familyMap.revision,
+        },
+      },
+    }, {
+      updateWorkspaceFamilyMap: {
+        update: (update) => this.dependencies.familyMaps.replace({
+          workspaceId: input.workspaceId,
+          actorMemberId: input.authorMemberId,
+          sourceMessageId: input.messageId,
+          expectedRevision: update.expectedRevision,
+          content: update.content,
+          updatedAt: input.createdAt,
+        }),
+      },
     });
     if (result.kind === "TECHNICAL_FAILURE" || result.responseText === undefined) {
       return { kind: "TECHNICAL_FAILURE" };

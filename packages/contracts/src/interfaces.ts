@@ -15,6 +15,7 @@ import type { MedicationQuery, MedicationSourceCard } from "./grounding.js";
 import type { CreateHandoffInput, HandoffVersion } from "./handoff.js";
 import type { AccountId, MessageId } from "./ids.js";
 import { MessageIdSchema } from "./ids.js";
+import type { UpdateWorkspaceFamilyMapTool } from "./workspace-family-map.js";
 
 export interface ChatService {
   appendMessage(
@@ -66,10 +67,37 @@ export interface ConversationResult {
     | "TECHNICAL_FAILURE";
   responseText?: string;
   retryable: boolean;
+  toolCalls?: number;
+}
+
+export interface ConversationTurnTools {
+  updateWorkspaceFamilyMap: UpdateWorkspaceFamilyMapTool;
+}
+
+export type ConversationTelemetryEntry = {
+  event:
+    | "family_map_tool_requested"
+    | "family_map_updated"
+    | "family_map_no_change"
+    | "family_map_revision_conflict"
+    | "family_map_rejected"
+    | "family_map_failed"
+    | "conversation_tool_loop_completed"
+    | "conversation_tool_loop_exhausted";
+  outcome?: string;
+  priorRevision?: number;
+  resultingRevision?: number;
+  characterCountClass?: "EMPTY" | "SHORT" | "MEDIUM" | "LARGE";
+  toolAttemptCount: number;
+  modelStepCount: number;
+};
+
+export interface ConversationTelemetryLogger {
+  write(entry: ConversationTelemetryEntry): void;
 }
 
 export interface ConversationResponder {
-  respond(input: ConversationTurnRequest): Promise<ConversationResult>;
+  respond(input: ConversationTurnRequest, tools?: ConversationTurnTools): Promise<ConversationResult>;
 }
 
 export interface CaptureProcessor {

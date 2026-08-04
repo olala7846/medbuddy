@@ -14,12 +14,18 @@ import type {
   WorkspaceRepository,
   ExternalEventReceipt,
   ExternalEventReceiptStore,
+  WorkspaceFamilyMap,
+  WorkspaceFamilyMapRepository,
 } from "@medbuddy/contracts";
 import {
   ExternalEventReceiptKeySchema,
   ExternalEventReceiptSchema,
   MessageDocumentSchema,
   MessageWriteSchema,
+  ReplaceWorkspaceFamilyMapInputSchema,
+  WorkspaceFamilyMapContentSchema,
+  WorkspaceFamilyMapSchema,
+  WORKSPACE_FAMILY_MAP_MAX_CHARACTERS,
 } from "@medbuddy/contracts";
 import { InMemoryTransactionQueue } from "./transactions.js";
 
@@ -33,6 +39,7 @@ interface InMemoryStore {
   handoffs: Map<string, HandoffVersionDocument>;
   idempotentResults: Map<string, unknown>;
   externalEvents: Map<string, ExternalEventReceipt>;
+  familyMaps: Map<string, WorkspaceFamilyMap>;
 }
 
 export interface InMemoryRepositories {
@@ -64,6 +71,7 @@ function createStore(): InMemoryStore {
     handoffs: new Map(),
     idempotentResults: new Map(),
     externalEvents: new Map(),
+    familyMaps: new Map(),
   };
 }
 
@@ -82,6 +90,7 @@ function cloneStore(source: InMemoryStore): InMemoryStore {
     handoffs: cloneMap(source.handoffs),
     idempotentResults: cloneMap(source.idempotentResults),
     externalEvents: cloneMap(source.externalEvents),
+    familyMaps: cloneMap(source.familyMaps),
   };
 }
 
@@ -240,6 +249,46 @@ export class InMemoryPersistence {
   readonly messages = this.repositories.messages;
   readonly attachments = this.repositories.attachments;
   readonly careRecords = this.repositories.careRecords;
+  readonly familyMaps: WorkspaceFamilyMapRepository = {
+    get: async (workspaceId) => clone(this.#store.familyMaps.get(workspaceId) ?? {
+      workspaceId,
+      content: "",
+      revision: 0,
+    }),
+    replace: async (inputValue) => {
+      const input = ReplaceWorkspaceFamilyMapInputSchema.parse(inputValue);
+      if ([...input.content.replace(/\r\n?/g, "\n").trim()].length > WORKSPACE_FAMILY_MAP_MAX_CHARACTERS) {
+        return { kind: "REJECTED", code: "CONTENT_TOO_LARGE" };
+      }
+      return this.#transactions.run(async () => {
+        const source = this.#store.messages.get(key(input.workspaceId, input.sourceMessageId));
+        if (source?.authorMemberId !== input.actorMemberId) {
+          return { kind: "REJECTED", code: "INVALID_SOURCE" };
+        }
+        const current = this.#store.familyMaps.get(input.workspaceId) ?? WorkspaceFamilyMapSchema.parse({
+          workspaceId: input.workspaceId,
+          content: "",
+          revision: 0,
+        });
+        const content = WorkspaceFamilyMapContentSchema.parse(input.content);
+        if (content === current.content) return { kind: "NO_CHANGE", familyMap: clone(current) };
+        if (input.expectedRevision !== current.revision) {
+          return { kind: "REVISION_CONFLICT", familyMap: clone(current) };
+        }
+        const familyMap = WorkspaceFamilyMapSchema.parse({
+          workspaceId: input.workspaceId,
+          content,
+          revision: current.revision + 1,
+          createdAt: current.createdAt ?? input.updatedAt,
+          updatedAt: input.updatedAt,
+          updatedByMemberId: input.actorMemberId,
+          sourceMessageId: input.sourceMessageId,
+        });
+        this.#store.familyMaps.set(input.workspaceId, clone(familyMap));
+        return { kind: "UPDATED", familyMap };
+      });
+    },
+  };
   readonly externalEvents: ExternalEventReceiptStore = {
     claim: async (keyValue, claimedAt) => this.#transactions.run(async () => {
       const key = ExternalEventReceiptKeySchema.parse(keyValue);
@@ -324,5 +373,6 @@ export class InMemoryPersistence {
     this.#store.handoffs = draft.handoffs;
     this.#store.idempotentResults = draft.idempotentResults;
     this.#store.externalEvents = draft.externalEvents;
+    this.#store.familyMaps = draft.familyMaps;
   }
 }

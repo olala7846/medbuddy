@@ -25,6 +25,11 @@ import {
   ExternalEventReceiptKeySchema,
   ExternalEventReceiptSchema,
   type ExternalEventReceiptStore,
+  type WorkspaceFamilyMapRepository,
+  ReplaceWorkspaceFamilyMapInputSchema,
+  WorkspaceFamilyMapContentSchema,
+  WorkspaceFamilyMapSchema,
+  WORKSPACE_FAMILY_MAP_MAX_CHARACTERS,
 } from "@medbuddy/contracts";
 import type { DemoWorkspaceMappingRepository, DemoWorkspacePersistence, DemoWorkspaceResetResultRepository, DemoWorkspaceSeed, DemoWorkspaceTransaction } from "../demo-workspace/persistence.js";
 
@@ -98,6 +103,7 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
   readonly attachments: AttachmentRepository;
   readonly careRecords: CareRecordRepository;
   readonly externalEvents: ExternalEventReceiptStore;
+  readonly familyMaps: WorkspaceFamilyMapRepository;
 
   constructor(private readonly firestore: Firestore) {
     this.workspaces = {
@@ -186,6 +192,73 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
           }
           transaction.update(reference, { outcome });
         });
+      },
+    };
+    this.familyMaps = {
+      get: async (workspaceId) => {
+        const existing = await this.get(
+          this.familyMapRef(workspaceId),
+          WorkspaceFamilyMapSchema,
+        );
+        if (existing !== null && existing.workspaceId !== workspaceId) {
+          throw new Error("Stored family map does not match its workspace path.");
+        }
+        return existing ?? WorkspaceFamilyMapSchema.parse({
+          workspaceId,
+          content: "",
+          revision: 0,
+        });
+      },
+      replace: async (inputValue) => {
+        const input = ReplaceWorkspaceFamilyMapInputSchema.parse(inputValue);
+        const normalized = input.content.replace(/\r\n?/g, "\n").trim();
+        if ([...normalized].length > WORKSPACE_FAMILY_MAP_MAX_CHARACTERS) {
+          return { kind: "REJECTED", code: "CONTENT_TOO_LARGE" };
+        }
+        try {
+          return await this.runRawTransaction(async (transaction) => {
+            const [sourceSnapshot, mapSnapshot] = await Promise.all([
+              transaction.get(this.messageRef(input.workspaceId, input.sourceMessageId)),
+              transaction.get(this.familyMapRef(input.workspaceId)),
+            ]);
+            const source = sourceSnapshot.exists
+              ? MessageDocumentSchema.parse(data(sourceSnapshot.data()))
+              : null;
+            if (source?.authorMemberId !== input.actorMemberId) {
+              return { kind: "REJECTED", code: "INVALID_SOURCE" } as const;
+            }
+            const current = mapSnapshot.exists
+              ? WorkspaceFamilyMapSchema.parse(data(mapSnapshot.data()))
+              : WorkspaceFamilyMapSchema.parse({
+                workspaceId: input.workspaceId,
+                content: "",
+                revision: 0,
+              });
+            if (current.workspaceId !== input.workspaceId) {
+              throw new Error("Stored family map does not match its workspace path.");
+            }
+            const content = WorkspaceFamilyMapContentSchema.parse(normalized);
+            if (content === current.content) {
+              return { kind: "NO_CHANGE", familyMap: current } as const;
+            }
+            if (input.expectedRevision !== current.revision) {
+              return { kind: "REVISION_CONFLICT", familyMap: current } as const;
+            }
+            const familyMap = WorkspaceFamilyMapSchema.parse({
+              workspaceId: input.workspaceId,
+              content,
+              revision: current.revision + 1,
+              createdAt: current.createdAt ?? input.updatedAt,
+              updatedAt: input.updatedAt,
+              updatedByMemberId: input.actorMemberId,
+              sourceMessageId: input.sourceMessageId,
+            });
+            transaction.set(this.familyMapRef(input.workspaceId), familyMap);
+            return { kind: "UPDATED", familyMap } as const;
+          });
+        } catch {
+          return { kind: "TECHNICAL_FAILURE", retryable: true };
+        }
       },
     };
   }
@@ -492,6 +565,10 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
 
   private messageRevisionCounterRef(workspaceId: string) {
     return this.workspaceRef(workspaceId).collection("platformCounters").doc("messages");
+  }
+
+  private familyMapRef(workspaceId: string) {
+    return this.workspaceRef(workspaceId).collection("workspaceMemory").doc("familyMap");
   }
 
   private attachmentRef(workspaceId: string, messageId: string, attachmentId: string) {
