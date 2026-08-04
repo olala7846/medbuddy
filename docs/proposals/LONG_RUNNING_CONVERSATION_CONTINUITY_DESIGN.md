@@ -326,6 +326,18 @@ workspaces/{workspaceId}/attachments/{attachmentId}
 
 The adapter derives an internal object name under a workspace-scoped prefix from opaque IDs. Bucket names and object names never cross the adapter interface. Upload uses the validated MIME type and checksum; context exposes only the attachment ID, media class, and state marker.
 
+LINE content retrieval uses a separately approved adapter-private locator. The
+webhook adapter encrypts the raw LINE provider message ID with AES-256-GCM under
+a runtime-only versioned key and stores the ciphertext keyed by the opaque
+workspace and attachment IDs. The authenticated encryption binds that opaque
+scope as additional authenticated data. Only the LINE content adapter may
+decrypt the locator immediately before calling LINE's fixed content endpoint.
+Raw provider IDs and locator ciphertext never enter source events, domain
+contracts, Cloud Tasks payloads, logs, model context, or Cloud Storage object
+references. Missing, malformed, cross-workspace, or undecryptable locators fail
+the attachment attempt without exposing their values. Keys come only from
+runtime configuration and are never logged or committed.
+
 ### 10.3 Cloud Tasks and Cloud Run
 
 - Deterministic task names make duplicate enqueue attempts converge.

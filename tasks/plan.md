@@ -363,6 +363,14 @@ npm test --workspace @medbuddy/web -- --run line-attachment line-webhook
 
 **Dependencies:** Tasks 3, 7–9.
 
+**Approved implementation discovery (2026-08-04):** LINE's content endpoint
+requires the raw provider message ID, while the approved task/domain input is
+opaque. The user approved an adapter-private encrypted locator record keyed by
+opaque workspace and attachment IDs. AES-256-GCM binds that scope as
+authenticated data; the versioned key is runtime-only. No raw provider ID or
+locator ciphertext may cross into task payloads, domain contracts, source
+events, logs, model context, or object references.
+
 ### Checkpoint C: End-to-end synthetic LINE path
 
 ```bash
