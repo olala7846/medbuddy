@@ -125,6 +125,26 @@ describe("conversation responder", () => {
     });
   });
 
+  it("keeps the deterministic failure acknowledgment when the failure continuation model call fails", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "x" } },
+      new ConversationProviderError("PROVIDER_ERROR"),
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      updateWorkspaceFamilyMap: {
+        async update() { return { kind: "REJECTED", code: "CONTENT_TOO_LARGE" }; },
+      },
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      retryable: false,
+      responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
+      toolCalls: 1,
+    });
+    expect(provider.requests).toHaveLength(2);
+  });
+
   it("emits metadata-only family-map and tool-loop telemetry", async () => {
     const entries: unknown[] = [];
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, [

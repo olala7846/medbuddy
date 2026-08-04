@@ -191,12 +191,24 @@ export class ConversationResponder implements ConversationResponderPort {
       let terminalToolFailure = false;
       let toolResult: unknown;
       for (let modelStep = 0; modelStep < 3; modelStep += 1) {
-        const output = await this.beforeDeadline(() => this.provider.respond({
-          focalMessage,
-          context: request.data.context,
-          toolResult,
-          familyMapUpdatesAllowed: toolCalls === 0 || retryAfterConflict,
-        }), deadline);
+        let output: unknown;
+        try {
+          output = await this.beforeDeadline(() => this.provider.respond({
+            focalMessage,
+            context: request.data.context,
+            toolResult,
+            familyMapUpdatesAllowed: toolCalls === 0 || retryAfterConflict,
+          }), deadline);
+        } catch (error) {
+          if (!terminalToolFailure) throw error;
+          this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+          return {
+            kind: "RESPONDED",
+            responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
+            retryable: false,
+            toolCalls,
+          };
+        }
         if (terminalToolFailure) {
           this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return {

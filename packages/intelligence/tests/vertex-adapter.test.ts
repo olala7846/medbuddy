@@ -283,6 +283,9 @@ describe("Vertex adapters", () => {
     expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
       "If someone says ‘She is my mother’ and ‘she’ cannot be mapped to exactly one observed opaque member, ask who they mean and do not call the tool.",
     );
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
+      "map the opaque author ID shown on that message to the exact stated name ‘Mei’",
+    );
   });
 
   it("parses a native Vertex family-map function call and sends its result into the next step", async () => {

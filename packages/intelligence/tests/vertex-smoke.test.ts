@@ -95,7 +95,7 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
       toolCalls: 1,
       responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
     });
-  });
+  }, 60_000);
 
   it("does not write an inferred relationship", async () => {
     const { updates } = await runFamilyMapTurn("inferred", "Mei brought Kai some tea today.");
