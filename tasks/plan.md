@@ -222,6 +222,9 @@ target as `gemini-3.6-flash`.
   over-limit text is rejected.
 - Health/medication statements are rendered as attributed reports and the
   provider receives no family-map, care-record, storage, or tool capability.
+- Historical summaries never authorize family-map mutation. Deterministic
+  focal-turn classification grants the capability only for an explicit current
+  identity, relationship, correction, or forget/clear statement.
 
 **Likely files:**
 

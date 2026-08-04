@@ -299,8 +299,8 @@ describe("LINE webhook", () => {
     });
 
     await Promise.all([
-      handler.handle({ ...signedBody([event("a", "fictional-concurrent-a", "First")]), correlationId: "request:fictional-concurrent-a" }),
-      handler.handle({ ...signedBody([event("b", "fictional-concurrent-b", "Second")]), correlationId: "request:fictional-concurrent-b" }),
+      handler.handle({ ...signedBody([event("a", "fictional-concurrent-a", "Remember family name First")]), correlationId: "request:fictional-concurrent-a" }),
+      handler.handle({ ...signedBody([event("b", "fictional-concurrent-b", "Remember family name Second")]), correlationId: "request:fictional-concurrent-b" }),
     ]);
 
     const ids = deriveLineConversationIds({ channel: "LINE", conversationType: "GROUP", conversationId: "fictional-concurrent-group", senderId: "fictional-concurrent-a", messageId: "fictional-concurrent-message-a", eventId: "fictional-concurrent-event-a" });

@@ -111,6 +111,26 @@ function needsRelationshipTargetClarification(
   return observed.size > 1;
 }
 
+const FAMILY_RELATION_TERM = "mother|mom|father|dad|parent|sister|brother|daughter|son|child|grandmother|grandma|grandfather|grandpa|aunt|uncle|wife|husband|spouse|caregiver";
+
+/** Only the current attributed turn can grant the family-map write capability. */
+export function focalAuthorizesFamilyMapUpdate(body: string): boolean {
+  const normalized = body.replace(/^\s*@\S+\s*/u, "").trim();
+  if (/\b(?:remember|forget|remove|delete|clear|correct|update)\b.{0,120}\b(?:family|map|name|relationship|relative|member|person|people)\b/iu.test(normalized) ||
+      /\b(?:forget|remove|delete|clear)\b.{0,120}\b(?:mother|mom|father|dad|parent|sister|brother|daughter|son|child|grandmother|grandfather|aunt|uncle|wife|husband|spouse|caregiver)\b/iu.test(normalized) ||
+      /(?:請記住|記住|忘記|清除|刪除|更正).{0,80}(?:家人|家庭|關係|名字|成員)/u.test(normalized)) {
+    return true;
+  }
+  if (/\b(?:i am|i['’]m|my name is|call me)\s+[\p{L}\p{M}][\p{L}\p{M}'’.-]*/iu.test(normalized) ||
+      /^我是[\p{L}\p{M}]{1,40}[。.!]?$/u.test(normalized)) {
+    return true;
+  }
+  if (normalized.endsWith("?")) return false;
+  return new RegExp(`\\b(?:is|are|am)\\b.{0,120}\\b(?:${FAMILY_RELATION_TERM})\\b`, "iu").test(normalized) ||
+    new RegExp(`\\bmy\\s+(?:${FAMILY_RELATION_TERM})s?\\s+(?:is|are)\\b`, "iu").test(normalized) ||
+    /[\p{L}\p{M}]{1,40}是[\p{L}\p{M}]{1,40}的(?:媽媽|母親|爸爸|父親|姊姊|姐姐|妹妹|哥哥|弟弟|女兒|兒子|祖母|祖父|阿姨|叔叔|照顧者)/u.test(normalized);
+}
+
 function renderLookup(result: MedicationLookupRenderResult): string {
   if (result.kind === "UNSUPPORTED") {
     return result.text;
@@ -187,6 +207,7 @@ export class ConversationResponder implements ConversationResponderPort {
 
     try {
       const deadline = Date.now() + this.turnTimeoutMs;
+      const focalAllowsFamilyMapUpdate = focalAuthorizesFamilyMapUpdate(focalMessage.body);
       let toolCalls = 0;
       let retryAfterConflict = false;
       let terminalToolFailure = false;
@@ -200,7 +221,7 @@ export class ConversationResponder implements ConversationResponderPort {
             context: request.data.context,
             toolResult,
             toolHistory: [...toolHistory],
-            familyMapUpdatesAllowed: toolCalls === 0 || retryAfterConflict,
+            familyMapUpdatesAllowed: focalAllowsFamilyMapUpdate && (toolCalls === 0 || retryAfterConflict),
           }), deadline);
         } catch (error) {
           if (!terminalToolFailure) throw error;
@@ -231,7 +252,7 @@ export class ConversationResponder implements ConversationResponderPort {
           this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return toolCalls === 0 ? response : { ...response, toolCalls };
         }
-        if (tools === undefined || terminalToolFailure || (toolCalls > 0 && !retryAfterConflict)) {
+        if (!focalAllowsFamilyMapUpdate || tools === undefined || terminalToolFailure || (toolCalls > 0 && !retryAfterConflict)) {
           this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return technicalFailure(toolCalls || undefined);
         }

@@ -47,7 +47,7 @@
   100,000-character contract boundary.
 - [x] Invalidate compaction candidates on later in-range mutations, bound
   compaction input, and make failed work recoverable.
-- [ ] Prevent historical summaries from authorizing family-map mutation.
+- [x] Prevent historical summaries from authorizing family-map mutation.
 - [x] Self-schedule remaining compaction backlog after publication and claim
   model attempts atomically.
 - [x] Reject attachment media-class/MIME mismatches.

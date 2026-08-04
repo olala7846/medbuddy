@@ -472,10 +472,11 @@ describe("Vertex adapters", () => {
       new CommittedSourceCardGrounding([]),
       new VertexConversationProvider(retryClient),
     );
+    const explicitFocal = MessageSchema.parse({ ...focalMessage, body: "Mei is Kai's mother." });
 
     await expect(responder.respond({
       messageId: focalMessage.id,
-      context: conversationInput.context,
+      context: { ...conversationInput.context, messages: [explicitFocal] },
     }, {
       updateWorkspaceFamilyMap: {
         async update(input) {

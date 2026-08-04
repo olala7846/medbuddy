@@ -429,7 +429,7 @@ Firestore may rerun transaction callbacks after contention, so callbacks perform
 | Replay or sequence ambiguity | Transactional receipt claim and source allocation; provider time is never ordering authority. |
 | Oversized text/file denial of service | Independent request, text, attachment, model-context, output, retry, and timeout bounds. |
 | Malicious attachment | Allowlisted MIME plus signature validation, streaming byte cap, private storage, no model parsing, no public URL. |
-| Summary causes an action | Summaries are delimited untrusted context and cannot call tools or write canonical state; authorization remains deterministic. |
+| Summary causes an action | Summaries are delimited untrusted context and cannot grant tools or write canonical state. Deterministic code grants the family-map capability only when the current attributed focal turn contains an explicit identity, relationship statement, correction, or forget/clear request; a model-emitted call without that focal grant is rejected before the repository. |
 | Medical statement becomes authoritative | Summaries label statements as attributed reports; deterministic refusal and reviewed-care authority never consume them. |
 | Sensitive telemetry | Allowlisted content-free log schemas and tests reject unexpected fields. |
 
