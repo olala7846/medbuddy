@@ -22,6 +22,17 @@ function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function sameJobIdentity(left: CompactionJob, right: CompactionJob): boolean {
+  return left.id === right.id &&
+    left.workspaceId === right.workspaceId &&
+    left.level === right.level &&
+    left.firstSourceSequence === right.firstSourceSequence &&
+    left.lastSourceSequence === right.lastSourceSequence &&
+    left.orderedSourceDigest === right.orderedSourceDigest &&
+    same(left.childSegmentIds, right.childSegmentIds) &&
+    left.policyVersion === right.policyVersion;
+}
+
 class WorkspaceQueue {
   private readonly tails = new Map<string, Promise<void>>();
 
@@ -174,10 +185,35 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       if (active !== undefined) return clone(active);
       const key = this.key(job.workspaceId, job.id);
       const existing = this.jobs.get(key);
+      if (existing !== undefined && existing.status === "FAILED") {
+        if (!sameJobIdentity(existing, job)) throw new Error("Compaction job identity conflict.");
+        const reclaimed = CompactionJobSchema.parse({ ...job, status: "PENDING", attempts: 0 });
+        this.jobs.set(key, clone(reclaimed));
+        this.activeJobs.set(job.workspaceId, clone(reclaimed));
+        return reclaimed;
+      }
       if (existing !== undefined && !same(existing, job)) throw new Error("Compaction job identity conflict.");
       this.jobs.set(key, clone(existing ?? job));
       this.activeJobs.set(job.workspaceId, clone(existing ?? job));
       return clone(existing ?? job);
+    });
+  }
+
+  async claimCompactionAttempt(
+    workspaceId: Parameters<ContinuityRepository["claimCompactionAttempt"]>[0],
+    jobId: Parameters<ContinuityRepository["claimCompactionAttempt"]>[1],
+  ): ReturnType<ContinuityRepository["claimCompactionAttempt"]> {
+    return this.queue.run(workspaceId, () => {
+      const active = this.activeJobs.get(workspaceId);
+      if (active === undefined || active.id !== jobId) {
+        throw new Error("Compaction attempt does not match the active workspace job.");
+      }
+      if (active.status === "RUNNING") return { kind: "BUSY", job: clone(active) };
+      if (active.status === "FAILED" || active.attempts >= 3) return { kind: "TERMINAL", job: clone(active) };
+      const claimed = CompactionJobSchema.parse({ ...active, status: "RUNNING", attempts: active.attempts + 1 });
+      this.jobs.set(this.key(workspaceId, jobId), clone(claimed));
+      this.activeJobs.set(workspaceId, clone(claimed));
+      return { kind: "CLAIMED", job: claimed };
     });
   }
 

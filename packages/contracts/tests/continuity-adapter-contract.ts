@@ -158,5 +158,36 @@ export function describeContinuityRepositoryContract(
       await expect(continuity.publishSegment(readySegment({ modelId: "different-model" }))).rejects.toThrow(/immutable/i);
       await expect(continuity.listReadySegments("workspace:meadow" as never)).resolves.toEqual([]);
     });
+
+    it("claims one compaction model attempt atomically and can reclaim a failed job", async () => {
+      const { continuity } = createHarness();
+      const job = {
+        id: "compaction-job:fictional-attempt",
+        workspaceId: "workspace:orchard",
+        level: 1,
+        firstSourceSequence: 1,
+        lastSourceSequence: 1,
+        orderedSourceDigest: "b".repeat(64),
+        childSegmentIds: [],
+        policyVersion: "continuity-v1",
+        status: "PENDING",
+        attempts: 0,
+        createdAt: acceptedAt,
+      } as const;
+      await continuity.claimCompactionJob(job as never);
+
+      const concurrent = await Promise.all(Array.from({ length: 4 }, () =>
+        continuity.claimCompactionAttempt(job.workspaceId as never, job.id as never)));
+      expect(concurrent.filter((claim) => claim.kind === "CLAIMED")).toHaveLength(1);
+      expect(concurrent.filter((claim) => claim.kind === "BUSY")).toHaveLength(3);
+      const running = concurrent.find((claim) => claim.kind === "CLAIMED")!.job;
+      expect(running).toMatchObject({ status: "RUNNING", attempts: 1 });
+
+      await continuity.updateCompactionJob({ ...running, status: "FAILED", attempts: 3 });
+      await expect(continuity.claimCompactionJob(job as never)).resolves.toMatchObject({
+        status: "PENDING",
+        attempts: 0,
+      });
+    });
   });
 }

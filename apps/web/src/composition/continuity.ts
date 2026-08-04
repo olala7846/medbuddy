@@ -1,18 +1,24 @@
 import {
   createReadySegment,
-  projectEffectiveConversation,
+  orderedSourceDigest,
+  planHigherLevelCompaction,
+  planLevelOneCompaction,
+  projectCompactionRange,
+  renderBoundedCompactionInput,
   renderProjectedTurn,
+  sourceEventsForCompactionRange,
   type CompactionPlan,
 } from "@medbuddy/chat";
 import {
   COMPACTION_MAX_ATTEMPTS,
   CompactionJobSchema,
   ContinuityTaskInputSchema,
+  type ContinuityTaskDispatcher,
   type ContinuityRepository,
   type ContinuityTaskInput,
 } from "@medbuddy/contracts";
 import { verifyTaskCallback, type TaskTokenVerifier } from "@medbuddy/platform";
-import { createConversationPlatform, GoogleTaskTokenVerifier } from "@medbuddy/platform";
+import { createContinuityDispatcher, createConversationPlatform, GoogleTaskTokenVerifier } from "@medbuddy/platform";
 import {
   CompactionSummaryGenerator,
   type GeneratedCompactionSummary,
@@ -20,6 +26,8 @@ import {
   VertexRestClient,
 } from "@medbuddy/intelligence";
 import { z } from "zod";
+
+import { loadContinuityConfiguration } from "./config.js";
 
 export const ContinuityWorkerLogEntrySchema = z.object({
   event: z.enum([
@@ -62,6 +70,8 @@ export interface CompactionSummaryPort {
   }): Promise<GeneratedCompactionSummary>;
 }
 
+class StaleCompactionPlanError extends Error {}
+
 function durationClass(milliseconds: number): ContinuityWorkerLogEntry["durationClass"] {
   if (milliseconds < 1_000) return "UNDER_1S";
   if (milliseconds < 5_000) return "UNDER_5S";
@@ -85,6 +95,7 @@ export class ContinuityCompactionWorker {
     modelId: "gemini-3.6-flash";
     promptVersion: "continuity-summary-v1";
     logger: ContinuityWorkerLogger;
+    dispatcher?: ContinuityTaskDispatcher;
   }) {}
 
   async run(input: ContinuityTaskInput): Promise<"PUBLISHED" | "REUSED" | "EXHAUSTED"> {
@@ -100,72 +111,87 @@ export class ContinuityCompactionWorker {
     if (existing !== undefined) {
       await this.dependencies.continuity.publishSegment(existing);
       this.dependencies.logger.write({ event: "continuity_job_reused", level: active.level, attempt: active.attempts });
+      await this.scheduleNext(input.workspaceId);
       return "REUSED";
     }
-    if (active.attempts >= COMPACTION_MAX_ATTEMPTS) {
-      await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({ ...active, status: "FAILED" }));
-      this.dependencies.logger.write({ event: "continuity_job_failed", code: "EXHAUSTED", level: active.level, attempt: active.attempts });
+    const attemptClaim = await this.dependencies.continuity.claimCompactionAttempt(input.workspaceId, input.jobId);
+    if (attemptClaim.kind === "BUSY") {
+      this.dependencies.logger.write({ event: "continuity_job_reused", level: active.level, attempt: attemptClaim.job.attempts });
+      return "REUSED";
+    }
+    if (attemptClaim.kind === "TERMINAL") {
+      await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({ ...attemptClaim.job, status: "FAILED" }));
+      this.dependencies.logger.write({ event: "continuity_job_failed", code: "EXHAUSTED", level: active.level, attempt: attemptClaim.job.attempts });
       return "EXHAUSTED";
     }
 
-    const attempt = active.attempts + 1;
-    await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({
-      ...active,
-      status: "RUNNING",
-      attempts: attempt,
-    }));
+    const claimedJob = attemptClaim.job;
+    const attempt = claimedJob.attempts;
     const startedAt = this.dependencies.clock?.() ?? Date.now();
     try {
       const sources = await this.dependencies.continuity.listSourceEvents(input.workspaceId);
-      const rangeSources = sources.filter((event) =>
-        event.sourceSequence >= active.firstSourceSequence && event.sourceSequence <= active.lastSourceSequence);
+      const rangeSources = sourceEventsForCompactionRange(
+        sources,
+        claimedJob.firstSourceSequence,
+        claimedJob.lastSourceSequence,
+      );
+      if (claimedJob.level === 1 &&
+          orderedSourceDigest(claimedJob.policyVersion, rangeSources) !== claimedJob.orderedSourceDigest) {
+        throw new StaleCompactionPlanError("Compaction projection changed before the attempt started.");
+      }
       const ready = await this.dependencies.continuity.listReadySegments(input.workspaceId);
-      const children = active.childSegmentIds.map((childId) => {
+      const children = claimedJob.childSegmentIds.map((childId) => {
         const child = ready.find((segment) => segment.id === childId);
         if (child === undefined) throw new Error("Higher-level compaction child is unavailable.");
         return child;
       });
-      const projection = active.level === 1
-        ? projectEffectiveConversation(input.workspaceId, rangeSources)
+      const projection = claimedJob.level === 1
+        ? projectCompactionRange(
+            input.workspaceId,
+            sources,
+            claimedJob.firstSourceSequence,
+            claimedJob.lastSourceSequence,
+          )
         : [];
-      const renderedInput = active.level === 1
+      const unboundedInput = claimedJob.level === 1
         ? projection.map(renderProjectedTurn).join("\n\n")
         : children.map((child) => JSON.stringify(child.summary)).join("\n\n");
+      const renderedInput = renderBoundedCompactionInput(unboundedInput);
       const plan: CompactionPlan = {
-        id: active.id,
-        workspaceId: active.workspaceId,
-        level: active.level,
-        firstSourceSequence: active.firstSourceSequence,
-        lastSourceSequence: active.lastSourceSequence,
-        sourceCount: active.level === 1
-          ? rangeSources.length
+        id: claimedJob.id,
+        workspaceId: claimedJob.workspaceId,
+        level: claimedJob.level,
+        firstSourceSequence: claimedJob.firstSourceSequence,
+        lastSourceSequence: claimedJob.lastSourceSequence,
+        sourceCount: claimedJob.level === 1
+          ? sources.filter((event) => event.sourceSequence >= claimedJob.firstSourceSequence && event.sourceSequence <= claimedJob.lastSourceSequence).length
           : children.reduce((total, child) => total + child.sourceCount, 0),
-        orderedSourceDigest: active.orderedSourceDigest,
-        childSegmentIds: active.childSegmentIds,
-        policyVersion: active.policyVersion,
+        orderedSourceDigest: claimedJob.orderedSourceDigest,
+        childSegmentIds: claimedJob.childSegmentIds,
+        policyVersion: claimedJob.policyVersion,
         inputCharacters: renderedInput.length,
       };
       this.dependencies.logger.write({
         event: "continuity_job_started",
-        level: active.level,
+        level: claimedJob.level,
         attempt,
         inputCharacters: renderedInput.length,
         backlogClass: backlogClass(renderedInput.length),
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
-        ...(active.policyVersion === "continuity-v1" ? { policyVersion: active.policyVersion } : {}),
+        ...(claimedJob.policyVersion === "continuity-v1" ? { policyVersion: claimedJob.policyVersion } : {}),
       });
       const generated = await this.dependencies.generator.generate({
         workspaceId: input.workspaceId,
-        level: active.level,
-        firstSourceSequence: active.firstSourceSequence,
-        lastSourceSequence: active.lastSourceSequence,
+        level: claimedJob.level,
+        firstSourceSequence: claimedJob.firstSourceSequence,
+        lastSourceSequence: claimedJob.lastSourceSequence,
         allowedSourceSequences: projection.map((turn) => turn.sourceSequence),
         renderedInput,
       });
       const segment = createReadySegment({
         plan,
-        currentSources: rangeSources,
+        currentSources: sources,
         summary: generated.summary,
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
@@ -176,14 +202,14 @@ export class ContinuityCompactionWorker {
       } catch (error) {
         this.dependencies.logger.write({
           event: "continuity_publication_conflict",
-          level: active.level,
+          level: claimedJob.level,
           attempt,
         });
         throw error;
       }
       this.dependencies.logger.write({
         event: "continuity_job_completed",
-        level: active.level,
+        level: claimedJob.level,
         attempt,
         inputCharacters: segment.inputCharacters,
         outputCharacters: segment.outputCharacters,
@@ -191,25 +217,57 @@ export class ContinuityCompactionWorker {
         durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
-        ...(active.policyVersion === "continuity-v1" ? { policyVersion: active.policyVersion } : {}),
+        ...(claimedJob.policyVersion === "continuity-v1" ? { policyVersion: claimedJob.policyVersion } : {}),
       });
+      await this.scheduleNext(input.workspaceId);
       return "PUBLISHED";
     } catch (error) {
-      const exhausted = attempt >= COMPACTION_MAX_ATTEMPTS;
+      const stale = error instanceof StaleCompactionPlanError;
+      const exhausted = stale || attempt >= COMPACTION_MAX_ATTEMPTS;
       await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({
-        ...active,
+        ...claimedJob,
         attempts: attempt,
         status: exhausted ? "FAILED" : "PENDING",
       }));
       this.dependencies.logger.write({
         event: "continuity_job_failed",
         code: exhausted ? "EXHAUSTED" : "RETRYABLE",
-        level: active.level,
+        level: claimedJob.level,
         attempt,
         durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
       });
+      if (stale) await this.scheduleNext(input.workspaceId);
       if (exhausted) return "EXHAUSTED";
       throw error;
+    }
+  }
+
+  private async scheduleNext(workspaceId: ContinuityTaskInput["workspaceId"]): Promise<void> {
+    if (this.dependencies.dispatcher === undefined) return;
+    try {
+      const [sources, ready] = await Promise.all([
+        this.dependencies.continuity.listSourceEvents(workspaceId),
+        this.dependencies.continuity.listReadySegments(workspaceId),
+      ]);
+      const plan = planLevelOneCompaction(workspaceId, sources, ready)
+        ?? planHigherLevelCompaction(workspaceId, ready);
+      if (plan === null) return;
+      const job = await this.dependencies.continuity.claimCompactionJob(CompactionJobSchema.parse({
+        id: plan.id,
+        workspaceId,
+        level: plan.level,
+        firstSourceSequence: plan.firstSourceSequence,
+        lastSourceSequence: plan.lastSourceSequence,
+        orderedSourceDigest: plan.orderedSourceDigest,
+        childSegmentIds: plan.childSegmentIds,
+        policyVersion: plan.policyVersion,
+        status: "PENDING",
+        attempts: 0,
+        createdAt: this.dependencies.now(),
+      }));
+      await this.dependencies.dispatcher.dispatch({ workspaceId, jobId: job.id });
+    } catch {
+      // Durable state and the next source event retain the scheduling opportunity.
     }
   }
 }
@@ -278,6 +336,14 @@ export function createContinuityTaskComposition(
     throw new Error("Continuity requires MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash.");
   }
   const platform = createConversationPlatform(projectId);
+  const continuityConfig = loadContinuityConfiguration(environment);
+  const dispatcher = createContinuityDispatcher({
+    projectId: continuityConfig.projectId,
+    location: continuityConfig.tasksLocation,
+    queue: continuityConfig.tasksQueue,
+    callbackUrl: continuityConfig.continuityCallbackUrl,
+    serviceAccountEmail: continuityConfig.taskServiceAccountEmail,
+  });
   return new ContinuityTaskHandler({
     audience,
     serviceAccountEmail,
@@ -289,6 +355,7 @@ export function createContinuityTaskComposition(
       modelId: vertex.model,
       promptVersion: "continuity-summary-v1",
       logger,
+      dispatcher,
     }),
     logger,
   });

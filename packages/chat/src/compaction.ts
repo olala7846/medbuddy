@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   COMPACTION_MERGE_FAN_IN,
+  COMPACTION_INPUT_MAX_UTF16,
   COMPACTION_TRIGGER_UTF16,
   CompactionJobIdSchema,
   CompactionSegmentSchema,
@@ -21,6 +22,7 @@ import {
 
 export const COMPACTION_POLICY_VERSION = "continuity-v1";
 export const COMPACTION_PROMPT_VERSION = "continuity-summary-v1";
+const COMPACTION_OMISSION_LABEL = "UTF-16 CODE UNITS OMITTED FROM COMPACTION INPUT";
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -59,9 +61,65 @@ export function deterministicCompactionJobId(input: {
   firstSourceSequence: number;
   lastSourceSequence: number;
   policyVersion: string;
+  orderedSourceDigest?: string;
 }) {
   const digest = sha256(JSON.stringify(input));
   return CompactionJobIdSchema.parse(`compaction-job:${digest}`);
+}
+
+export function sourceEventsForCompactionRange(
+  events: readonly SourceEvent[],
+  firstSourceSequence: number,
+  lastSourceSequence: number,
+): SourceEvent[] {
+  const ordered = [...events].sort((left, right) => left.sourceSequence - right.sourceSequence);
+  const base = ordered.filter((event) =>
+    event.sourceSequence >= firstSourceSequence && event.sourceSequence <= lastSourceSequence);
+  const targetMessageIds = new Set<string>(base.flatMap((event) =>
+    event.providerMessageId === undefined ? [] : [event.providerMessageId]));
+  const laterMutations = ordered.filter((event) =>
+    event.sourceSequence > lastSourceSequence &&
+    (event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND") &&
+    targetMessageIds.has(event.payload.targetMessageId));
+  return [...base, ...laterMutations];
+}
+
+export function projectCompactionRange(
+  workspaceId: WorkspaceId,
+  events: readonly SourceEvent[],
+  firstSourceSequence: number,
+  lastSourceSequence: number,
+): ProjectedTurn[] {
+  const sources = sourceEventsForCompactionRange(events, firstSourceSequence, lastSourceSequence);
+  const baseCoordinates = new Map<string, SourceEvent>(sources
+    .filter((event) => event.sourceSequence <= lastSourceSequence && event.providerMessageId !== undefined)
+    .map((event) => [event.providerMessageId!, event]));
+  return projectEffectiveConversation(workspaceId, sources)
+    .map((turn) => {
+      const base = turn.providerMessageId === undefined ? undefined : baseCoordinates.get(turn.providerMessageId);
+      return base === undefined ? turn : {
+        ...turn,
+        sourceEventId: base.id,
+        sourceSequence: base.sourceSequence,
+        authorMemberId: base.authorMemberId,
+      };
+    })
+    .filter((turn) => turn.sourceSequence >= firstSourceSequence && turn.sourceSequence <= lastSourceSequence)
+    .sort((left, right) => left.sourceSequence - right.sourceSequence);
+}
+
+export function renderBoundedCompactionInput(renderedInput: string): string {
+  if (renderedInput.length <= COMPACTION_INPUT_MAX_UTF16) return renderedInput;
+  const initialMarker = `\n\n[000000 ${COMPACTION_OMISSION_LABEL}]\n\n`;
+  const initialBudget = COMPACTION_INPUT_MAX_UTF16 - initialMarker.length;
+  const initialHead = Math.ceil(initialBudget / 2);
+  const initialTail = Math.floor(initialBudget / 2);
+  const omitted = renderedInput.length - initialHead - initialTail;
+  const marker = `\n\n[${omitted} ${COMPACTION_OMISSION_LABEL}]\n\n`;
+  const contentBudget = COMPACTION_INPUT_MAX_UTF16 - marker.length;
+  const head = Math.ceil(contentBudget / 2);
+  const tail = Math.floor(contentBudget / 2);
+  return `${renderedInput.slice(0, head)}${marker}${renderedInput.slice(-tail)}`;
 }
 
 export type CompactionPlan = {
@@ -105,20 +163,29 @@ export function planLevelOneCompaction(
   const retained: ProjectedTurn[] = [];
   for (const turn of [...projected].reverse()) {
     const candidate = [turn, ...retained];
-    if (retained.length > 0 && renderedLength(candidate) > PROTECTED_RECENT_MAX_UTF16) break;
+    if (renderedLength(candidate) > PROTECTED_RECENT_MAX_UTF16) break;
     retained.unshift(turn);
-    if (renderedLength(retained) > PROTECTED_RECENT_MAX_UTF16) break;
   }
   const earliestRetained = retained[0]?.sourceSequence;
-  if (earliestRetained === undefined) return null;
   const firstSourceSequence = eligibleSources[0]?.sourceSequence;
-  const lastSourceSequence = earliestRetained - 1;
+  const lastSourceSequenceValue = earliestRetained === undefined
+    ? eligibleSources.at(-1)?.sourceSequence
+    : earliestRetained - 1;
+  if (lastSourceSequenceValue === undefined) return null;
+  const lastSourceSequence = lastSourceSequenceValue;
   if (firstSourceSequence === undefined || lastSourceSequence < firstSourceSequence) return null;
   const coveredSources = eligibleSources.filter((event) => event.sourceSequence <= lastSourceSequence);
   if (coveredSources.length === 0) return null;
-  const orderedDigest = orderedSourceDigest(policyVersion, coveredSources);
+  const digestSources = sourceEventsForCompactionRange(sourceEvents, firstSourceSequence, lastSourceSequence);
+  const orderedDigest = orderedSourceDigest(policyVersion, digestSources);
+  const renderedInput = renderBoundedCompactionInput(projectCompactionRange(
+    workspaceId,
+    sourceEvents,
+    firstSourceSequence,
+    lastSourceSequence,
+  ).map(renderProjectedTurn).join("\n\n"));
   return {
-    id: deterministicCompactionJobId({ workspaceId, level: 1, firstSourceSequence, lastSourceSequence, policyVersion }),
+    id: deterministicCompactionJobId({ workspaceId, level: 1, firstSourceSequence, lastSourceSequence, policyVersion, orderedSourceDigest: orderedDigest }),
     workspaceId,
     level: 1,
     firstSourceSequence,
@@ -127,7 +194,7 @@ export function planLevelOneCompaction(
     orderedSourceDigest: orderedDigest,
     childSegmentIds: [],
     policyVersion,
-    inputCharacters: renderedLength(projected.filter((turn) => turn.sourceSequence <= lastSourceSequence)),
+    inputCharacters: renderedInput.length,
   };
 }
 
@@ -203,9 +270,11 @@ export function createReadySegment(input: {
   promptVersion: string;
   createdAt: string;
 }): CompactionSegment {
-  const rangeSources = [...input.currentSources]
-    .filter((event) => event.sourceSequence >= input.plan.firstSourceSequence && event.sourceSequence <= input.plan.lastSourceSequence)
-    .sort((left, right) => left.sourceSequence - right.sourceSequence);
+  const rangeSources = sourceEventsForCompactionRange(
+    input.currentSources,
+    input.plan.firstSourceSequence,
+    input.plan.lastSourceSequence,
+  );
   if (rangeSources.some((event) => event.workspaceId !== input.plan.workspaceId)) {
     throw new Error("Segment publication cannot cross a workspace boundary.");
   }
@@ -213,7 +282,12 @@ export function createReadySegment(input: {
     throw new Error("Compaction candidate is stale because the ordered projection digest changed.");
   }
   const projection = input.plan.level === 1
-    ? projectEffectiveConversation(input.plan.workspaceId, rangeSources)
+    ? projectCompactionRange(
+        input.plan.workspaceId,
+        input.currentSources,
+        input.plan.firstSourceSequence,
+        input.plan.lastSourceSequence,
+      )
     : [];
   const summary = input.plan.level === 1
     ? validateSummaryAgainstProjection(input.summary, projection)

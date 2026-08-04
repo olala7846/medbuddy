@@ -28,6 +28,17 @@ function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function sameJobIdentity(left: CompactionJob, right: CompactionJob): boolean {
+  return left.id === right.id &&
+    left.workspaceId === right.workspaceId &&
+    left.level === right.level &&
+    left.firstSourceSequence === right.firstSourceSequence &&
+    left.lastSourceSequence === right.lastSourceSequence &&
+    left.orderedSourceDigest === right.orderedSourceDigest &&
+    same(left.childSegmentIds, right.childSegmentIds) &&
+    left.policyVersion === right.policyVersion;
+}
+
 function nonnegativeInteger(value: unknown, label: string): number {
   if (value === undefined) return 0;
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
@@ -262,6 +273,13 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       const existing = await transaction.get(jobRef);
       if (existing.exists) {
         const stored = CompactionJobSchema.parse(record(existing.data()));
+        if (stored.status === "FAILED") {
+          if (!sameJobIdentity(stored, job)) throw new Error("Compaction job identity conflict.");
+          const reclaimed = CompactionJobSchema.parse({ ...job, status: "PENDING", attempts: 0 });
+          transaction.set(jobRef, reclaimed);
+          transaction.set(stateRef, { activeJobId: reclaimed.id });
+          return reclaimed;
+        }
         if (!same(stored, job)) throw new Error("Compaction job identity conflict.");
         transaction.set(stateRef, { activeJobId: stored.id });
         return stored;
@@ -269,6 +287,32 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       transaction.create(jobRef, job);
       transaction.set(stateRef, { activeJobId: job.id });
       return job;
+    });
+  }
+
+  async claimCompactionAttempt(
+    workspaceId: Parameters<ContinuityRepository["claimCompactionAttempt"]>[0],
+    jobId: Parameters<ContinuityRepository["claimCompactionAttempt"]>[1],
+  ): ReturnType<ContinuityRepository["claimCompactionAttempt"]> {
+    return this.firestore.runTransaction(async (transaction) => {
+      const stateRef = this.compactionStateRef(workspaceId);
+      const jobRef = this.jobRef(workspaceId, jobId);
+      const [state, snapshot] = await Promise.all([
+        transaction.get(stateRef),
+        transaction.get(jobRef),
+      ]);
+      if (state.data()?.activeJobId !== jobId || !snapshot.exists) {
+        throw new Error("Compaction attempt does not match the active workspace job.");
+      }
+      const job = CompactionJobSchema.parse(record(snapshot.data()));
+      if (job.workspaceId !== workspaceId || job.id !== jobId) {
+        throw new Error("Stored compaction job does not match its workspace path.");
+      }
+      if (job.status === "RUNNING") return { kind: "BUSY" as const, job };
+      if (job.status === "FAILED" || job.attempts >= 3) return { kind: "TERMINAL" as const, job };
+      const claimed = CompactionJobSchema.parse({ ...job, status: "RUNNING", attempts: job.attempts + 1 });
+      transaction.set(jobRef, claimed);
+      return { kind: "CLAIMED" as const, job: claimed };
     });
   }
 

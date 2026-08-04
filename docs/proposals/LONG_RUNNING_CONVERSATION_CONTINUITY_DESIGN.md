@@ -289,7 +289,13 @@ assemble(workspace, focal, familyMap?, actions, requestBudget):
 
 When uncompacted projected conversation crosses 20,000 units, choose the oldest inclusive source range ending at the largest complete event boundary that leaves at most 10,000 units recent. The range may contain non-rendered technical source events; `sourceCount` counts the immutable events, while the model input contains only their effective user-visible projection.
 
-The ordered-source digest hashes policy version plus canonical workspace-scoped event IDs, source sequences, event kinds, attribution, projection status, and content digests. It never appears in metrics and reveals no content.
+The ordered-source digest hashes policy version plus canonical workspace-scoped event IDs, source sequences, event kinds, attribution, projection status, and content digests. A level-1 digest also includes any later edit or unsend targeting a message inside the unpublished range. Publication recomputes that mutation-aware digest; a mismatch fails the stale job before model work and schedules a new digest-scoped job. It never appears in metrics and reveals no content.
+
+Level-1 model input is capped at 30,000 UTF-16 units. If a complete projected
+range is larger, deterministic code renders a marked head/tail compaction
+excerpt with an exact omission count. This permits a single accepted
+100,000-unit turn to compact without changing or truncating its immutable
+source evidence.
 
 ### 9.2 Higher levels
 
@@ -320,7 +326,12 @@ workspaces/{workspaceId}/attachments/{attachmentId}
 
 - One transaction claims a provider event, allocates the next source sequence, and creates the inbound source event. A duplicate returns the prior result.
 - `continuityState/compaction` contains only scheduler state and the one active job reference, never summary content.
-- Segment IDs and job IDs derive from workspace, level, inclusive range, and compaction-policy version.
+- A transaction changes one `PENDING` job to `RUNNING` and increments its
+  attempt before Gemini is called. Concurrent task deliveries observe `RUNNING`
+  and perform no model work. A failed job may be explicitly reclaimed as a new
+  bounded attempt cycle when no job is active.
+- Segment IDs and job IDs derive from workspace, level, inclusive range,
+  compaction-policy version, and the level-1 projection digest.
 - An outbound candidate is stored outside source history. On LINE success, an idempotent transaction allocates a source sequence and publishes the MedBuddy text source event; rejection or timeout leaves no conversation evidence.
 - Query indexes are limited to workspace subcollections ordered by `sourceSequence`, segment `level/firstSourceSequence`, and job status. No vector or cross-workspace index is added.
 
@@ -377,9 +388,10 @@ Firestore may rerun transaction callbacks after contention, so callbacks perform
 | --- | --- |
 | Compaction delayed or queue unavailable | Reply from bounded recent context and existing ready segments; retry durable scheduling later. |
 | Recent uncompacted history reaches 30,000 | Omit oldest complete turns, keep them in storage, and render one pending-history marker. |
-| Gemini timeout/error/malformed summary | Publish nothing, retain prior ready segments, increment safe attempt metadata, and retry the same range within bounds. |
-| Projection changes before publication | Reject the stale candidate and retry from the current edit/tombstone-aware projection. |
-| Duplicate task/worker | Reuse ready output or converge through deterministic identity and atomic create. |
+| Gemini timeout/error/malformed summary | Publish nothing, retain prior ready segments, increment safe attempt metadata, and retry the same range within bounds. Failed work may be explicitly reclaimed under a fresh bounded attempt cycle. |
+| Projection changes before publication | Reject the stale candidate before model work and dispatch a digest-scoped replacement from the current edit/tombstone-aware projection. |
+| Duplicate task/worker | Atomically grant one `PENDING`-to-`RUNNING` attempt; concurrent deliveries perform no Gemini call, then reuse ready output or converge through immutable publication. |
+| Ready publication leaves eligible backlog | Atomically claim and dispatch the next level-1 or higher-level job; at most one workspace job remains active. |
 | LINE rejects or times out | Do not publish the outbound candidate as a source event. Committed family-map updates remain canonical. |
 | LINE accepts but source publication transiently fails | Retry the deterministic idempotent publication within the request; record content-free failure metadata if exhausted. Never send LINE twice. |
 | Attachment retrieval or validation fails three times | Mark attachment `FAILED`; retain the attributed unavailable marker and never claim it was stored. |

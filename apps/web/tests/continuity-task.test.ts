@@ -18,7 +18,14 @@ const workspaceId = "workspace:orchard" as const;
 const jobId = `compaction-job:${"a".repeat(64)}` as const;
 const now = "2026-08-04T12:10:00.000Z";
 
-async function harness(options: { attempts?: number; fail?: boolean } = {}) {
+async function harness(options: {
+  attempts?: number;
+  fail?: boolean;
+  body?: string;
+  blockGenerate?: boolean;
+  lateSources?: number;
+  lateEdit?: boolean;
+} = {}) {
   const continuity = new InMemoryContinuityRepository();
   const source = SourceEventSchema.parse({
     id: "source-event:fictional-1",
@@ -28,7 +35,7 @@ async function harness(options: { attempts?: number; fail?: boolean } = {}) {
     acceptedAt: "2026-08-04T12:00:01.000Z",
     providerMessageId: "message:fictional-1",
     authorMemberId: "member:fictional-a",
-    payload: { kind: "TEXT", body: "A fictional long-running update.", replyRequested: true },
+    payload: { kind: "TEXT", body: options.body ?? "A fictional long-running update.", replyRequested: true },
   });
   const { sourceSequence: _sourceSequence, ...sourceInput } = source;
   void _sourceSequence;
@@ -50,7 +57,39 @@ async function harness(options: { attempts?: number; fail?: boolean } = {}) {
     createdAt: now,
   });
   await continuity.claimCompactionJob(job);
+  if (options.lateEdit) {
+    await continuity.acceptSourceEvent({
+      receiptKey: "event:fictional-late-edit",
+      id: "source-event:fictional-late-edit",
+      workspaceId,
+      occurredAt: "2026-08-04T12:01:00.000Z",
+      acceptedAt: "2026-08-04T12:01:00.500Z",
+      providerMessageId: "message:fictional-late-edit",
+      authorMemberId: "member:fictional-a",
+      payload: {
+        kind: "TEXT_EDIT",
+        targetMessageId: source.providerMessageId,
+        body: "Corrected fictional evidence. ".repeat(1_000),
+      },
+    } as never);
+  }
+  for (let index = 0; index < (options.lateSources ?? 0); index += 1) {
+    await continuity.acceptSourceEvent({
+      receiptKey: `event:fictional-late-${index}`,
+      id: `source-event:fictional-late-${index}`,
+      workspaceId,
+      occurredAt: `2026-08-04T12:01:0${index}.000Z`,
+      acceptedAt: `2026-08-04T12:01:0${index}.500Z`,
+      providerMessageId: `message:fictional-late-${index}`,
+      authorMemberId: "member:fictional-a",
+      payload: { kind: "TEXT", body: "l".repeat(5_000), replyRequested: false },
+    } as never);
+  }
   const calls: unknown[] = [];
+  let releaseGenerate: () => void = () => {};
+  let markStarted: () => void = () => {};
+  const generateGate = new Promise<void>((resolve) => { releaseGenerate = resolve; });
+  const generateStarted = new Promise<void>((resolve) => { markStarted = resolve; });
   const summary: SegmentSummary = {
     overview: "A participant reported fictional activity.",
     keyEvents: [],
@@ -63,6 +102,8 @@ async function harness(options: { attempts?: number; fail?: boolean } = {}) {
     generator: {
       async generate(input) {
         calls.push(input);
+        markStarted();
+        if (options.blockGenerate) await generateGate;
         if (options.fail) throw new Error("fictional provider failure");
         return { summary, usage: { inputTokens: 120, outputTokens: 40 } };
       },
@@ -71,7 +112,9 @@ async function harness(options: { attempts?: number; fail?: boolean } = {}) {
     modelId: "gemini-3.6-flash",
     promptVersion: "continuity-summary-v1",
     logger: { write: (entry) => logs.push(entry) },
+    dispatcher: { async dispatch(input) { dispatched.push(input); } },
   });
+  const dispatched: unknown[] = [];
   const handler = new ContinuityTaskHandler({
     audience: "https://fictional.example.test/api/internal/continuity",
     serviceAccountEmail: "continuity@fictional-project.iam.gserviceaccount.com",
@@ -83,7 +126,7 @@ async function harness(options: { attempts?: number; fail?: boolean } = {}) {
     worker,
     logger: { write: (entry) => logs.push(entry) },
   });
-  return { continuity, calls, logs, handler };
+  return { continuity, calls, dispatched, generateStarted, handler, job, logs, releaseGenerate };
 }
 
 describe("private continuity task", () => {
@@ -114,14 +157,70 @@ describe("private continuity task", () => {
   });
 
   it("returns success after the third application failure and retains safe failed state", async () => {
-    const { calls, continuity, handler, logs } = await harness({ attempts: 2, fail: true });
+    const { calls, continuity, handler, job, logs } = await harness({ attempts: 2, fail: true });
     await expect(handler.handle({
       authorization: "Bearer fictional-task-token",
       body: { workspaceId, jobId },
     })).resolves.toEqual({ status: 200 });
     expect(calls).toHaveLength(1);
     expect(await continuity.getActiveCompactionJob("workspace:orchard" as never)).toBeNull();
+    await expect(continuity.claimCompactionJob({ ...job, status: "PENDING", attempts: 0 })).resolves.toMatchObject({
+      status: "PENDING",
+      attempts: 0,
+    });
     expect(logs.every((entry) => !JSON.stringify(entry).includes(workspaceId))).toBe(true);
+  });
+
+  it("bounds a 100,000-character source and publishes it successfully", async () => {
+    const { calls, continuity, handler } = await harness({ body: "x".repeat(100_000) });
+    await expect(handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    })).resolves.toEqual({ status: 200 });
+
+    expect(calls).toHaveLength(1);
+    expect((calls[0] as { renderedInput: string }).renderedInput.length).toBeLessThanOrEqual(30_000);
+    await expect(continuity.listReadySegments(workspaceId as never)).resolves.toHaveLength(1);
+  });
+
+  it("allows only one concurrent delivery to own a Gemini attempt", async () => {
+    const { calls, generateStarted, handler, releaseGenerate } = await harness({ blockGenerate: true });
+    const input = { authorization: "Bearer fictional-task-token", body: { workspaceId, jobId } };
+    const first = handler.handle(input);
+    await generateStarted;
+    const duplicate = handler.handle(input);
+    await expect(duplicate).resolves.toEqual({ status: 200 });
+    releaseGenerate();
+    await expect(first).resolves.toEqual({ status: 200 });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("claims and dispatches the next backlog job after READY publication", async () => {
+    const { continuity, dispatched, handler } = await harness({ lateSources: 5 });
+    await expect(handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    })).resolves.toEqual({ status: 200 });
+
+    const next = await continuity.getActiveCompactionJob(workspaceId as never);
+    expect(next).toMatchObject({ status: "PENDING", attempts: 0, firstSourceSequence: 2 });
+    expect(dispatched).toEqual([{ workspaceId, jobId: next!.id }]);
+  });
+
+  it("rejects a stale in-range edit before Gemini and dispatches a refreshed job", async () => {
+    const { calls, continuity, dispatched, handler } = await harness({
+      body: "x".repeat(21_000),
+      lateEdit: true,
+    });
+    await expect(handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    })).resolves.toEqual({ status: 200 });
+
+    expect(calls).toEqual([]);
+    const refreshed = await continuity.getActiveCompactionJob(workspaceId as never);
+    expect(refreshed?.id).not.toBe(jobId);
+    expect(dispatched).toEqual([{ workspaceId, jobId: refreshed!.id }]);
   });
 
   it("allows bounded cost metadata and rejects content or high-cardinality identifiers", () => {

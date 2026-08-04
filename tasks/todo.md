@@ -45,10 +45,10 @@
   older non-fitting turn.
 - [x] Preserve sender-less LINE group/room unsends and accept text through the
   100,000-character contract boundary.
-- [ ] Invalidate compaction candidates on later in-range mutations, bound
+- [x] Invalidate compaction candidates on later in-range mutations, bound
   compaction input, and make failed work recoverable.
 - [ ] Prevent historical summaries from authorizing family-map mutation.
-- [ ] Self-schedule remaining compaction backlog after publication and claim
+- [x] Self-schedule remaining compaction backlog after publication and claim
   model attempts atomically.
 - [x] Reject attachment media-class/MIME mismatches.
 - [ ] Reconcile stale app/web documentation and rerun all verification gates.

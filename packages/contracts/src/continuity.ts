@@ -15,6 +15,7 @@ export const SOURCE_TEXT_MAX_UTF16 = 100_000;
 export const PROTECTED_RECENT_MAX_UTF16 = 10_000;
 export const COMPACTION_TRIGGER_UTF16 = 20_000;
 export const RECENT_HARD_CEILING_UTF16 = 30_000;
+export const COMPACTION_INPUT_MAX_UTF16 = 30_000;
 export const ASSEMBLED_CONTEXT_MAX_UTF16 = 40_000;
 export const SYSTEM_CONTEXT_MAX_UTF16 = 8_000;
 export const SUMMARY_MAX_UTF16 = 4_000;
@@ -172,6 +173,12 @@ export const CompactionJobSchema = z.object({
   createdAt: TimestampSchema,
 }).strict().and(SourceRangeSchema);
 
+export const CompactionAttemptClaimSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("CLAIMED"), job: CompactionJobSchema }).strict(),
+  z.object({ kind: z.literal("BUSY"), job: CompactionJobSchema }).strict(),
+  z.object({ kind: z.literal("TERMINAL"), job: CompactionJobSchema }).strict(),
+]);
+
 export const CompactionSegmentSchema = z.object({
   id: CompactionSegmentIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -233,6 +240,7 @@ export type AttachmentAttemptClaim = z.infer<typeof AttachmentAttemptClaimSchema
 export type AgentActionContext = z.infer<typeof AgentActionContextSchema>;
 export type SegmentSummary = z.infer<typeof SegmentSummarySchema>;
 export type CompactionJob = z.infer<typeof CompactionJobSchema>;
+export type CompactionAttemptClaim = z.infer<typeof CompactionAttemptClaimSchema>;
 export type CompactionSegment = z.infer<typeof CompactionSegmentSchema>;
 export type AssembledContext = z.infer<typeof AssembledContextSchema>;
 export type ContinuityTaskInput = z.infer<typeof ContinuityTaskInputSchema>;
@@ -248,6 +256,7 @@ export interface ContinuityRepository {
   getAttachment(workspaceId: z.infer<typeof WorkspaceIdSchema>, attachmentId: z.infer<typeof AttachmentIdSchema>): Promise<ContinuityAttachment | null>;
   claimAttachmentAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, attachmentId: z.infer<typeof AttachmentIdSchema>): Promise<AttachmentAttemptClaim>;
   claimCompactionJob(job: CompactionJob): Promise<CompactionJob>;
+  claimCompactionAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof CompactionJobIdSchema>): Promise<CompactionAttemptClaim>;
   getActiveCompactionJob(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<CompactionJob | null>;
   updateCompactionJob(job: CompactionJob): Promise<CompactionJob>;
   publishSegment(segment: CompactionSegment): Promise<CompactionSegment>;

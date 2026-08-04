@@ -187,6 +187,11 @@ commands independent of provider transport.
   numbered-level path.
 - Duplicate workers converge; stale projections, malformed summaries, and
   publication conflicts never overwrite a valid ready segment.
+- Later edits and unsends targeting an unpublished range participate in its
+  digest. Publication rejects stale candidates and replans from the corrected
+  projection.
+- Compaction input uses a marked deterministic 30,000-unit head/tail bound, so
+  one accepted 100,000-unit source cannot poison a job.
 
 **Likely files:**
 
@@ -283,8 +288,10 @@ existing Cloud Run application.
 - Duplicate enqueue returns success and uses the same task identity.
 - Unauthorized callback, wrong audience/service account, invalid body, and an
   exhausted attempt produce only safe metadata.
-- The worker reuses a ready result before invoking Gemini and never starts
-  untracked work after returning.
+- The worker atomically owns one model attempt, reuses a ready result before
+  invoking Gemini, and claims/dispatches remaining backlog after publication.
+- Concurrent deliveries cannot both call Gemini; failed jobs are reclaimable
+  under the bounded-attempt policy.
 
 **Likely files:**
 
