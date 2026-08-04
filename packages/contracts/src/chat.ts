@@ -46,7 +46,7 @@ export const MessageSchema = z.object({
   id: MessageIdSchema,
   workspaceId: WorkspaceIdSchema,
   authorMemberId: z.union([MemberIdSchema, z.literal("MEDBUDDY")]),
-  body: z.string().min(1).max(10_000),
+  body: z.string().min(1).max(100_000),
   createdAt: TimestampSchema,
   attachmentIds: z.array(AttachmentIdSchema).max(5),
   captureIntent: CaptureIntentSchema,
@@ -114,7 +114,7 @@ export const MessagePageSchema = z.object({
 
 export const AppendMessageInputSchema = z.object({
   workspaceId: WorkspaceIdSchema,
-  body: z.string().min(1).max(10_000),
+  body: z.string().min(1).max(100_000),
   attachmentIds: z.array(AttachmentIdSchema).max(5).default([]),
   captureIntent: CaptureIntentSchema.default("PASSIVE"),
   idempotencyKey: z.string().min(1).max(128),
