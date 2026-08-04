@@ -60,6 +60,7 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | Doc | Role |
 | --- | --- |
 | [proposals/AGENT_MEMORY_ARCHITECTURE.md](./proposals/AGENT_MEMORY_ARCHITECTURE.md) | Proposed memory layers, retrieval policy, implementation sequence, and framework/GCP choices |
+| [proposals/WORKSPACE_FAMILY_MAP_DESIGN.md](./proposals/WORKSPACE_FAMILY_MAP_DESIGN.md) | Proposed LINE workspace family-map behavior, tool seam, persistence, and verification contract |
 
 ### Operations
 
