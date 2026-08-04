@@ -287,7 +287,7 @@ describe("Vertex adapters", () => {
       "If someone says ‘She is my mother’ and ‘she’ cannot be mapped to exactly one observed opaque member, ask who they mean and do not call the tool.",
     );
     expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
-      "map the opaque author ID shown on that message to the exact stated name ‘Mei’",
+      "copy the full opaque ID byte-for-byte including its member: prefix",
     );
   });
 
