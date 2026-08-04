@@ -1,6 +1,6 @@
 # Design: Long-Running Conversation Continuity
 
-**Status:** Proposed for review; not approved for implementation
+**Status:** Approved; implementation plan pending approval
 
 **Date:** 2026-08-04
 
@@ -472,11 +472,14 @@ After those and privacy review pass, a separately authorized fictional deployed 
 - Reviewed-care retrieval and a generalized multi-tool runtime.
 - Model-graded or live-content continuity evaluation.
 
-## 19. Blocking open question
+## 19. Model decision
 
-The handoff names **Gemini 3.6 Flash**, but current official Vertex documentation does not expose that model ID. A current official function-calling sample uses `gemini-3.5-flash`, and current function-calling documentation lists Gemini 3 Flash preview and later models. Implementation must not invent `gemini-3.6-flash`.
-
-Recommendation: use the configurable direct Vertex boundary already in the repository and select `gemini-3.5-flash` for Effort 2 after a configuration-gated smoke confirms availability in the target project and region. This requires explicit user confirmation before the implementation plan is approved.
+The user selected `gemini-3.6-flash` as the Effort 2 target and confirmed that it
+is the current model to use. The existing direct Vertex boundary remains
+configuration-driven rather than embedding model selection in continuity
+policy. Contract tests use deterministic fakes; a configuration-gated smoke
+must verify `gemini-3.6-flash` in the target project and region before the
+fictional deployed continuity smoke.
 
 ## 20. References
 
@@ -485,7 +488,6 @@ Recommendation: use the configurable direct Vertex boundary already in the repos
 - [LINE webhook reception, edits, unsend, and redelivery](https://developers.line.biz/en/docs/messaging-api/receiving-messages/)
 - [LINE Messaging API reference](https://developers.line.biz/en/reference/messaging-api/nojs/)
 - [Vertex function calling](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling)
-- [Vertex function-calling sample using `gemini-3.5-flash`](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/samples/googlegenaisdk-tools-func-desc-with-txt)
 - [Firestore transactions and atomic writes](https://firebase.google.com/docs/firestore/manage-data/transactions)
 - [Cloud Tasks HTTP targets](https://docs.cloud.google.com/tasks/docs/creating-http-target-tasks)
 - [Cloud Tasks retry configuration](https://docs.cloud.google.com/tasks/docs/configure-retry-task)
