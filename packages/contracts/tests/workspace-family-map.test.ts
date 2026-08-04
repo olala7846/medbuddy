@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ConversationContextSchema,
   ReplaceWorkspaceFamilyMapInputSchema,
   WorkspaceFamilyMapContentSchema,
   WorkspaceFamilyMapSchema,
@@ -39,5 +40,23 @@ describe("workspace family-map contracts", () => {
       updatedAt: "2026-08-04T12:00:00.000Z",
       workspaceOverride: "workspace:fictional-b",
     })).toThrow();
+  });
+
+  it("rejects a family map attributed to another workspace", () => {
+    expect(() => ConversationContextSchema.parse({
+      workspaceId: "workspace:fictional-a",
+      messages: [{
+        id: "message:fictional-a",
+        workspaceId: "workspace:fictional-a",
+        authorMemberId: "member:fictional-a",
+        body: "Fictional.",
+        createdAt: "2026-08-04T12:00:00.000Z",
+        attachmentIds: [],
+        captureIntent: "PASSIVE",
+        processingStatus: "IGNORED",
+        processingAttempts: 0,
+      }],
+      familyMap: { workspaceId: "workspace:fictional-b", content: "", revision: 0 },
+    })).toThrow("family map");
   });
 });

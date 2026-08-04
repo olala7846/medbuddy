@@ -67,9 +67,10 @@ export const ConversationContextSchema = z
     workspaceId: WorkspaceIdSchema,
     messages: z.array(MessageSchema).min(1).max(20),
     familyMap: z.object({
+      workspaceId: WorkspaceIdSchema,
       content: WorkspaceFamilyMapContentSchema,
       revision: z.number().int().nonnegative(),
-    }).strict().default({ content: "", revision: 0 }),
+    }).strict().optional(),
   })
   .superRefine((context, issueContext) => {
     for (const [index, message] of context.messages.entries()) {
@@ -81,7 +82,22 @@ export const ConversationContextSchema = z
         });
       }
     }
-  });
+    if (context.familyMap !== undefined && context.familyMap.workspaceId !== context.workspaceId) {
+      issueContext.addIssue({
+        code: "custom",
+        message: "Conversation family map must belong to the requested workspace.",
+        path: ["familyMap", "workspaceId"],
+      });
+    }
+  })
+  .transform((context) => ({
+    ...context,
+    familyMap: context.familyMap ?? {
+      workspaceId: context.workspaceId,
+      content: "",
+      revision: 0,
+    },
+  }));
 
 export const MessageCursorQuerySchema = z.object({
   workspaceId: WorkspaceIdSchema,

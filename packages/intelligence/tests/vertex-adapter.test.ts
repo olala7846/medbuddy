@@ -91,6 +91,28 @@ describe("Vertex adapters", () => {
     ]);
   });
 
+  it("omits JSON response MIME constraints when function tools are enabled", async () => {
+    const bodies: unknown[] = [];
+    const fetchStub: typeof fetch = async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as unknown);
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "{}" }] } }] }), { status: 200 });
+    };
+    const client = new VertexRestClient({
+      projectId: "fictional-project",
+      location: "global",
+      model: "gemini-2.5-flash",
+    }, { async getAccessToken() { return "fictional-access-token"; } }, fetchStub);
+
+    await client.generate({
+      systemInstruction: "fictional",
+      contents: [{ role: "user", parts: [{ text: "fictional" }] }],
+      tools: [{ functionDeclarations: [] }],
+      toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+    });
+
+    expect(bodies).toEqual([expect.not.objectContaining({ generationConfig: expect.anything() })]);
+  });
+
   it("bounds a stalled provider request and returns a typed timeout", async () => {
     const stalledFetch: typeof fetch = async (_input, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
@@ -191,6 +213,7 @@ describe("Vertex adapters", () => {
         workspaceId: currentMessage.workspaceId,
         messages: [priorModelMessage, currentMessage],
         familyMap: {
+          workspaceId: currentMessage.workspaceId,
           content: "Members\n- member:vertex: Mei",
           revision: 3,
         },
@@ -217,10 +240,13 @@ describe("Vertex adapters", () => {
     const recordingClient: VertexModelClient = {
       async generate(input) {
         requests.push(input);
-        return { candidates: [{ content: { parts: [{ functionCall: {
-          name: "update_workspace_family_map",
-          args: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
-        } }] } }] };
+        return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: {
+            name: "update_workspace_family_map",
+            args: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
+          },
+          thoughtSignature: "fictional-thought-signature",
+        }] } }] };
       },
     };
     const provider = new VertexConversationProvider(recordingClient);
@@ -232,10 +258,53 @@ describe("Vertex adapters", () => {
     })).resolves.toEqual({
       kind: "UPDATE_WORKSPACE_FAMILY_MAP",
       input: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
+      continuation: {
+        role: "model",
+        parts: [{
+          functionCall: {
+            name: "update_workspace_family_map",
+            args: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
+          },
+          thoughtSignature: "fictional-thought-signature",
+        }],
+      },
     });
 
     expect(requests).toEqual([expect.objectContaining({
       tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
     })]);
+
+    const continuation = {
+      role: "model" as const,
+      parts: [{
+        functionCall: {
+          name: "update_workspace_family_map",
+          args: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
+        },
+        thoughtSignature: "fictional-thought-signature",
+      }],
+    };
+    await provider.respond({
+      focalMessage,
+      context: conversationInput.context,
+      familyMapUpdatesAllowed: false,
+      toolResult: {
+        call: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
+        result: { kind: "NO_CHANGE", familyMap: conversationInput.context.familyMap },
+        continuation,
+      },
+    });
+    expect((requests[1] as { contents: unknown[] }).contents.slice(-2)).toEqual([
+      continuation,
+      {
+        role: "user",
+        parts: [{
+          functionResponse: {
+            name: "update_workspace_family_map",
+            response: { kind: "NO_CHANGE", familyMap: conversationInput.context.familyMap },
+          },
+        }],
+      },
+    ]);
   });
 });

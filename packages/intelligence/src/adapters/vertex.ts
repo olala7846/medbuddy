@@ -31,19 +31,25 @@ const VertexTextResponseSchema = z.object({
   })).min(1),
 });
 
+const VertexModelPartSchema = z.object({
+  text: z.string().optional(),
+  functionCall: z.object({
+    name: z.string(),
+    args: z.unknown(),
+  }).passthrough().optional(),
+}).passthrough().refine(
+  (part) => part.text !== undefined || part.functionCall !== undefined,
+  "A model part must contain text or a function call.",
+);
+
+const VertexModelContentSchema = z.object({
+  role: z.literal("model").optional(),
+  parts: z.array(VertexModelPartSchema).min(1),
+}).passthrough();
+
 const VertexConversationResponseSchema = z.object({
   candidates: z.array(z.object({
-    content: z.object({
-      parts: z.array(z.union([
-        z.object({ text: z.string() }).strict(),
-        z.object({
-          functionCall: z.object({
-            name: z.string(),
-            args: z.unknown(),
-          }).strict(),
-        }).strict(),
-      ])).min(1),
-    }),
+    content: VertexModelContentSchema,
   })).min(1),
 });
 
@@ -55,12 +61,7 @@ export type VertexGenerationRequest = {
   systemInstruction: string;
   contents: readonly {
     role: "user" | "model";
-    parts: readonly (
-      | { text: string }
-      | { inlineData: { mimeType: string; data: string } }
-      | { functionCall: { name: string; args: unknown } }
-      | { functionResponse: { name: string; response: unknown } }
-    )[];
+    parts: readonly Record<string, unknown>[];
   }[];
   tools?: readonly unknown[];
   toolConfig?: unknown;
@@ -153,7 +154,9 @@ export class VertexRestClient implements VertexModelClient {
             contents: input.contents,
             ...(input.tools === undefined ? {} : { tools: input.tools }),
             ...(input.toolConfig === undefined ? {} : { toolConfig: input.toolConfig }),
-            generationConfig: { responseMimeType: "application/json" },
+            ...(input.tools === undefined
+              ? { generationConfig: { responseMimeType: "application/json" } }
+              : {}),
           }),
           signal: controller.signal,
         });
@@ -237,12 +240,19 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
   const prior = z.object({
     call: UpdateWorkspaceFamilyMapInputSchema,
     result: z.unknown(),
+    continuation: VertexModelContentSchema.optional(),
   }).safeParse(input.toolResult);
   if (prior.success) {
-    contents.push({
-      role: "model",
-      parts: [{ functionCall: { name: "update_workspace_family_map", args: prior.data.call } }],
-    }, {
+    const continuation = prior.data.continuation === undefined
+      ? {
+          role: "model" as const,
+          parts: [{ functionCall: { name: "update_workspace_family_map", args: prior.data.call } }],
+        }
+      : {
+          ...prior.data.continuation,
+          role: "model" as const,
+        };
+    contents.push(continuation, {
       role: "user",
       parts: [{
         functionResponse: {
@@ -274,17 +284,21 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
 
 function parseConversationStep(response: unknown): unknown {
   const parsed = VertexConversationResponseSchema.safeParse(response);
-  const part = parsed.success ? parsed.data.candidates[0]?.content.parts[0] : undefined;
+  const content = parsed.success ? parsed.data.candidates[0]?.content : undefined;
+  const part = content?.parts.find((candidate) => candidate.functionCall !== undefined)
+    ?? content?.parts.find((candidate) => candidate.text !== undefined);
   if (part === undefined) throw new VertexMalformedResponseError();
-  if ("functionCall" in part) {
+  if (part.functionCall !== undefined) {
     if (part.functionCall.name !== "update_workspace_family_map") {
       throw new VertexMalformedResponseError();
     }
     return {
       kind: "UPDATE_WORKSPACE_FAMILY_MAP",
       input: part.functionCall.args,
+      continuation: content,
     };
   }
+  if (part.text === undefined) throw new VertexMalformedResponseError();
   try {
     return JSON.parse(part.text) as unknown;
   } catch {

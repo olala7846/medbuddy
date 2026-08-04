@@ -159,7 +159,7 @@ export class ChatService implements ChatServicePort {
       context: {
         workspaceId: message.workspaceId,
         messages: contextMessages,
-        familyMap: { content: "", revision: 0 },
+        familyMap: { workspaceId: message.workspaceId, content: "", revision: 0 },
       },
     });
     if (result.kind !== "RESPONDED" || result.responseText === undefined) return;

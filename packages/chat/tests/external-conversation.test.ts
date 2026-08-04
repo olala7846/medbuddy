@@ -69,6 +69,7 @@ describe("ThreadConversationService", () => {
           "Hello from a fictional LINE fixture.",
         ]);
         expect(request.context.familyMap).toEqual({
+          workspaceId: "workspace:line-thread-a",
           content: "Members\n- member:line-sender-a: Mei",
           revision: 2,
         });

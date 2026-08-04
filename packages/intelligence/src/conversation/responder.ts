@@ -37,6 +37,7 @@ export const ConversationInstructionSchema = z.union([
   z.object({
     kind: z.literal("UPDATE_WORKSPACE_FAMILY_MAP"),
     input: UpdateWorkspaceFamilyMapInputSchema,
+    continuation: z.unknown().optional(),
   }).strict(),
 ]);
 
@@ -174,11 +175,11 @@ export class ConversationResponder implements ConversationResponderPort {
         if (result.kind === "REVISION_CONFLICT") {
           if (toolCalls > 1) return technicalFailure(toolCalls);
           retryAfterConflict = true;
-          toolResult = { call: updateInput, result };
+          toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
           continue;
         }
         retryAfterConflict = false;
-        toolResult = { call: updateInput, result };
+        toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
       }
       return technicalFailure(toolCalls);
     } catch {

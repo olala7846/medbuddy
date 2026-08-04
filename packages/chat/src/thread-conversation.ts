@@ -60,7 +60,11 @@ export class ThreadConversationService implements ThreadConversation {
       context: {
         workspaceId: input.workspaceId,
         messages: context,
-        familyMap: { content: familyMap.content, revision: familyMap.revision },
+        familyMap: {
+          workspaceId: familyMap.workspaceId,
+          content: familyMap.content,
+          revision: familyMap.revision,
+        },
       },
     }, {
       updateWorkspaceFamilyMap: {
