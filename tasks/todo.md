@@ -25,24 +25,46 @@
 - [x] Task 7: Implement and emulator-test the Firestore adapter.
 - [x] Task 8: Add durable compaction dispatch and private task execution.
 - [x] Task 9: Replace count-based LINE orchestration and publish outbound only after acceptance.
-- [ ] Task 10: Add private bounded LINE attachment ingestion.
-- [ ] Checkpoint C: Synthetic LINE continuity and attachment paths pass.
-- [ ] Task 11: Complete production configuration and content-free observability.
+- [x] Task 10: Add private bounded LINE attachment ingestion.
+- [x] Checkpoint C: Synthetic LINE continuity and attachment paths pass.
+- [x] Task 11: Complete production configuration and content-free observability.
 
 ## Independent verification
 
-- [ ] Implementer completes small logical commits and reports evidence.
+- [x] Implementer completes small logical commits and reports evidence.
 - [ ] Fresh-context verifier reviews design, plan, full diff, isolation, privacy, and safety.
 - [ ] Implementer fixes every actionable finding.
 - [ ] Fresh-context verifier reruns affected and full verification until clean.
 
 ## Final gates
 
-- [ ] `npm run check`
-- [ ] `npm test`
-- [ ] `npm run build --workspace @medbuddy/web`
-- [ ] `npm audit --omit=dev` with reachable findings triaged.
-- [ ] Fictional fixtures only; staged diff contains no PII, health information, credentials, or secrets.
-- [ ] Logs contain no content, summaries, excerpts, identifiers, prompts, attachment metadata, or object references.
+- [x] `npm run check`
+- [x] `npm test`
+- [x] `npm run build --workspace @medbuddy/web`
+- [x] `npm audit --omit=dev` with reachable findings triaged.
+- [x] Fictional fixtures only; staged diff contains no PII, health information, credentials, or secrets.
+- [x] Logs contain no content, summaries, excerpts, identifiers, prompts, attachment metadata, or object references.
 - [ ] Exact Git state, commits, tests, residual risks, and deferred fictional smoke are handed back.
-- [ ] No deployment, PR creation, PR merge, or branch merge was performed.
+- [x] No deployment, PR creation, PR merge, or branch merge was performed.
+
+## Implementer verification evidence (2026-08-04)
+
+- `npm run check`: passed.
+- `npm test`: 46 files and 300 tests passed; 3 files and 47 tests were
+  configuration-gated and skipped.
+- `npm run build --workspace @medbuddy/web`: passed, including the private
+  `/api/internal/attachment` and `/api/internal/continuity` routes.
+- Firestore emulator continuity contract: 5 tests passed, including concurrent
+  atomic attachment-attempt allocation.
+- Checkpoint C: Web 74 passed/5 skipped; Chat 38 passed/5 skipped.
+- `npm audit --omit=dev`: completed with 9 transitive findings (4 high, 5
+  moderate). `brace-expansion` is under Firestore's `rimraf/glob` tooling;
+  vulnerable PostCSS behavior is limited to trusted checked-in build CSS;
+  the application has no `next/image` or remote-image configuration reaching
+  Sharp; and the affected UUID v3/v5/v6 buffer APIs are not used by the
+  `gaxios`/`teeny-request` paths, which call UUID v4. The audit-suggested Storage
+  remediation is an unsafe major downgrade, while the safe Next/Sharp update is
+  intentionally deferred to a focused dependency change. Real-family-data
+  release gates remain closed.
+- The configuration-gated live `gemini-3.6-flash` smoke remains skipped and
+  must pass in the target project/region before deployment.
