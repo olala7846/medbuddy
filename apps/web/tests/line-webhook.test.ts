@@ -58,6 +58,7 @@ function createHarness(options: {
     },
   };
   const replies: { replyToken: string; text: string }[] = [];
+  const attachmentTasks: { workspaceId: string; attachmentId: string }[] = [];
   const logs: LineOperationalLogEntry[] = [];
   const threadConversation = new ThreadConversationService({
     messages: persistence.messages,
@@ -74,6 +75,9 @@ function createHarness(options: {
       familyMaps: persistence.familyMaps,
       responder,
       systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
+      attachmentDispatcher: {
+        async dispatch(input) { attachmentTasks.push(input); },
+      },
     }),
     replyClient: { async reply(input) {
       replies.push(input);
@@ -81,7 +85,7 @@ function createHarness(options: {
     } },
     logger: { write(entry) { logs.push(entry); } },
   });
-  return { handler, continuity, logs, messages: persistence.messages, modelRequests, replies };
+  return { attachmentTasks, handler, continuity, logs, messages: persistence.messages, modelRequests, replies };
 }
 
 describe("LINE webhook", () => {
@@ -431,6 +435,41 @@ describe("LINE webhook", () => {
     ]);
     await harness.handler.handle({ ...signedBody([unsent]), correlationId: "request:fictional-unsend" });
     await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toHaveLength(3);
+  });
+
+  it("records and dispatches a supported attachment without model or reply exposure", async () => {
+    const harness = createHarness();
+    const event = {
+      type: "message",
+      mode: "active",
+      timestamp,
+      webhookEventId: "fictional-attachment-event",
+      source: { type: "group", groupId: "fictional-attachment-group", userId: "fictional-user-a" },
+      message: { id: "fictional-attachment-message", type: "image" },
+    };
+    await harness.handler.handle({
+      ...signedBody([event]),
+      correlationId: "request:fictional-attachment",
+    });
+    const ids = deriveLineConversationIds({
+      channel: "LINE",
+      conversationType: "GROUP",
+      conversationId: "fictional-attachment-group",
+      senderId: "fictional-user-a",
+      messageId: "fictional-attachment-message",
+      eventId: "fictional-attachment-event",
+    });
+
+    await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toMatchObject([
+      { payload: { kind: "ATTACHMENT", attachmentId: ids.attachmentId, mediaClass: "IMAGE" } },
+    ]);
+    await expect(harness.continuity.getAttachment(ids.workspaceId, ids.attachmentId)).resolves.toMatchObject({
+      state: "PENDING",
+      attempts: 0,
+    });
+    expect(harness.attachmentTasks).toEqual([{ workspaceId: ids.workspaceId, attachmentId: ids.attachmentId }]);
+    expect(harness.modelRequests).toEqual([]);
+    expect(harness.replies).toEqual([]);
   });
 
   it("rejects invalid signatures before parsing or persistence", async () => {

@@ -6,6 +6,7 @@ import {
   type ContinuityConversation,
   type ContinuityRepository,
   type ContinuityTaskDispatcher,
+  type AttachmentTaskDispatcher,
   MessageSchema,
   type MessageRepository,
   ObserveContinuityConversationInputSchema,
@@ -35,6 +36,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
     responder: ConversationResponder;
     systemInstructions: string;
     dispatcher?: ContinuityTaskDispatcher;
+    attachmentDispatcher?: AttachmentTaskDispatcher;
     now?: () => string;
   }) {}
 
@@ -64,6 +66,26 @@ export class ContinuityThreadConversationService implements ContinuityConversati
         processingStatus: "IGNORED",
         processingAttempts: 0,
       });
+    }
+    if (input.payload.kind === "ATTACHMENT") {
+      await this.dependencies.continuity.putAttachment({
+        id: input.payload.attachmentId,
+        workspaceId: input.workspaceId,
+        sourceEventId: accepted.event.id,
+        mediaClass: input.payload.mediaClass,
+        state: input.payload.mediaClass === "OTHER" ? "FAILED" : "PENDING",
+        attempts: 0,
+      });
+      if (input.payload.mediaClass !== "OTHER" && this.dependencies.attachmentDispatcher !== undefined) {
+        try {
+          await this.dependencies.attachmentDispatcher.dispatch({
+            workspaceId: input.workspaceId,
+            attachmentId: input.payload.attachmentId,
+          });
+        } catch {
+          // The pending record remains durable for a later dispatch retry.
+        }
+      }
     }
     await this.scheduleWithoutBlocking(input.workspaceId);
     if (input.payload.kind !== "TEXT" || !input.payload.replyRequested || input.providerMessageId === undefined) {

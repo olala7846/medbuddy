@@ -4,6 +4,7 @@ import { AttachmentDocumentSchema, CaptureJobInputSchema, ContinuityTaskInputSch
 import {
   CloudTasksCaptureDispatcher,
   CloudTasksContinuityDispatcher,
+  ContinuityPrivateAttachmentStorage,
   PrivateAttachmentStorage,
   taskAuthorizationToken,
   verifyTaskCallback,
@@ -201,5 +202,43 @@ describe("private attachment storage", () => {
       },
     ]);
     await expect(storage.upload({ attachment, bytes: new Uint8Array([1]) })).rejects.toThrow("declared size");
+  });
+
+  it("derives a private object path and validates signature, size, and checksum", async () => {
+    const saves: Array<{ path: string; bytes: Uint8Array; options: unknown }> = [];
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const checksum = "7f47b756761a46e6d4a4d96f0d8a4448f8449235009d1f3ad1493f5c773c19e8";
+    const storage = new ContinuityPrivateAttachmentStorage({
+      bucket: () => ({
+        file: (path: string) => ({
+          save: async (savedBytes: Uint8Array, options: unknown) => saves.push({ path, bytes: savedBytes, options }),
+        }),
+      }),
+    } as never, "private-fictional-bucket");
+    await storage.saveValidated({
+      workspaceId: "workspace:orchard" as never,
+      attachmentId: "attachment:fictional-1" as never,
+      mimeType: "image/png",
+      bytes,
+      checksum,
+    });
+    expect(saves).toMatchObject([{
+      path: "continuity/workspaces/workspace:orchard/attachments/attachment:fictional-1",
+      bytes,
+    }]);
+    await expect(storage.saveValidated({
+      workspaceId: "workspace:orchard" as never,
+      attachmentId: "attachment:fictional-2" as never,
+      mimeType: "application/pdf",
+      bytes,
+      checksum,
+    })).rejects.toThrow(/signature/i);
+    await expect(storage.saveValidated({
+      workspaceId: "workspace:orchard" as never,
+      attachmentId: "attachment:fictional-3" as never,
+      mimeType: "image/png",
+      bytes,
+      checksum: "a".repeat(64),
+    })).rejects.toThrow(/checksum/i);
   });
 });
