@@ -1,6 +1,6 @@
 # Implementation Plan: Long-Running Conversation Continuity
 
-**Status:** Proposed for review; not approved for implementation
+**Status:** Approved for implementation
 
 **Requirements:** [`../docs/proposals/LONG_RUNNING_CONVERSATION_CONTINUITY_DESIGN.md`](../docs/proposals/LONG_RUNNING_CONVERSATION_CONTINUITY_DESIGN.md)
 
@@ -467,7 +467,7 @@ git diff --check origin/main...HEAD
 
 ## Approval gate
 
-Implementation begins only after the user explicitly approves this plan and
-checklist. After approval, the coordinator fetches `origin`, verifies its exact
-commit and required seams again, creates a new clean implementation worktree and
-`codex/` branch, and delegates the approved tasks to one implementer subagent.
+The user approved this plan and checklist. The coordinator must fetch `origin`,
+verify its exact commit and required seams again, create a new clean
+implementation worktree and `codex/` branch, and delegate the approved tasks to
+one implementer subagent.

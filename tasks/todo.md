@@ -1,6 +1,6 @@
 # Long-Running Conversation Continuity Checklist
 
-**Status:** Proposed for review; not approved for implementation
+**Status:** Approved for implementation
 
 ## Approval gates
 
@@ -8,7 +8,7 @@
 - [x] Reconcile Effort 2 with the implemented Effort 1 family map.
 - [x] Obtain explicit user approval of the Effort 2 design.
 - [x] Record `gemini-3.6-flash` as the user-selected model.
-- [ ] Obtain explicit user approval of this implementation plan and checklist.
+- [x] Obtain explicit user approval of this implementation plan and checklist.
 - [ ] Re-fetch and verify the exact `origin/main` implementation base.
 - [ ] Create the dedicated clean implementation worktree and `codex/` branch.
 
