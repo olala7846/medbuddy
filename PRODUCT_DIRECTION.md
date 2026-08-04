@@ -2,77 +2,62 @@
 
 **Status:** Accepted
 
-**Effective date:** 2026-07-31
+**Effective date:** 2026-08-03
 
-**Current priority:** Deliver personal family value through a live Telegram agent.
+**Current priority:** Prove a usable LINE conversational agent in a group or DM.
 
 ## North Star
 
-MedBuddy should participate in a real, private family group chat and reduce the work required to coordinate care. It should quietly turn ordinary conversation, observations, photos, and visit documents into an attributed timeline, then help the family prepare and communicate before and after appointments.
+MedBuddy should participate in an existing family conversation and reduce the work of coordinating care. The first proof is intentionally narrower: people in one LINE conversation can exchange useful model-backed text with MedBuddy without data crossing into another conversation.
 
-The first proof is not a polished reviewer demo. It is sustained usefulness to one real family.
+## First Milestone
 
-## First Live Alpha
+Deliver this complete path before adding medical specialization or memory:
 
-The first live workspace is:
+```text
+verified LINE text event
+  -> isolated group or DM workspace
+  -> bounded real conversational model
+  -> reply to the same LINE conversation
+```
 
-- one private Telegram group;
-- two consenting adult participants;
-- one dependent child represented by a non-identifying alias;
-- one adult serving as the technical workspace steward;
-- English interaction;
-- a passive agent that reacts after capture and otherwise speaks only when mentioned or commanded, except for narrow deterministic urgent-language escalation.
-
-The alpha succeeds when the family can:
-
-1. report observations naturally in the group;
-2. see that candidate facts were captured without interrupting the conversation;
-3. review, correct, reject, or mark those facts uncertain;
-4. request a source-linked timeline and pre-visit brief;
-5. share an after-visit document or reported instruction and request a reviewed family summary;
-6. ask MedBuddy factual questions about the captured family record; and
-7. pause processing, revoke consent, and delete retained data.
+- One LINE group, legacy multi-person room, or DM is one workspace.
+- A workspace may later contain multiple caregivers and multiple people of interest.
+- DMs receive replies to eligible text messages. Groups and rooms receive replies only when the bot is explicitly mentioned.
+- Webhook retries must not create another model turn, persisted message, or reply.
+- Operational telemetry contains metadata only, never message bodies, prompts, outputs, credentials, or LINE identifiers.
 
 ## Priority Order
 
-When scope competes, use this order:
+1. Signature verification, thread isolation, retry deduplication, privacy, and deterministic medical-safety boundaries.
+2. A working LINE text -> real model -> LINE reply loop using synthetic fixtures first.
+3. Fictional deployed smoke testing and operational visibility.
+4. System-prompt design, rolling memory, and long-term memory.
+5. Agent tools, medical specialization, attachments, and structured care workflows.
 
-1. Privacy, consent, provenance, and medical-safety boundaries.
-2. A working Telegram message-to-fact-to-visit-brief path.
-3. Usefulness and trust for the participating family.
-4. Reliability, deletion, retention, and operational visibility.
-5. Images and after-visit documents.
-6. Conversational quality and additional channels.
-7. Web presentation and external-review polish.
+The Telegram-first family-alpha sequence is superseded. Its consent, provenance, retention, and caregiver-workflow ideas remain useful future input, but they do not block this conversational proof.
 
-Do not spend time polishing the existing fake-backed web demo unless the work directly enables, tests, or operates the live Telegram path.
+## Locked Decisions
 
-## Locked Alpha Decisions
-
-- Telegram is the first channel.
-- Existing GCP, Firestore, Cloud Tasks, Cloud Storage, and Vertex foundations remain the target platform.
-- One adult is the technical steward; every adult participant must consent independently.
-- Any membership change pauses health processing until the steward approves the new snapshot and all participants consent.
-- Raw downloaded media expires after 30 days by default.
-- Reviewed structured facts expire after 180 days by default unless the workspace is deleted earlier.
-- The bot receives only messages posted after activation; it does not claim to reconstruct earlier Telegram history.
-- The agent may organize, attribute, summarize, surface uncertainty, and propose follow-up questions.
-- The agent must not diagnose, prescribe, infer treatment, decide medication changes, or claim continuous safety monitoring.
+- LINE Messaging API is the first live channel.
+- The existing TypeScript modular monolith, Firestore, Cloud Run, and Vertex foundations remain the target platform.
+- LINE types remain in the HTTP adapter; Chat and Intelligence receive channel-neutral contracts.
+- Raw LINE identifiers are transformed into stable opaque internal IDs and are never logged.
+- Conversation context is bounded to recent messages from exactly one workspace.
+- The model receives no repositories or tools and cannot write canonical medical facts.
+- Deterministic code refuses diagnosis, prescribing, and medication-change decisions before model discretion.
+- Rolling summaries, retrieval, cross-thread identity, private participant memory, tools, and specialized medical prompts are deferred.
 
 ## Public Repository Boundary
 
-Real family messages, names, Telegram identifiers, images, documents, health facts, prompts containing those facts, credentials, and model outputs must never enter this repository, fixtures, issues, pull requests, screenshots, test recordings, or logs. Repository evidence remains fictional, synthetic, or irreversibly anonymized.
+Credentials, real LINE identifiers, real messages, health facts, prompts, outputs, screenshots, and raw interview material must never enter repository artifacts or operational logs. Tests and smoke instructions use fictional identifiers and content.
 
-Real data may be processed only by the explicitly approved private runtime after the live-data safety checkpoint in the implementation plan passes.
-
-## Relationship to the AI Fund Challenge
-
-The original challenge created useful safety and architecture constraints, but its submission deadline and reviewer-oriented deliverables no longer determine implementation priority. The medical-safety contract remains binding. The current product direction, family-alpha specification, and execution roadmap supersede the old presentation plan.
+Real family data may be introduced only after a fictional deployed smoke, accurate privacy disclosure, adequate retention/deletion behavior, and a log review.
 
 ## Canonical Documents
 
 - Product direction: this file
-- Family-alpha specification: [`docs/TELEGRAM_FAMILY_ALPHA_SPEC.md`](./docs/TELEGRAM_FAMILY_ALPHA_SPEC.md)
-- Implementation roadmap: [`tasks/plan.md`](./tasks/plan.md)
+- Current specification: [`docs/LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md`](./docs/LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md)
+- Implementation plan: [`tasks/plan.md`](./tasks/plan.md)
 - Executable checklist: [`tasks/todo.md`](./tasks/todo.md)
-- Decision record: [`docs/decisions/0001-prioritize-live-telegram-family-alpha.md`](./docs/decisions/0001-prioritize-live-telegram-family-alpha.md)
+- Decision record: [`docs/decisions/0002-line-first-conversational-prototype.md`](./docs/decisions/0002-line-first-conversational-prototype.md)

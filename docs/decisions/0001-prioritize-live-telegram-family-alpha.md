@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by ADR-0002 on 2026-08-03
 
 ## Date
 

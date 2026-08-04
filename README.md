@@ -1,8 +1,8 @@
 # MedBuddy
 
-MedBuddy is becoming a passive AI participant in a real private family group chat. It captures attributed observations and reported instructions, maintains a reviewable timeline, and helps the family prepare and communicate before and after appointments without making medical decisions.
+MedBuddy is becoming an AI participant in an existing family conversation without making medical decisions.
 
-The current goal is a live Telegram family alpha for two adult caregivers coordinating care for one dependent child. A working message-to-fact-to-visit-brief path is more important than further polish of the existing fake-backed web demo. See [`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md).
+The current goal is the first usable LINE conversational prototype: a verified LINE text event maps to one isolated group/DM workspace, crosses a real bounded model interface, and replies to the same LINE conversation. Memory, tools, and specialized medical behavior follow only after this loop works. See [`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md).
 
 ## Start here (progressive disclosure)
 
@@ -37,8 +37,7 @@ apps/web ──→ contracts
         ──→ chat ──→ care-record ──→ contracts
         ──→ care-record
         ──→ platform ──→ contracts
-
-intelligence ──→ contracts   (not yet wired into apps/web)
+        ──→ intelligence ──→ contracts
 ```
 
 `platform` depends only on `contracts` (+ GCP SDKs); domain policy never lives in adapters.
@@ -49,6 +48,7 @@ intelligence ──→ contracts   (not yet wired into apps/web)
 npm ci
 npm exec playwright install chromium
 npm run dev           # local fictional demo at http://localhost:3000
+npm run smoke:line    # synthetic signed LINE conversation proof; no credentials
 npm test
 npm run check          # typecheck + lint
 npm run test:e2e      # isolated browser smoke test at http://localhost:3100
@@ -63,7 +63,9 @@ See package READMEs and [docs/ops notes via INDEX](./docs/INDEX.md) for deployme
 ## Documentation
 
 - Current direction: [PRODUCT_DIRECTION.md](./PRODUCT_DIRECTION.md)
-- Telegram family-alpha spec: [docs/TELEGRAM_FAMILY_ALPHA_SPEC.md](./docs/TELEGRAM_FAMILY_ALPHA_SPEC.md)
+- Current LINE prototype spec: [docs/LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md](./docs/LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md)
+- LINE console and live fictional-smoke setup: [docs/LINE_SETUP.md](./docs/LINE_SETUP.md)
+- Superseded Telegram family-alpha spec: [docs/TELEGRAM_FAMILY_ALPHA_SPEC.md](./docs/TELEGRAM_FAMILY_ALPHA_SPEC.md)
 - Earlier product PRD: [docs/PRD.md](./docs/PRD.md)
 - Architecture skim: [docs/engineering/ARCHITECTURE.md](./docs/engineering/ARCHITECTURE.md)
 - Full technical design: [docs/TDD.md](./docs/TDD.md)

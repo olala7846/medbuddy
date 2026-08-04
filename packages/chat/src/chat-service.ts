@@ -155,7 +155,6 @@ export class ChatService implements ChatServicePort {
     if (!message.body.includes("@MedBuddy")) return;
     const contextMessages = [...await this.dependencies.messages.listMessages(message.workspaceId)].sort(compareMessages).slice(-20);
     const result = await this.dependencies.responder.respond({
-      actor,
       messageId: message.id,
       context: { workspaceId: message.workspaceId, messages: contextMessages },
     });

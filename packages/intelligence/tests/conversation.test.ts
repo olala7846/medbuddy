@@ -84,6 +84,29 @@ describe("conversation responder", () => {
     expect(provider.requests).toEqual([]);
   });
 
+  it.each([
+    "@MedBuddy Can you diagnose this rash?",
+    "@MedBuddy What medicine should I take for this symptom?",
+  ])("refuses diagnosis or prescribing before invoking the provider: %s", async (body) => {
+    const provider = new FixedConversationProvider(new Map());
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    const result = await responder.respond({
+      ...request,
+      context: {
+        ...request.context,
+        messages: [{ ...focalMessage, body }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: "REFUSED_MEDICAL_ADVICE",
+      retryable: false,
+      responseText: expect.stringContaining("cannot diagnose"),
+    });
+    expect(provider.requests).toEqual([]);
+  });
+
   it("returns a friendly non-medication acknowledgment without a medication claim", async () => {
     const responder = new ConversationResponder(
       createFixtureMedicationGrounding(),
@@ -94,6 +117,37 @@ describe("conversation responder", () => {
       kind: "RESPONDED",
       retryable: false,
       responseText: "Thanks for sharing. I can help record what you observed or show general information from a supplied medication source card.",
+    });
+  });
+
+  it("returns bounded conversational text from the provider", async () => {
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      new FixedConversationProvider(new Map([[focalMessage.id, {
+        kind: "REPLY",
+        text: "I can help think that through with you.",
+      }]])),
+    );
+
+    await expect(responder.respond(request)).resolves.toEqual({
+      kind: "RESPONDED",
+      retryable: false,
+      responseText: "I can help think that through with you.",
+    });
+  });
+
+  it("rejects empty or oversized conversational model text", async () => {
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      new FixedConversationProvider(new Map([[focalMessage.id, {
+        kind: "REPLY",
+        text: "x".repeat(5_001),
+      }]])),
+    );
+
+    await expect(responder.respond(request)).resolves.toEqual({
+      kind: "TECHNICAL_FAILURE",
+      retryable: true,
     });
   });
 

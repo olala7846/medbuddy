@@ -18,11 +18,44 @@ export type ProductionConfig = {
   attachmentBucket: string;
 };
 
+const RequiredLineConfigSchema = z.object({
+  MEDBUDDY_GCP_PROJECT_ID: z.string().trim().min(1),
+  MEDBUDDY_LINE_CHANNEL_SECRET: z.string().min(1),
+  MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN: z.string().min(1),
+});
+
+export type LineConfiguration = {
+  projectId: string;
+  channelSecret: string;
+  channelAccessToken: string;
+};
+
 /** Safe startup error: it names missing keys but never echoes values or secrets. */
 export class ProductionConfigurationError extends Error {
   constructor(readonly missingKeys: readonly string[]) {
     super(`Production configuration is incomplete: ${missingKeys.join(", ")}.`);
   }
+}
+
+export class LineConfigurationError extends Error {
+  constructor(readonly missingKeys: readonly string[]) {
+    super(`LINE configuration is incomplete: ${missingKeys.join(", ")}.`);
+  }
+}
+
+export function loadLineConfiguration(
+  environment: Record<string, string | undefined>,
+): LineConfiguration {
+  const parsed = RequiredLineConfigSchema.safeParse(environment);
+  if (!parsed.success) {
+    const missingKeys = [...new Set(parsed.error.issues.map((issue) => String(issue.path[0])))].sort();
+    throw new LineConfigurationError(missingKeys);
+  }
+  return {
+    projectId: parsed.data.MEDBUDDY_GCP_PROJECT_ID,
+    channelSecret: parsed.data.MEDBUDDY_LINE_CHANNEL_SECRET,
+    channelAccessToken: parsed.data.MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN,
+  };
 }
 
 export function loadProductionConfig(environment: Record<string, string | undefined>): ProductionConfig {

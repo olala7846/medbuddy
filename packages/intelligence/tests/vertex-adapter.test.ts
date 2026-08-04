@@ -70,7 +70,7 @@ describe("Vertex adapters", () => {
     expect(globalConfiguration).toEqual({
       projectId: "fictional-project",
       location: "global",
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
     });
     await new VertexRestClient(globalConfiguration!, accessToken, fetchStub).generate({
       systemInstruction: "fictional",
@@ -86,7 +86,7 @@ describe("Vertex adapters", () => {
     });
 
     expect(urls).toEqual([
-      "https://aiplatform.googleapis.com/v1/projects/fictional-project/locations/global/publishers/google/models/gemini-3.6-flash:generateContent",
+      "https://aiplatform.googleapis.com/v1/projects/fictional-project/locations/global/publishers/google/models/gemini-2.5-flash:generateContent",
       "https://us-central1-aiplatform.googleapis.com/v1/projects/fictional-project/locations/us-central1/publishers/google/models/regional-fictional-model:generateContent",
     ]);
   });
@@ -98,7 +98,7 @@ describe("Vertex adapters", () => {
     const clientWithTimeout = new VertexRestClient({
       projectId: "fictional-project",
       location: "global",
-      model: "gemini-3.6-flash",
+      model: "gemini-2.5-flash",
     }, { async getAccessToken() { return "fictional-access-token"; } }, stalledFetch, 1);
 
     await expect(clientWithTimeout.generate({
@@ -160,6 +160,45 @@ describe("Vertex adapters", () => {
     expect(requests).toEqual([{
       systemInstruction: expect.any(String),
       contents: [{ role: "user", parts: [{ text: focalMessage.body }] }],
+    }]);
+  });
+
+  it("sends only bounded supplied thread context to the conversational model", async () => {
+    const requests: unknown[] = [];
+    const recordingClient: VertexModelClient = {
+      async generate(input) {
+        requests.push(input);
+        return { candidates: [{ content: { parts: [{ text: '{"kind":"REPLY","text":"A fictional reply."}' }] } }] };
+      },
+    };
+    const priorModelMessage = MessageSchema.parse({
+      ...focalMessage,
+      id: "message:prior-model",
+      authorMemberId: "MEDBUDDY",
+      body: "A prior fictional reply.",
+      revision: 1,
+    });
+    const currentMessage = MessageSchema.parse({
+      ...focalMessage,
+      id: "message:current-human",
+      body: "A fictional follow-up.",
+      revision: 2,
+    });
+
+    await expect(new VertexConversationProvider(recordingClient).respond({
+      focalMessage: currentMessage,
+      context: {
+        workspaceId: currentMessage.workspaceId,
+        messages: [priorModelMessage, currentMessage],
+      },
+    })).resolves.toEqual({ kind: "REPLY", text: "A fictional reply." });
+
+    expect(requests).toEqual([{
+      systemInstruction: expect.stringContaining("general conversational assistant"),
+      contents: [
+        { role: "model", parts: [{ text: "A prior fictional reply." }] },
+        { role: "user", parts: [{ text: "A fictional follow-up." }] },
+      ],
     }]);
   });
 });

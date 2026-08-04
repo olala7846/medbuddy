@@ -8,8 +8,12 @@ import {
   FictionalDemoWorkspaceProvisioner,
   seedCredentialTestWorkspace,
 } from "../../src/composition/demo-workspace.js";
+import { createLineWebhookComposition } from "../../src/composition/line.js";
+import { LineWebhookHandler } from "../../src/line/index.js";
 import {
+  LineConfigurationError,
   ProductionConfigurationError,
+  loadLineConfiguration,
   loadProductionConfig,
 } from "../../src/composition/config.js";
 
@@ -39,6 +43,36 @@ describe("production composition configuration", () => {
       taskServiceAccountEmail: "tasks@fictional-project.iam.gserviceaccount.com",
       attachmentBucket: "fictional-medbuddy-private",
     });
+  });
+
+  it("loads LINE secrets without including them in errors or returned diagnostics", () => {
+    const lineEnvironment = {
+      MEDBUDDY_GCP_PROJECT_ID: "fictional-project",
+      MEDBUDDY_LINE_CHANNEL_SECRET: "fictional-channel-secret",
+      MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN: "fictional-channel-access-token",
+    };
+    expect(loadLineConfiguration(lineEnvironment)).toEqual({
+      projectId: "fictional-project",
+      channelSecret: "fictional-channel-secret",
+      channelAccessToken: "fictional-channel-access-token",
+    });
+
+    const incomplete = { ...lineEnvironment, MEDBUDDY_LINE_CHANNEL_SECRET: "" };
+    expect(() => loadLineConfiguration(incomplete)).toThrow(LineConfigurationError);
+    expect(() => loadLineConfiguration(incomplete)).toThrow("MEDBUDDY_LINE_CHANNEL_SECRET");
+    expect(() => loadLineConfiguration(incomplete)).not.toThrow("fictional-channel-access-token");
+  });
+
+  it("constructs the LINE conversation boundary without contacting live providers", () => {
+    const handler = createLineWebhookComposition({
+      MEDBUDDY_GCP_PROJECT_ID: "fictional-project",
+      MEDBUDDY_LINE_CHANNEL_SECRET: "fictional-channel-secret",
+      MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN: "fictional-channel-access-token",
+      MEDBUDDY_VERTEX_ENABLED: "true",
+      MEDBUDDY_VERTEX_PROJECT: "fictional-project",
+    }, { logger: { write() {} } });
+
+    expect(handler).toBeInstanceOf(LineWebhookHandler);
   });
 });
 

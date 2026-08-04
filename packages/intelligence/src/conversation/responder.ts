@@ -1,7 +1,7 @@
 import {
-  ConversationRequestSchema,
+  ConversationTurnRequestSchema,
   type ConversationContext,
-  type ConversationRequest,
+  type ConversationTurnRequest,
   type ConversationResponder as ConversationResponderPort,
   type ConversationResult,
   type MedicationGrounding,
@@ -10,11 +10,18 @@ import {
 import { z } from "zod";
 
 import { type MedicationLookupRenderResult } from "../grounding/render.js";
-import { routeMedicationDecision } from "../safety/route.js";
+import {
+  routeDiagnosisOrPrescribingRequest,
+  routeMedicationDecision,
+} from "../safety/route.js";
 import { lookupMedication } from "./tools.js";
 
 export const ConversationInstructionSchema = z.union([
   z.object({ kind: z.literal("ACKNOWLEDGE") }).strict(),
+  z.object({
+    kind: z.literal("REPLY"),
+    text: z.string().trim().min(1).max(5_000),
+  }).strict(),
   z.object({
     kind: z.literal("LOOKUP_MEDICATION"),
     query: z.object({
@@ -37,7 +44,7 @@ export class ConversationProviderError extends Error {
   }
 }
 
-/** A provider may select a fixed safe action, but never author response prose. */
+/** A provider may return bounded prose, but deterministic safety routes run first. */
 export interface ConversationProvider {
   respond(input: { focalMessage: Message; context: ConversationContext }): Promise<unknown>;
 }
@@ -83,8 +90,8 @@ function technicalFailure(): ConversationResult {
 
 /**
  * Handles a Chat-supplied, bounded conversation turn without canonical writes.
- * Medication decisions are rejected before provider invocation; all medication
- * prose is deterministically rendered from the lookup result.
+ * Diagnosis, prescribing, and medication decisions are rejected before provider
+ * invocation; source-card medication prose is deterministically rendered.
  */
 export class ConversationResponder implements ConversationResponderPort {
   constructor(
@@ -92,8 +99,8 @@ export class ConversationResponder implements ConversationResponderPort {
     private readonly provider: ConversationProvider,
   ) {}
 
-  async respond(input: ConversationRequest): Promise<ConversationResult> {
-    const request = ConversationRequestSchema.safeParse(input);
+  async respond(input: ConversationTurnRequest): Promise<ConversationResult> {
+    const request = ConversationTurnRequestSchema.safeParse(input);
     if (!request.success) {
       return technicalFailure();
     }
@@ -105,7 +112,8 @@ export class ConversationResponder implements ConversationResponderPort {
       return technicalFailure();
     }
 
-    const refusal = routeMedicationDecision(focalMessage);
+    const refusal = routeDiagnosisOrPrescribingRequest(focalMessage)
+      ?? routeMedicationDecision(focalMessage);
     if (refusal !== null) {
       return {
         kind: refusal.kind,
@@ -133,6 +141,9 @@ export class ConversationResponder implements ConversationResponderPort {
   private async respondToInstruction(instruction: ConversationInstruction): Promise<ConversationResult> {
     if (instruction.kind === "ACKNOWLEDGE") {
       return { kind: "RESPONDED", responseText: acknowledgmentText, retryable: false };
+    }
+    if (instruction.kind === "REPLY") {
+      return { kind: "RESPONDED", responseText: instruction.text, retryable: false };
     }
 
     return {

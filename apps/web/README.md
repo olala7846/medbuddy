@@ -2,6 +2,18 @@
 
 Application shell and runnable local browser host: authentication, actor resolution, HTTP route adapters, and composition roots for demo and production wiring.
 
+## LINE webhook
+
+`POST /api/line/webhook` is the server-only LINE Messaging API boundary. It verifies the exact bounded raw body before parsing, maps one DM/group/room to an opaque workspace, invokes the isolated conversation path, and uses the event reply token once. Group and legacy-room messages require LINE's explicit self-mention marker.
+
+Run the credential-free signed synthetic path with:
+
+```bash
+npm run smoke:line
+```
+
+Live configuration and the fictional-only rollout checkpoint are documented in [`../../docs/LINE_SETUP.md`](../../docs/LINE_SETUP.md).
+
 ## Run the fictional local demo
 
 From the repository root:
@@ -45,9 +57,9 @@ Playwright starts a fresh dev process on `http://localhost:3100`, uses one Chrom
 
 Read-only review and printing of stored handoff v1/v2 are in scope. Review mutations, creation of new handoffs, workspace reset UI, production authentication, cloud persistence, background durability, WebSockets, deployment, and cross-browser certification remain deferred.
 
-### Dependency audit note (2026-07-31)
+### Dependency audit note (2026-08-03)
 
-Adding Next.js increases `npm audit` from the checkpoint's 10 findings to 13 (5 moderate, 8 high, 0 critical). The three additional high findings are reported through Next.js's pinned PostCSS build dependency and optional Sharp image dependency. This host processes only repository-authored CSS, does not use `next/image`, binds the dev server to loopback, and has no deployment path. npm currently offers only an incompatible forced downgrade to Next 9.3.3, so no forced remediation was applied. Recheck for a compatible patched Next.js release by 2026-08-31; the checkpoint's existing cloud-adapter findings remain tracked separately.
+`npm audit --omit=dev` reports 9 findings (5 moderate, 4 high, 0 critical). The high findings are transitive paths through Firestore's CLI cleanup dependencies and Next.js's PostCSS build and optional Sharp image dependencies. The LINE composition does not invoke those cleanup paths, process user-authored CSS or images, or use `next/image`; its public route accepts bounded JSON only. The existing moderate cloud-storage path is also outside the LINE composition. These findings are therefore not reachable through this prototype's LINE webhook, but remain deployment debt. Recheck and upgrade compatible dependencies before enabling real family data.
 
 ## Public entry
 
@@ -59,9 +71,8 @@ Adding Next.js increases `npm audit` from the checkpoint's 10 findings to 13 (5 
 - `@medbuddy/contracts`
 - `@medbuddy/chat`
 - `@medbuddy/care-record`
+- `@medbuddy/intelligence`
 - `@medbuddy/platform`
-
-Does **not** yet depend on `@medbuddy/intelligence` (wire when connecting responder/capture end-to-end).
 
 ## Must not
 
@@ -72,7 +83,8 @@ Does **not** yet depend on `@medbuddy/intelligence` (wire when connecting respon
 
 ```text
 src/auth/            Session providers and actor resolution
-src/composition/     Config, demo workspace, production wiring
+src/composition/     Config, demo workspace, production and LINE wiring
+src/line/            LINE signature, identity, reply, HTTP, runtime, and webhook adapters
 src/local-demo/      Process-local sessions, deterministic dispatcher, HTTP helpers
 src/*.ts             Route adapters and persona/chat helpers
 app/                 Next.js pages and localhost-only route handlers

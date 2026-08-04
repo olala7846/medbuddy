@@ -72,6 +72,21 @@ describe("in-memory persistence", () => {
   describeAttachmentRepositoryContract(() => new InMemoryPersistence().attachments);
   describeCareRecordRepositoryContract(() => new InMemoryPersistence().careRecords);
 
+  it("claims an opaque external event exactly once under concurrency", async () => {
+    const persistence = new InMemoryPersistence();
+    const results = await Promise.all(Array.from(
+      { length: 10 },
+      () => persistence.externalEvents.claim("event:opaque-fictional", "2026-08-03T12:00:00.000Z"),
+    ));
+
+    expect(results.filter((result) => result === "CLAIMED")).toHaveLength(1);
+    expect(results.filter((result) => result === "DUPLICATE")).toHaveLength(9);
+    await persistence.externalEvents.complete("event:opaque-fictional", "COMPLETED");
+    await expect(
+      persistence.externalEvents.claim("event:opaque-fictional", "2026-08-03T12:01:00.000Z"),
+    ).resolves.toBe("DUPLICATE");
+  });
+
   it("commits all repository writes together after a successful transaction", async () => {
     const persistence = new InMemoryPersistence();
     const workspace = workspaceFixture();

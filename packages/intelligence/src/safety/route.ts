@@ -1,6 +1,15 @@
 import type { MemberId, Message } from "@medbuddy/contracts";
 
-import { MEDICATION_DECISION_REFUSAL_TEXT } from "./templates.js";
+import {
+  MEDICAL_ADVICE_REFUSAL_TEXT,
+  MEDICATION_DECISION_REFUSAL_TEXT,
+} from "./templates.js";
+
+export interface MedicalAdviceRefusal {
+  readonly kind: "REFUSED_MEDICAL_ADVICE";
+  readonly responseText: typeof MEDICAL_ADVICE_REFUSAL_TEXT;
+  readonly retryable: false;
+}
 
 export type MedicationDecisionIntent =
   | "START"
@@ -38,6 +47,30 @@ const INTENT_PATTERNS: readonly [MedicationDecisionIntent, RegExp][] = [
   ["CONTINUE", /\b(continue|keep taking|keep using)\b|繼續/i],
   ["CHANGE", /\b(change|switch|adjust|increase|decrease)\b|調整|更改|改變/i],
 ];
+
+const DIAGNOSIS_OR_PRESCRIBING_PATTERNS: readonly RegExp[] = [
+  /\bdiagnos(?:e|ed|es|ing|is)\b/i,
+  /\b(?:do i have|what is wrong with me|could (?:this|it) be)\b/i,
+  /\b(?:what (?:medicine|medication|drug|treatment) should i (?:take|use)|what should i take for)\b/i,
+  /\b(?:prescribe|recommend) (?:me )?(?:a |an |some )?(?:medicine|medication|drug|treatment)\b/i,
+  /診斷|我得了什麼|這是什麼病|開(?:藥|處方)|推薦(?:藥物|治療)/i,
+];
+
+export function routeDiagnosisOrPrescribingRequest(message: Message): MedicalAdviceRefusal | null {
+  if (message.authorMemberId === "MEDBUDDY") {
+    return null;
+  }
+
+  if (!DIAGNOSIS_OR_PRESCRIBING_PATTERNS.some((pattern) => pattern.test(message.body))) {
+    return null;
+  }
+
+  return {
+    kind: "REFUSED_MEDICAL_ADVICE",
+    responseText: MEDICAL_ADVICE_REFUSAL_TEXT,
+    retryable: false,
+  };
+}
 
 function findMedicationDecisionIntent(body: string): MedicationDecisionIntent | null {
   if (!QUESTION_PATTERN.test(body)) {
