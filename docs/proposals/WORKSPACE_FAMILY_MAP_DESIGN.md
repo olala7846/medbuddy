@@ -6,7 +6,7 @@
 
 **Effort:** 1 of 3 — workspace family map
 
-**Target baseline:** The LINE-first conversational prototype in [PR #78](https://github.com/olala7846/medbuddy/pull/78), which remains open and must not be merged without explicit authorization
+**Target baseline:** The LINE-first conversational prototype merged with explicit authorization in [PR #78](https://github.com/olala7846/medbuddy/pull/78)
 
 ## 1. Objective
 
@@ -165,7 +165,11 @@ invent a member mapping.
 
 ## 6. Module and seam design
 
-The family map is a deep module owned by Chat. Callers learn a small interface; workspace scoping, normalization, revision checks, idempotency, persistence, and state transitions stay behind it.
+The family map is a deep capability whose public boundary is owned by the
+shared contracts. Chat binds the current workspace, actor, and source message;
+Intelligence owns the bounded model/tool loop; Platform enforces persistence
+invariants and storage. Callers still learn only the small workspace-scoped
+interface rather than repository or vendor details.
 
 ```text
 verified LINE event
@@ -188,9 +192,9 @@ verified LINE event
 | Module | Responsibility |
 | --- | --- |
 | `@medbuddy/contracts` | Zod schemas, branded values, discriminated outcomes, and public module interfaces. |
-| `@medbuddy/chat` | Workspace family-map policy, context assembly, turn-bound update capability, message orchestration, and the one-successful-update limit. |
-| `@medbuddy/intelligence` | Prompt rendering, Vertex function declarations, model-step parsing, and the bounded model/tool/model loop. It receives a narrow tool capability, never a repository or Firestore client. |
-| `@medbuddy/platform` | Firestore and in-memory repository adapters satisfying the same contract. It owns no family-map policy. |
+| `@medbuddy/chat` | Workspace context assembly, message orchestration, and the turn-bound update capability that supplies server-owned workspace, actor, source-message, and timestamp metadata. |
+| `@medbuddy/intelligence` | Prompt rendering, Vertex function declarations, model-step parsing, the bounded model/tool/model loop, and the one-successful-update-per-turn limit. It receives a narrow tool capability, never a repository or Firestore client. |
+| `@medbuddy/platform` | Firestore and in-memory repository adapters that normalize content and enforce source validation, compare-and-set revisions, idempotency, and durable state transitions. It owns no conversational or medical policy. |
 | `@medbuddy/web` | Composition and existing LINE transport behavior. Raw LINE identifiers and reply tokens stay adapter-local. |
 
 No new package, database, background worker, or framework is required.
@@ -407,7 +411,7 @@ There are no candidate, promoted, rejected, superseded-content, expired, or hist
 
 ## 10. Bounded agent loop
 
-The current PR #78 conversation provider performs one model call and explicitly prohibits tools. Effort 1 replaces that internal behavior with this bounded sequence:
+The PR #78 baseline conversation provider performed one model call and explicitly prohibited tools. Effort 1 replaced that internal behavior with this bounded sequence:
 
 1. Run deterministic diagnosis, prescribing, and medication-decision refusal before model invocation.
 2. Assemble one workspace-scoped context.
@@ -637,16 +641,15 @@ apps/web/                 composition only; existing LINE adapter remains transp
 - Treat the family map as reviewed medical information.
 - Diagnose, prescribe, or recommend medication changes.
 - Copy family-map or conversation content into telemetry, fixtures, issues, pull requests, or commits.
-- Merge PR #78 without explicit user authorization.
 
-## 19. Open questions for the implementation plan
+## 19. Implementation decisions
 
-These questions do not change the approved product scope but require plan-level verification:
+The implementation resolved the plan-level questions without changing the approved product scope:
 
-1. How should the existing direct Vertex REST adapter budget its per-step timeouts within the deployed request deadline?
-2. Should tool transport remain direct REST or use an existing Google client already present in the lockfile? No new dependency is justified by this design alone.
-3. What exact package-local filenames best preserve the repository’s module-boundary checks after PR #78 lands?
-4. Which supported Vertex model should be used when implementation begins, given the currently deployed model’s documented retirement date in `docs/LINE_SETUP.md`?
+1. The responder uses one 25-second turn deadline and gives each model or tool step only the remaining time.
+2. Tool transport remains in the existing direct Vertex REST adapter; Effort 1 adds no dependency.
+3. Contracts, orchestration, model transport, persistence, and composition remain in their existing package boundaries.
+4. The deployed fictional smoke continues to use the verified `gemini-2.5-flash` model. Its retirement remains tracked in `docs/LINE_SETUP.md` and requires a separately tested successor.
 
 ## 20. Explicit deferrals
 
