@@ -145,6 +145,23 @@ describe("conversation responder", () => {
       result: { kind: "REVISION_CONFLICT", familyMap: { revision: 2, content: "current" } },
     });
   });
+
+  it("bounds the complete model and tool loop with one turn deadline", async () => {
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      {
+        async respond() {
+          return new Promise(() => undefined);
+        },
+      },
+      1,
+    );
+
+    await expect(responder.respond(request)).resolves.toEqual({
+      kind: "TECHNICAL_FAILURE",
+      retryable: true,
+    });
+  });
   it("returns a friendly answer using only the supplied source-card claims and limitations", async () => {
     const responder = new ConversationResponder(
       createFixtureMedicationGrounding(),

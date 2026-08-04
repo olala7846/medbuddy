@@ -115,6 +115,7 @@ export class ConversationResponder implements ConversationResponderPort {
   constructor(
     private readonly grounding: MedicationGrounding,
     private readonly provider: ConversationProvider,
+    private readonly turnTimeoutMs = 25_000,
   ) {}
 
   async respond(input: ConversationTurnRequest, tools?: ConversationTurnTools): Promise<ConversationResult> {
@@ -141,16 +142,17 @@ export class ConversationResponder implements ConversationResponderPort {
     }
 
     try {
+      const deadline = Date.now() + this.turnTimeoutMs;
       let toolCalls = 0;
       let retryAfterConflict = false;
       let toolResult: unknown;
       for (let modelStep = 0; modelStep < 3; modelStep += 1) {
-        const output = await this.provider.respond({
+        const output = await this.beforeDeadline(() => this.provider.respond({
           focalMessage,
           context: request.data.context,
           toolResult,
           familyMapUpdatesAllowed: toolCalls === 0 || retryAfterConflict,
-        });
+        }), deadline);
         const instruction = ConversationInstructionSchema.safeParse(output);
         if (!instruction.success) return technicalFailure(toolCalls || undefined);
         if (instruction.data.kind !== "UPDATE_WORKSPACE_FAMILY_MAP") {
@@ -161,22 +163,45 @@ export class ConversationResponder implements ConversationResponderPort {
           return technicalFailure(toolCalls || undefined);
         }
         toolCalls += 1;
-        const result = await tools.updateWorkspaceFamilyMap.update(instruction.data.input);
+        const updateInput = instruction.data.input;
+        const result = await this.beforeDeadline(
+          () => tools.updateWorkspaceFamilyMap.update(updateInput),
+          deadline,
+        );
         if (result.kind === "REJECTED" || result.kind === "TECHNICAL_FAILURE") {
           return technicalFailure(toolCalls);
         }
         if (result.kind === "REVISION_CONFLICT") {
           if (toolCalls > 1) return technicalFailure(toolCalls);
           retryAfterConflict = true;
-          toolResult = { call: instruction.data.input, result };
+          toolResult = { call: updateInput, result };
           continue;
         }
         retryAfterConflict = false;
-        toolResult = { call: instruction.data.input, result };
+        toolResult = { call: updateInput, result };
       }
       return technicalFailure(toolCalls);
     } catch {
       return technicalFailure();
+    }
+  }
+
+  private async beforeDeadline<Value>(operation: () => Promise<Value>, deadline: number): Promise<Value> {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) throw new ConversationProviderError("PROVIDER_TIMEOUT");
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        operation(),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(
+            () => reject(new ConversationProviderError("PROVIDER_TIMEOUT")),
+            remainingMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
     }
   }
 
