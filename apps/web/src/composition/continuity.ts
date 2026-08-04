@@ -171,7 +171,16 @@ export class ContinuityCompactionWorker {
         promptVersion: this.dependencies.promptVersion,
         createdAt: this.dependencies.now(),
       });
-      await this.dependencies.continuity.publishSegment(segment);
+      try {
+        await this.dependencies.continuity.publishSegment(segment);
+      } catch (error) {
+        this.dependencies.logger.write({
+          event: "continuity_publication_conflict",
+          level: active.level,
+          attempt,
+        });
+        throw error;
+      }
       this.dependencies.logger.write({
         event: "continuity_job_completed",
         level: active.level,

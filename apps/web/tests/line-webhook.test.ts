@@ -507,6 +507,38 @@ describe("LINE webhook", () => {
     expect(harness.logs).toContainEqual(expect.objectContaining({ code: "ATTACHMENT_FAILURE" }));
   });
 
+  it("keeps unsupported files as unavailable metadata without locator or task dispatch", async () => {
+    const harness = createHarness();
+    const event = {
+      type: "message",
+      mode: "active",
+      timestamp,
+      webhookEventId: "fictional-unsupported-file-event",
+      source: { type: "user", userId: "fictional-user-a" },
+      message: { id: "fictional-unsupported-file-message", type: "file", fileName: "fictional-notes.txt" },
+    };
+    await harness.handler.handle({
+      ...signedBody([event]),
+      correlationId: "request:fictional-unsupported-file",
+    });
+    const ids = deriveLineConversationIds({
+      channel: "LINE",
+      conversationType: "DM",
+      conversationId: "fictional-user-a",
+      senderId: "fictional-user-a",
+      messageId: "fictional-unsupported-file-message",
+      eventId: "fictional-unsupported-file-event",
+    });
+    await expect(harness.continuity.getAttachment(ids.workspaceId, ids.attachmentId)).resolves.toMatchObject({
+      mediaClass: "OTHER",
+      state: "FAILED",
+      attempts: 0,
+    });
+    expect(harness.attachmentLocators).toEqual([]);
+    expect(harness.attachmentTasks).toEqual([]);
+    expect(harness.modelRequests).toEqual([]);
+  });
+
   it("rejects invalid signatures before parsing or persistence", async () => {
     const harness = createHarness();
     const request = signedBody([textEvent()]);
