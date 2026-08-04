@@ -20,8 +20,8 @@
 - [x] Checkpoint A: Contracts, adapter tests, and `npm run check` pass.
 - [x] Task 4: Implement projection and deterministic context assembly.
 - [x] Task 5: Implement compaction planning, validation, and publication policy.
-- [ ] Task 6: Add bounded four-field summary generation for `gemini-3.6-flash`.
-- [ ] Checkpoint B: Chat and Intelligence continuity suites pass.
+- [x] Task 6: Add bounded four-field summary generation for `gemini-3.6-flash`.
+- [x] Checkpoint B: Chat and Intelligence continuity suites pass.
 - [ ] Task 7: Implement and emulator-test the Firestore adapter.
 - [ ] Task 8: Add durable compaction dispatch and private task execution.
 - [ ] Task 9: Replace count-based LINE orchestration and publish outbound only after acceptance.

@@ -73,7 +73,7 @@ describe("Vertex adapters", () => {
     expect(globalConfiguration).toEqual({
       projectId: "fictional-project",
       location: "global",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
     });
     await new VertexRestClient(globalConfiguration!, accessToken, fetchStub).generate({
       systemInstruction: "fictional",
@@ -89,7 +89,7 @@ describe("Vertex adapters", () => {
     });
 
     expect(urls).toEqual([
-      "https://aiplatform.googleapis.com/v1/projects/fictional-project/locations/global/publishers/google/models/gemini-2.5-flash:generateContent",
+      "https://aiplatform.googleapis.com/v1/projects/fictional-project/locations/global/publishers/google/models/gemini-3.6-flash:generateContent",
       "https://us-central1-aiplatform.googleapis.com/v1/projects/fictional-project/locations/us-central1/publishers/google/models/regional-fictional-model:generateContent",
     ]);
   });
