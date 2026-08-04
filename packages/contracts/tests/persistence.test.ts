@@ -21,6 +21,7 @@ describe("persistence contracts", () => {
       medicationSources: "intelligence",
       agentRuns: "platform",
       attachments: "chat",
+      workspaceFamilyMaps: "chat",
     });
   });
 

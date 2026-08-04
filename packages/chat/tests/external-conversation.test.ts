@@ -1,6 +1,7 @@
 import {
   type ConversationResponder,
   type MessageRepository,
+  type WorkspaceFamilyMapRepository,
   MessageWriteSchema,
   ThreadConversationInputSchema,
 } from "@medbuddy/contracts";
@@ -40,19 +41,45 @@ function createMessageRepository(): MessageRepository {
   };
 }
 
+function createFamilyMaps(): WorkspaceFamilyMapRepository {
+  return {
+    async get(workspaceId) {
+      return { workspaceId, content: "Members\n- member:line-sender-a: Mei", revision: 2 };
+    },
+    async replace(input) {
+      return {
+        kind: "UPDATED",
+        familyMap: {
+          workspaceId: input.workspaceId,
+          content: input.content,
+          revision: input.expectedRevision + 1,
+        },
+      };
+    },
+  };
+}
+
 describe("ThreadConversationService", () => {
   it("persists one human and one model turn in the same workspace", async () => {
     const messages = createMessageRepository();
     const responder: ConversationResponder = {
-      async respond(request) {
+      async respond(request, tools) {
         expect(request.context.workspaceId).toBe("workspace:line-thread-a");
         expect(request.context.messages.map((message) => message.body)).toEqual([
           "Hello from a fictional LINE fixture.",
         ]);
+        expect(request.context.familyMap).toEqual({
+          content: "Members\n- member:line-sender-a: Mei",
+          revision: 2,
+        });
+        await expect(tools?.updateWorkspaceFamilyMap.update({
+          expectedRevision: 2,
+          content: "Members\n- member:line-sender-a: Mei\nDirect relationships",
+        })).resolves.toMatchObject({ kind: "UPDATED", familyMap: { revision: 3 } });
         return { kind: "RESPONDED", responseText: "Hello! How can I help?", retryable: false };
       },
     };
-    const service = new ThreadConversationService({ messages, responder });
+    const service = new ThreadConversationService({ messages, familyMaps: createFamilyMaps(), responder });
 
     await expect(service.respond(input)).resolves.toEqual({
       kind: "RESPONDED",
@@ -86,7 +113,7 @@ describe("ThreadConversationService", () => {
       },
     };
 
-    await new ThreadConversationService({ messages, responder }).respond({
+    await new ThreadConversationService({ messages, familyMaps: createFamilyMaps(), responder }).respond({
       ...input,
       body: "What did I say here?",
     });
@@ -96,6 +123,7 @@ describe("ThreadConversationService", () => {
     const messages = createMessageRepository();
     const service = new ThreadConversationService({
       messages,
+      familyMaps: createFamilyMaps(),
       responder: {
         async respond() {
           return { kind: "TECHNICAL_FAILURE", retryable: true };

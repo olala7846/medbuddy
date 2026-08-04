@@ -42,6 +42,109 @@ const request = ConversationRequestSchema.parse({
 });
 
 describe("conversation responder", () => {
+  it("executes one validated family-map replacement and only then returns the acknowledgment", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      {
+        kind: "UPDATE_WORKSPACE_FAMILY_MAP",
+        input: {
+          expectedRevision: 0,
+          content: "Members\n- member:fictional-owner: Mei",
+        },
+      },
+      { kind: "REPLY", text: "Okay—I’ll remember that you are Mei in this chat." },
+    ]]]));
+    const updates: unknown[] = [];
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      updateWorkspaceFamilyMap: {
+        async update(input) {
+          updates.push(input);
+          return {
+            kind: "UPDATED",
+            familyMap: {
+              workspaceId: focalMessage.workspaceId,
+              content: input.content,
+              revision: 1,
+            },
+          };
+        },
+      },
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      retryable: false,
+      responseText: "Okay—I’ll remember that you are Mei in this chat.",
+      toolCalls: 1,
+    });
+    expect(updates).toEqual([{
+      expectedRevision: 0,
+      content: "Members\n- member:fictional-owner: Mei",
+    }]);
+  });
+
+  it("never accepts a success acknowledgment after a rejected map update", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "x" } },
+      { kind: "REPLY", text: "Okay, I saved it." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      updateWorkspaceFamilyMap: {
+        async update() { return { kind: "REJECTED", code: "CONTENT_TOO_LARGE" }; },
+      },
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+  });
+
+  it("rejects a second family-map update after one successful update", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "first" } },
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 1, content: "second" } },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      updateWorkspaceFamilyMap: {
+        async update(input) {
+          return { kind: "UPDATED", familyMap: { workspaceId: focalMessage.workspaceId, content: input.content, revision: 1 } };
+        },
+      },
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+  });
+
+  it("retries one revision conflict with the returned current map", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "first" } },
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 2, content: "current plus correction" } },
+      { kind: "REPLY", text: "Okay—I updated the relationship in this chat." },
+    ]]]));
+    let attempts = 0;
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      updateWorkspaceFamilyMap: {
+        async update(input) {
+          attempts += 1;
+          return attempts === 1
+            ? {
+                kind: "REVISION_CONFLICT",
+                familyMap: { workspaceId: focalMessage.workspaceId, content: "current", revision: 2 },
+              }
+            : {
+                kind: "UPDATED",
+                familyMap: { workspaceId: focalMessage.workspaceId, content: input.content, revision: 3 },
+              };
+        },
+      },
+    })).resolves.toMatchObject({
+      kind: "RESPONDED",
+      responseText: "Okay—I updated the relationship in this chat.",
+      toolCalls: 2,
+    });
+    expect(provider.requests[1]?.toolResult).toMatchObject({
+      result: { kind: "REVISION_CONFLICT", familyMap: { revision: 2, content: "current" } },
+    });
+  });
   it("returns a friendly answer using only the supplied source-card claims and limitations", async () => {
     const responder = new ConversationResponder(
       createFixtureMedicationGrounding(),

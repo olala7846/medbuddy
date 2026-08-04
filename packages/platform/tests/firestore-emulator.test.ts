@@ -182,6 +182,40 @@ describeEmulator("Firestore emulator persistence", () => {
     ]);
   });
 
+  it("atomically replaces the one current workspace family map", async () => {
+    const platform = persistence();
+    const source = MessageDocumentSchema.parse({
+      id: "message:family-map-source",
+      workspaceId: "workspace:family-map",
+      authorMemberId: "member:family-map",
+      body: "A fictional direct relationship statement.",
+      createdAt: "2026-08-04T12:00:00.000Z",
+      attachmentIds: [],
+      captureIntent: "PASSIVE",
+      processingStatus: "IGNORED",
+      processingAttempts: 0,
+    });
+    await platform.messages.putMessage(source);
+
+    const first = await platform.familyMaps.replace({
+      workspaceId: source.workspaceId,
+      actorMemberId: source.authorMemberId as never,
+      sourceMessageId: source.id,
+      expectedRevision: 0,
+      content: `Members\n- ${source.authorMemberId}: Mei`,
+      updatedAt: source.createdAt,
+    });
+    expect(first).toMatchObject({ kind: "UPDATED", familyMap: { revision: 1 } });
+    await expect(platform.familyMaps.replace({
+      workspaceId: source.workspaceId,
+      actorMemberId: source.authorMemberId as never,
+      sourceMessageId: source.id,
+      expectedRevision: 0,
+      content: "Different",
+      updatedAt: source.createdAt,
+    })).resolves.toMatchObject({ kind: "REVISION_CONFLICT", familyMap: { revision: 1 } });
+  });
+
   it("provisions and resets fictional workspaces without read-after-write transactions", async () => {
     const platform = persistence();
     const provisioner = new FictionalDemoWorkspaceProvisioner(platform);

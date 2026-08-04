@@ -4,8 +4,10 @@ import {
   type ConversationTurnRequest,
   type ConversationResponder as ConversationResponderPort,
   type ConversationResult,
+  type ConversationTurnTools,
   type MedicationGrounding,
   type Message,
+  UpdateWorkspaceFamilyMapInputSchema,
 } from "@medbuddy/contracts";
 import { z } from "zod";
 
@@ -32,6 +34,10 @@ export const ConversationInstructionSchema = z.union([
       "A medication lookup needs a code or display name.",
     ),
   }).strict(),
+  z.object({
+    kind: z.literal("UPDATE_WORKSPACE_FAMILY_MAP"),
+    input: UpdateWorkspaceFamilyMapInputSchema,
+  }).strict(),
 ]);
 
 type ConversationInstruction = z.infer<typeof ConversationInstructionSchema>;
@@ -46,20 +52,30 @@ export class ConversationProviderError extends Error {
 
 /** A provider may return bounded prose, but deterministic safety routes run first. */
 export interface ConversationProvider {
-  respond(input: { focalMessage: Message; context: ConversationContext }): Promise<unknown>;
+  respond(input: {
+    focalMessage: Message;
+    context: ConversationContext;
+    toolResult?: unknown;
+    familyMapUpdatesAllowed?: boolean;
+  }): Promise<unknown>;
 }
 
 /** Deterministic fixture adapter; it makes no network or live-model calls. */
 export class FixedConversationProvider implements ConversationProvider {
-  readonly requests: { focalMessage: Message; context: ConversationContext }[] = [];
+  readonly requests: Parameters<ConversationProvider["respond"]>[0][] = [];
 
   constructor(private readonly outputs: ReadonlyMap<Message["id"], unknown>) {}
 
-  async respond(input: { focalMessage: Message; context: ConversationContext }): Promise<unknown> {
+  async respond(input: Parameters<ConversationProvider["respond"]>[0]): Promise<unknown> {
     this.requests.push(input);
     const output = this.outputs.get(input.focalMessage.id) ?? { kind: "ACKNOWLEDGE" };
     if (output instanceof Error) {
       throw output;
+    }
+    if (Array.isArray(output)) {
+      return output[this.requests.filter(
+        (request) => request.focalMessage.id === input.focalMessage.id,
+      ).length - 1];
     }
     return output;
   }
@@ -84,8 +100,10 @@ function renderLookup(result: MedicationLookupRenderResult): string {
   ]).join("\n");
 }
 
-function technicalFailure(): ConversationResult {
-  return { kind: "TECHNICAL_FAILURE", retryable: true };
+function technicalFailure(toolCalls?: number): ConversationResult {
+  return toolCalls === undefined
+    ? { kind: "TECHNICAL_FAILURE", retryable: true }
+    : { kind: "TECHNICAL_FAILURE", retryable: true, toolCalls };
 }
 
 /**
@@ -99,7 +117,7 @@ export class ConversationResponder implements ConversationResponderPort {
     private readonly provider: ConversationProvider,
   ) {}
 
-  async respond(input: ConversationTurnRequest): Promise<ConversationResult> {
+  async respond(input: ConversationTurnRequest, tools?: ConversationTurnTools): Promise<ConversationResult> {
     const request = ConversationTurnRequestSchema.safeParse(input);
     if (!request.success) {
       return technicalFailure();
@@ -123,16 +141,40 @@ export class ConversationResponder implements ConversationResponderPort {
     }
 
     try {
-      const output = await this.provider.respond({
-        focalMessage,
-        context: request.data.context,
-      });
-      const instruction = ConversationInstructionSchema.safeParse(output);
-      if (!instruction.success) {
-        return technicalFailure();
+      let toolCalls = 0;
+      let retryAfterConflict = false;
+      let toolResult: unknown;
+      for (let modelStep = 0; modelStep < 3; modelStep += 1) {
+        const output = await this.provider.respond({
+          focalMessage,
+          context: request.data.context,
+          toolResult,
+          familyMapUpdatesAllowed: toolCalls === 0 || retryAfterConflict,
+        });
+        const instruction = ConversationInstructionSchema.safeParse(output);
+        if (!instruction.success) return technicalFailure(toolCalls || undefined);
+        if (instruction.data.kind !== "UPDATE_WORKSPACE_FAMILY_MAP") {
+          const response = await this.respondToInstruction(instruction.data);
+          return toolCalls === 0 ? response : { ...response, toolCalls };
+        }
+        if (tools === undefined || (toolCalls > 0 && !retryAfterConflict)) {
+          return technicalFailure(toolCalls || undefined);
+        }
+        toolCalls += 1;
+        const result = await tools.updateWorkspaceFamilyMap.update(instruction.data.input);
+        if (result.kind === "REJECTED" || result.kind === "TECHNICAL_FAILURE") {
+          return technicalFailure(toolCalls);
+        }
+        if (result.kind === "REVISION_CONFLICT") {
+          if (toolCalls > 1) return technicalFailure(toolCalls);
+          retryAfterConflict = true;
+          toolResult = { call: instruction.data.input, result };
+          continue;
+        }
+        retryAfterConflict = false;
+        toolResult = { call: instruction.data.input, result };
       }
-
-      return await this.respondToInstruction(instruction.data);
+      return technicalFailure(toolCalls);
     } catch {
       return technicalFailure();
     }
@@ -146,10 +188,11 @@ export class ConversationResponder implements ConversationResponderPort {
       return { kind: "RESPONDED", responseText: instruction.text, retryable: false };
     }
 
-    return {
+    if (instruction.kind === "LOOKUP_MEDICATION") return {
       kind: "RESPONDED",
       responseText: renderLookup(await lookupMedication(this.grounding, instruction.query)),
       retryable: false,
     };
+    return technicalFailure();
   }
 }

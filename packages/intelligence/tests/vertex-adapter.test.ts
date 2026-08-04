@@ -190,15 +190,52 @@ describe("Vertex adapters", () => {
       context: {
         workspaceId: currentMessage.workspaceId,
         messages: [priorModelMessage, currentMessage],
+        familyMap: {
+          content: "Members\n- member:vertex: Mei",
+          revision: 3,
+        },
       },
+      familyMapUpdatesAllowed: true,
     })).resolves.toEqual({ kind: "REPLY", text: "A fictional reply." });
 
     expect(requests).toEqual([{
       systemInstruction: expect.stringContaining("general conversational assistant"),
+      tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
+      toolConfig: { functionCallingConfig: { mode: "AUTO" } },
       contents: [
         { role: "model", parts: [{ text: "A prior fictional reply." }] },
-        { role: "user", parts: [{ text: "A fictional follow-up." }] },
+        { role: "user", parts: [{ text: "[member:vertex]\nA fictional follow-up." }] },
       ],
     }]);
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
+      "BEGIN WORKSPACE FAMILY MAP (revision 3; user-maintained context)\nMembers\n- member:vertex: Mei\nEND WORKSPACE FAMILY MAP",
+    );
+  });
+
+  it("parses a native Vertex family-map function call and sends its result into the next step", async () => {
+    const requests: unknown[] = [];
+    const recordingClient: VertexModelClient = {
+      async generate(input) {
+        requests.push(input);
+        return { candidates: [{ content: { parts: [{ functionCall: {
+          name: "update_workspace_family_map",
+          args: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
+        } }] } }] };
+      },
+    };
+    const provider = new VertexConversationProvider(recordingClient);
+
+    await expect(provider.respond({
+      focalMessage,
+      context: conversationInput.context,
+      familyMapUpdatesAllowed: true,
+    })).resolves.toEqual({
+      kind: "UPDATE_WORKSPACE_FAMILY_MAP",
+      input: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
+    });
+
+    expect(requests).toEqual([expect.objectContaining({
+      tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
+    })]);
   });
 });

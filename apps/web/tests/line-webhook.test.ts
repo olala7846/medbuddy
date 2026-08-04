@@ -1,6 +1,11 @@
 import { ThreadConversationService } from "@medbuddy/chat";
 import type { ConversationResponder } from "@medbuddy/contracts";
 import { InMemoryPersistence } from "@medbuddy/platform";
+import {
+  CommittedSourceCardGrounding,
+  ConversationResponder as IntelligenceConversationResponder,
+  FixedConversationProvider,
+} from "@medbuddy/intelligence";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -56,7 +61,11 @@ function createHarness(options: {
   const handler = new LineWebhookHandler({
     channelSecret,
     receipts: persistence.externalEvents,
-    conversation: new ThreadConversationService({ messages: persistence.messages, responder }),
+    conversation: new ThreadConversationService({
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      responder,
+    }),
     replyClient: { async reply(input) {
       replies.push(input);
       if (options.replyFailure) throw new Error("fictional LINE outage");
@@ -67,6 +76,56 @@ function createHarness(options: {
 }
 
 describe("LINE webhook", () => {
+  it("updates the DM family map through the bounded tool loop and acknowledges the saved change", async () => {
+    const persistence = new InMemoryPersistence();
+    const ids = deriveLineConversationIds({
+      channel: "LINE",
+      conversationType: "DM",
+      conversationId: "fictional-user-a",
+      senderId: "fictional-user-a",
+      messageId: "fictional-message-a",
+      eventId: "fictional-event-a",
+    });
+    const responder = new IntelligenceConversationResponder(
+      new CommittedSourceCardGrounding([]),
+      new FixedConversationProvider(new Map([[ids.messageId, [
+        {
+          kind: "UPDATE_WORKSPACE_FAMILY_MAP",
+          input: {
+            expectedRevision: 0,
+            content: `Members\n- ${ids.memberId}: Mei`,
+          },
+        },
+        { kind: "REPLY", text: "Okay—I’ll remember that you are Mei in this chat." },
+      ]]])),
+    );
+    const replies: { replyToken: string; text: string }[] = [];
+    const handler = new LineWebhookHandler({
+      channelSecret,
+      receipts: persistence.externalEvents,
+      conversation: new ThreadConversationService({
+        messages: persistence.messages,
+        familyMaps: persistence.familyMaps,
+        responder,
+      }),
+      replyClient: { async reply(input) { replies.push(input); } },
+      logger: { write() {} },
+    });
+
+    await handler.handle({ ...signedBody([textEvent({
+      message: { id: "fictional-message-a", type: "text", text: "I’m Mei." },
+    })]), correlationId: "request:fictional-family-map" });
+
+    await expect(persistence.familyMaps.get(ids.workspaceId)).resolves.toMatchObject({
+      content: `Members\n- ${ids.memberId}: Mei`,
+      revision: 1,
+    });
+    expect(replies).toEqual([{
+      replyToken: "fictional-reply-token-a",
+      text: "Okay—I’ll remember that you are Mei in this chat.",
+    }]);
+  });
+
   it("routes a signed DM text through one isolated model turn and replies once", async () => {
     const harness = createHarness();
     const request = signedBody([textEvent()]);
