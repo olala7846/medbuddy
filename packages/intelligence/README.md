@@ -35,3 +35,5 @@ Vertex live smoke and family-map behavior evaluations are opt-in at the repo roo
 
 `@medbuddy/web` composes the direct Vertex adapter for LINE. Chat supplies the
 server-bound family-map capability; Intelligence never receives persistence.
+Deterministic medical refusals and the narrow ambiguous-pronoun relationship
+guard run before the model/tool loop.

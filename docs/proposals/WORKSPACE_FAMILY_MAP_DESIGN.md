@@ -150,6 +150,12 @@ Empty replacement content represents a cleared map. No old family-map text remai
 
 If “she” could identify more than one observed member, the agent asks which member the user means and does not call the tool. This is target clarification, not a second permission prompt.
 
+The implementation also applies a narrow deterministic guard before model
+invocation for an explicit relationship sentence whose target is only a
+third-person pronoun while multiple observed members are possible. This keeps
+the clarification/no-write invariant even when the model would otherwise
+invent a member mapping.
+
 ## 6. Module and seam design
 
 The family map is a deep module owned by Chat. Callers learn a small interface; workspace scoping, normalization, revision checks, idempotency, persistence, and state transitions stay behind it.
