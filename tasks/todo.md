@@ -9,8 +9,8 @@
 - [x] Obtain explicit user approval of the Effort 2 design.
 - [x] Record `gemini-3.6-flash` as the user-selected model.
 - [x] Obtain explicit user approval of this implementation plan and checklist.
-- [ ] Re-fetch and verify the exact `origin/main` implementation base.
-- [ ] Create the dedicated clean implementation worktree and `codex/` branch.
+- [x] Re-fetch and verify the exact `origin/main` implementation base (`ee3b63b5ddb84d70dbba91b72ecef8bd8ef8daf1`).
+- [x] Create the dedicated clean implementation worktree and `codex/` branch.
 
 ## Implementation
 
