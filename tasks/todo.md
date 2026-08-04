@@ -14,10 +14,10 @@
 
 ## Implementation
 
-- [ ] Task 1: Define continuity contracts and identifiers test-first.
-- [ ] Task 2: Add the reusable source-ledger adapter contract.
-- [ ] Task 3: Implement and verify the in-memory continuity adapter.
-- [ ] Checkpoint A: Contracts, adapter tests, and `npm run check` pass.
+- [x] Task 1: Define continuity contracts and identifiers test-first.
+- [x] Task 2: Add the reusable source-ledger adapter contract.
+- [x] Task 3: Implement and verify the in-memory continuity adapter.
+- [x] Checkpoint A: Contracts, adapter tests, and `npm run check` pass.
 - [ ] Task 4: Implement projection and deterministic context assembly.
 - [ ] Task 5: Implement compaction planning, validation, and publication policy.
 - [ ] Task 6: Add bounded four-field summary generation for `gemini-3.6-flash`.
