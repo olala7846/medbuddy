@@ -19,6 +19,7 @@ You must provide these values outside source control and chat:
 | --- | --- | --- |
 | Messaging API channel secret | LINE Developers Console -> channel Basic settings | `MEDBUDDY_LINE_CHANNEL_SECRET` |
 | Messaging API channel access token | LINE Developers Console -> Messaging API | `MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN` |
+| 32-byte attachment locator encryption key | Cryptographically secure secret generated and stored outside source control/chat | `MEDBUDDY_ATTACHMENT_LOCATOR_KEY` |
 | GCP project ID | GCP project hosting Firestore, Vertex, and Cloud Run | `MEDBUDDY_GCP_PROJECT_ID`, `MEDBUDDY_VERTEX_PROJECT` |
 
 Vertex authentication uses Application Default Credentials; do not create or commit a service-account key file. The deployed runtime identity needs the minimum Firestore and Vertex permissions required to store thread messages/receipts and invoke the configured model.
@@ -44,6 +45,8 @@ MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL=<task-caller-service-account>
 MEDBUDDY_CONTINUITY_CALLBACK_URL=https://<cloud-run-host>/api/internal/continuity
 MEDBUDDY_ATTACHMENT_CALLBACK_URL=https://<cloud-run-host>/api/internal/attachment
 MEDBUDDY_ATTACHMENT_BUCKET=<private-bucket>
+MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1
+MEDBUDDY_ATTACHMENT_LOCATOR_KEY=<Secret Manager mapping; canonical base64 for 32 bytes>
 ```
 
 The callback service must verify the task OIDC audience and service-account
@@ -51,10 +54,15 @@ identity. The bucket must remain private. Bucket/object names, provider IDs,
 filenames, bytes, checksums, conversation content, summaries, and prompts must
 not enter logs or model context.
 
-The attachment callback remains a deployment blocker until the approved
-adapter-private provider locator is implemented and verified. The source
-ledger, compaction task, and synthetic attachment validation can be tested
-locally without deploying that incomplete path.
+Generate the locator key with a cryptographically secure tool outside chat and
+store it directly in Secret Manager. Map it into Cloud Run as a secret-backed
+environment variable; never place it in a command argument, `.env` file,
+deployment manifest, log, or screenshot. Increment the non-secret key version
+when performing an explicitly planned key rotation.
+
+The adapter-private provider locator and attachment callback are covered by
+synthetic tests. Deployment remains deferred until the configuration-gated
+`gemini-3.6-flash` smoke succeeds in the target project and region.
 
 Use Secret Manager-backed environment variables in Cloud Run. To avoid putting secret values in shell history, create the secret containers and add values interactively through standard input:
 

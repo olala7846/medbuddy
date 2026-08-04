@@ -104,6 +104,11 @@ export const ContinuityAttachmentSchema = z.object({
   }
 });
 
+export const AttachmentAttemptClaimSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("CLAIMED"), attachment: ContinuityAttachmentSchema }).strict(),
+  z.object({ kind: z.literal("TERMINAL"), attachment: ContinuityAttachmentSchema }).strict(),
+]);
+
 const AgentActionItemSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sourceEventId: SourceEventIdSchema,
@@ -215,6 +220,7 @@ export type AcceptSourceEventInput = z.infer<typeof AcceptSourceEventInputSchema
 export type AcceptSourceEventResult = z.infer<typeof AcceptSourceEventResultSchema>;
 export type OutboundCandidate = z.infer<typeof OutboundCandidateSchema>;
 export type ContinuityAttachment = z.infer<typeof ContinuityAttachmentSchema>;
+export type AttachmentAttemptClaim = z.infer<typeof AttachmentAttemptClaimSchema>;
 export type AgentActionContext = z.infer<typeof AgentActionContextSchema>;
 export type SegmentSummary = z.infer<typeof SegmentSummarySchema>;
 export type CompactionJob = z.infer<typeof CompactionJobSchema>;
@@ -231,6 +237,7 @@ export interface ContinuityRepository {
   getOutboundCandidate(workspaceId: z.infer<typeof WorkspaceIdSchema>, candidateId: z.infer<typeof OutboundCandidateIdSchema>): Promise<OutboundCandidate | null>;
   putAttachment(attachment: ContinuityAttachment): Promise<ContinuityAttachment>;
   getAttachment(workspaceId: z.infer<typeof WorkspaceIdSchema>, attachmentId: z.infer<typeof AttachmentIdSchema>): Promise<ContinuityAttachment | null>;
+  claimAttachmentAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, attachmentId: z.infer<typeof AttachmentIdSchema>): Promise<AttachmentAttemptClaim>;
   claimCompactionJob(job: CompactionJob): Promise<CompactionJob>;
   getActiveCompactionJob(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<CompactionJob | null>;
   updateCompactionJob(job: CompactionJob): Promise<CompactionJob>;

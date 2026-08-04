@@ -226,6 +226,27 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     return attachment;
   }
 
+  async claimAttachmentAttempt(
+    workspaceId: Parameters<ContinuityRepository["claimAttachmentAttempt"]>[0],
+    attachmentId: Parameters<ContinuityRepository["claimAttachmentAttempt"]>[1],
+  ): ReturnType<ContinuityRepository["claimAttachmentAttempt"]> {
+    return this.firestore.runTransaction(async (transaction) => {
+      const reference = this.attachmentRef(workspaceId, attachmentId);
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists) throw new Error("Attachment does not exist in its workspace.");
+      const attachment = ContinuityAttachmentSchema.parse(record(snapshot.data()));
+      if (attachment.workspaceId !== workspaceId || attachment.id !== attachmentId) {
+        throw new Error("Stored attachment does not match its workspace path.");
+      }
+      if (attachment.state !== "PENDING" || attachment.attempts >= 3) {
+        return { kind: "TERMINAL" as const, attachment };
+      }
+      const claimed = ContinuityAttachmentSchema.parse({ ...attachment, attempts: attachment.attempts + 1 });
+      transaction.set(reference, claimed);
+      return { kind: "CLAIMED" as const, attachment: claimed };
+    });
+  }
+
   async claimCompactionJob(value: CompactionJob): Promise<CompactionJob> {
     const job = CompactionJobSchema.parse(value);
     return this.firestore.runTransaction(async (transaction) => {

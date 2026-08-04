@@ -25,6 +25,8 @@ const productionEnvironment = {
   MEDBUDDY_CAPTURE_CALLBACK_URL: "https://fictional.example.test/api/internal/capture",
   MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL: "tasks@fictional-project.iam.gserviceaccount.com",
   MEDBUDDY_ATTACHMENT_BUCKET: "fictional-medbuddy-private",
+  MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION: "locator-v1",
+  MEDBUDDY_ATTACHMENT_LOCATOR_KEY: Buffer.alloc(32, 7).toString("base64"),
   MEDBUDDY_CONTINUITY_CALLBACK_URL: "https://fictional.example.test/api/internal/continuity",
   MEDBUDDY_ATTACHMENT_CALLBACK_URL: "https://fictional.example.test/api/internal/attachment",
   MEDBUDDY_VERTEX_ENABLED: "true",
@@ -79,6 +81,8 @@ describe("production composition configuration", () => {
       attachmentCallbackUrl: "https://fictional.example.test/api/internal/attachment",
       taskServiceAccountEmail: "tasks@fictional-project.iam.gserviceaccount.com",
       attachmentBucket: "fictional-medbuddy-private",
+      attachmentLocatorKeyVersion: "locator-v1",
+      attachmentLocatorKeyBase64: Buffer.alloc(32, 7).toString("base64"),
       vertexProjectId: "fictional-project",
       vertexLocation: "global",
       vertexModel: "gemini-3.6-flash",
@@ -87,6 +91,17 @@ describe("production composition configuration", () => {
     expect(() => loadContinuityConfiguration(wrongModel)).toThrow(ProductionConfigurationError);
     expect(() => loadContinuityConfiguration(wrongModel)).toThrow("MEDBUDDY_VERTEX_MODEL");
     expect(() => loadContinuityConfiguration(wrongModel)).not.toThrow("fictional-wrong-model");
+    const invalidKey = { ...productionEnvironment, MEDBUDDY_ATTACHMENT_LOCATOR_KEY: "fictional-invalid-secret" };
+    expect(() => createLineWebhookComposition({
+      ...invalidKey,
+      MEDBUDDY_LINE_CHANNEL_SECRET: "fictional-channel-secret",
+      MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN: "fictional-channel-access-token",
+    }, { logger: { write() {} } })).toThrow(/key/i);
+    expect(() => createLineWebhookComposition({
+      ...invalidKey,
+      MEDBUDDY_LINE_CHANNEL_SECRET: "fictional-channel-secret",
+      MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN: "fictional-channel-access-token",
+    }, { logger: { write() {} } })).not.toThrow("fictional-invalid-secret");
   });
 
   it("constructs the LINE conversation boundary without contacting live providers", () => {

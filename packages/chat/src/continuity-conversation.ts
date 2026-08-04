@@ -6,7 +6,6 @@ import {
   type ContinuityConversation,
   type ContinuityRepository,
   type ContinuityTaskDispatcher,
-  type AttachmentTaskDispatcher,
   MessageSchema,
   type MessageRepository,
   ObserveContinuityConversationInputSchema,
@@ -36,7 +35,6 @@ export class ContinuityThreadConversationService implements ContinuityConversati
     responder: ConversationResponder;
     systemInstructions: string;
     dispatcher?: ContinuityTaskDispatcher;
-    attachmentDispatcher?: AttachmentTaskDispatcher;
     now?: () => string;
   }) {}
 
@@ -76,16 +74,6 @@ export class ContinuityThreadConversationService implements ContinuityConversati
         state: input.payload.mediaClass === "OTHER" ? "FAILED" : "PENDING",
         attempts: 0,
       });
-      if (input.payload.mediaClass !== "OTHER" && this.dependencies.attachmentDispatcher !== undefined) {
-        try {
-          await this.dependencies.attachmentDispatcher.dispatch({
-            workspaceId: input.workspaceId,
-            attachmentId: input.payload.attachmentId,
-          });
-        } catch {
-          // The pending record remains durable for a later dispatch retry.
-        }
-      }
     }
     await this.scheduleWithoutBlocking(input.workspaceId);
     if (input.payload.kind !== "TEXT" || !input.payload.replyRequested || input.providerMessageId === undefined) {
@@ -98,10 +86,16 @@ export class ContinuityThreadConversationService implements ContinuityConversati
       this.dependencies.familyMaps.get(input.workspaceId),
       this.dependencies.continuity.getActiveCompactionJob(input.workspaceId),
     ]);
+    const attachmentIds = [...new Set(sources.flatMap((event) =>
+      event.payload.kind === "ATTACHMENT" ? [event.payload.attachmentId] : []))];
+    const attachments = (await Promise.all(attachmentIds.map((attachmentId) =>
+      this.dependencies.continuity.getAttachment(input.workspaceId, attachmentId))))
+      .filter((attachment) => attachment !== null);
     const assembled = assembleConversationContext({
       workspaceId: input.workspaceId,
       focalSourceEventId: accepted.event.id,
       sourceEvents: sources,
+      attachments,
       readySegments,
       familyMap,
       system: this.dependencies.systemInstructions,

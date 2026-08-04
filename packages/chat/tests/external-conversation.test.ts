@@ -209,4 +209,36 @@ describe("ContinuityThreadConversationService", () => {
     await expect(harness.service.observe(observedInput(true))).resolves.toEqual({ kind: "DUPLICATE" });
     expect(harness.modelRequests).toHaveLength(1);
   });
+
+  it("renders only attachment lifecycle metadata into a later model context", async () => {
+    const harness = createContinuityHarness();
+    await harness.service.observe(ObserveContinuityConversationInputSchema.parse({
+      receiptKey: "event:line-fictional-attachment",
+      sourceEventId: "source-event:line-fictional-attachment",
+      workspaceId: "workspace:line-thread-a",
+      authorMemberId: "member:line-sender-a",
+      occurredAt: timestamp,
+      acceptedAt: timestamp,
+      providerMessageId: "message:line-fictional-attachment",
+      payload: { kind: "ATTACHMENT", attachmentId: "attachment:line-fictional-1", mediaClass: "IMAGE" },
+    }));
+    const pending = await harness.continuity.getAttachment(
+      "workspace:line-thread-a" as never,
+      "attachment:line-fictional-1" as never,
+    );
+    if (pending === null) throw new Error("Expected fictional pending attachment.");
+    await harness.continuity.putAttachment({
+      ...pending,
+      state: "AVAILABLE",
+      attempts: 1,
+      byteSize: 11,
+      checksum: "a".repeat(64),
+    });
+
+    await harness.service.observe(observedInput(true, "after-attachment"));
+    expect(harness.modelRequests[0]?.context.assembledContext?.recentConversation)
+      .toContain("[image attachment available]");
+    expect(JSON.stringify(harness.modelRequests[0])).not.toContain("attachment:line-fictional-1");
+    expect(JSON.stringify(harness.modelRequests[0])).not.toContain('"checksum"');
+  });
 });

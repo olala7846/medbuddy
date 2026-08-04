@@ -119,6 +119,11 @@ export function describeContinuityRepositoryContract(
         state: "PENDING",
         attempts: 0,
       }));
+      const claims = await Promise.all(Array.from({ length: 4 }, () =>
+        continuity.claimAttachmentAttempt(pending.workspaceId, pending.id)));
+      expect(claims.filter((claim) => claim.kind === "CLAIMED").map((claim) => claim.attachment.attempts).sort())
+        .toEqual([1, 2, 3]);
+      expect(claims.filter((claim) => claim.kind === "TERMINAL")).toHaveLength(1);
       await continuity.putAttachment({ ...pending, state: "FAILED", attempts: 3 });
       await expect(continuity.getAttachment("workspace:meadow" as never, pending.id)).resolves.toBeNull();
       await expect(continuity.putAttachment({ ...pending, state: "AVAILABLE", attempts: 1 } as never)).rejects.toThrow();

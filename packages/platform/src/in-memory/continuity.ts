@@ -150,6 +150,23 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
     return clone(this.attachments.get(this.key(workspaceId, attachmentId)) ?? null);
   }
 
+  async claimAttachmentAttempt(
+    workspaceId: Parameters<ContinuityRepository["claimAttachmentAttempt"]>[0],
+    attachmentId: Parameters<ContinuityRepository["claimAttachmentAttempt"]>[1],
+  ): ReturnType<ContinuityRepository["claimAttachmentAttempt"]> {
+    return this.queue.run(workspaceId, () => {
+      const key = this.key(workspaceId, attachmentId);
+      const attachment = this.attachments.get(key);
+      if (attachment === undefined) throw new Error("Attachment does not exist in its workspace.");
+      if (attachment.state !== "PENDING" || attachment.attempts >= 3) {
+        return { kind: "TERMINAL", attachment: clone(attachment) };
+      }
+      const claimed = ContinuityAttachmentSchema.parse({ ...attachment, attempts: attachment.attempts + 1 });
+      this.attachments.set(key, clone(claimed));
+      return { kind: "CLAIMED", attachment: claimed };
+    });
+  }
+
   async claimCompactionJob(value: CompactionJob): Promise<CompactionJob> {
     const job = CompactionJobSchema.parse(value);
     return this.queue.run(job.workspaceId, () => {

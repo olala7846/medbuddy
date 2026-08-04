@@ -10,6 +10,7 @@ import { ExternalConversationIdentitySchema } from "@medbuddy/contracts";
 import { z } from "zod";
 
 import { deriveLineConversationIds } from "./identity.js";
+import type { LineAttachmentCoordinator } from "./attachment.js";
 import { verifyLineSignature } from "./signature.js";
 
 const MAX_WEBHOOK_BYTES = 1024 * 1024;
@@ -79,13 +80,14 @@ type EligibleLineEvent = {
   payload: SourceEventPayload;
   createdAt: string;
   replyToken?: string;
+  attachmentProviderMessageId?: string;
 };
 
 export type LineWebhookLogEntry = {
   event: "line_webhook_rejected" | "line_event_ignored" | "line_event_duplicate" | "line_event_completed" | "line_event_failed";
   correlationId: string;
   conversationType?: "GROUP" | "DM";
-  code?: "INVALID_SIGNATURE" | "INVALID_BODY" | "BODY_TOO_LARGE" | "MODEL_FAILURE" | "REPLY_FAILURE" | "RECEIPT_FAILURE";
+  code?: "INVALID_SIGNATURE" | "INVALID_BODY" | "BODY_TOO_LARGE" | "MODEL_FAILURE" | "REPLY_FAILURE" | "RECEIPT_FAILURE" | "ATTACHMENT_FAILURE";
 };
 
 export type LineOperationalLogEntry = LineWebhookLogEntry | ConversationTelemetryEntry;
@@ -94,7 +96,7 @@ const LineWebhookLogEntrySchema = z.object({
   event: z.enum(["line_webhook_rejected", "line_event_ignored", "line_event_duplicate", "line_event_completed", "line_event_failed"]),
   correlationId: CorrelationIdSchema,
   conversationType: z.enum(["GROUP", "DM"]).optional(),
-  code: z.enum(["INVALID_SIGNATURE", "INVALID_BODY", "BODY_TOO_LARGE", "MODEL_FAILURE", "REPLY_FAILURE", "RECEIPT_FAILURE"]).optional(),
+  code: z.enum(["INVALID_SIGNATURE", "INVALID_BODY", "BODY_TOO_LARGE", "MODEL_FAILURE", "REPLY_FAILURE", "RECEIPT_FAILURE", "ATTACHMENT_FAILURE"]).optional(),
 }).strict();
 const ConversationTelemetryEntrySchema = z.object({
   event: z.enum([
@@ -199,6 +201,7 @@ function toObservedEvent(value: unknown): EligibleLineEvent | null {
       identity,
       payload: { kind: "ATTACHMENT", attachmentId: ids.attachmentId, mediaClass },
       createdAt: new Date(attachment.data.timestamp).toISOString(),
+      attachmentProviderMessageId: attachment.data.message.id,
     };
   }
   return null;
@@ -210,13 +213,14 @@ export class LineWebhookHandler {
     receipts: ExternalEventReceiptStore;
     conversation: ThreadConversation;
     continuityConversation?: ContinuityConversation;
+    attachmentCoordinator?: LineAttachmentCoordinator;
     replyClient: LineReplyClient;
     logger: LineWebhookLogger;
   }) {
     if (dependencies.channelSecret.length === 0) throw new Error("LINE channel secret is required.");
   }
 
-  async handle(input: { rawBody: string | Uint8Array; signature: string; correlationId: string }): Promise<{ status: 200 | 400 | 401 | 413 }> {
+  async handle(input: { rawBody: string | Uint8Array; signature: string; correlationId: string }): Promise<{ status: 200 | 400 | 401 | 413 | 500 }> {
     const correlationId = CorrelationIdSchema.parse(input.correlationId);
     const rawBytes = typeof input.rawBody === "string" ? Buffer.from(input.rawBody, "utf8") : input.rawBody;
     if (rawBytes.byteLength > MAX_WEBHOOK_BYTES) {
@@ -243,30 +247,29 @@ export class LineWebhookHandler {
         this.dependencies.logger.write({ event: "line_event_ignored", correlationId });
         continue;
       }
-      await this.processEvent(event, correlationId);
+      if (!await this.processEvent(event, correlationId)) return { status: 500 };
     }
     return { status: 200 };
   }
 
-  private async processEvent(event: EligibleLineEvent, correlationId: string): Promise<void> {
+  private async processEvent(event: EligibleLineEvent, correlationId: string): Promise<boolean> {
     const ids = deriveLineConversationIds(event.identity);
     if (this.dependencies.continuityConversation !== undefined) {
-      await this.processContinuityEvent(event, ids, correlationId);
-      return;
+      return this.processContinuityEvent(event, ids, correlationId);
     }
     if (event.payload.kind !== "TEXT" || !event.payload.replyRequested || event.replyToken === undefined) {
       this.dependencies.logger.write({ event: "line_event_ignored", correlationId });
-      return;
+      return true;
     }
     try {
       const claim = await this.dependencies.receipts.claim(ids.receiptKey, event.createdAt);
       if (claim === "DUPLICATE") {
         this.dependencies.logger.write({ event: "line_event_duplicate", correlationId, conversationType: event.identity.conversationType });
-        return;
+        return true;
       }
     } catch {
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "RECEIPT_FAILURE" });
-      return;
+      return true;
     }
 
     let result;
@@ -281,12 +284,12 @@ export class LineWebhookHandler {
     } catch {
       await this.completeFailed(ids.receiptKey);
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "MODEL_FAILURE" });
-      return;
+      return true;
     }
     if (result.kind === "TECHNICAL_FAILURE") {
       await this.completeFailed(ids.receiptKey);
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "MODEL_FAILURE" });
-      return;
+      return true;
     }
 
     try {
@@ -297,13 +300,14 @@ export class LineWebhookHandler {
       await this.completeFailed(ids.receiptKey);
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "REPLY_FAILURE" });
     }
+    return true;
   }
 
   private async processContinuityEvent(
     event: EligibleLineEvent,
     ids: ReturnType<typeof deriveLineConversationIds>,
     correlationId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     let result;
     try {
       result = await this.dependencies.continuityConversation!.observe({
@@ -318,25 +322,38 @@ export class LineWebhookHandler {
       });
     } catch {
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "MODEL_FAILURE" });
-      return;
+      return true;
+    }
+    if (event.payload.kind === "ATTACHMENT" && event.payload.mediaClass !== "OTHER" &&
+        this.dependencies.attachmentCoordinator !== undefined && event.attachmentProviderMessageId !== undefined) {
+      try {
+        await this.dependencies.attachmentCoordinator.prepare({
+          workspaceId: ids.workspaceId,
+          attachmentId: event.payload.attachmentId,
+          providerMessageId: event.attachmentProviderMessageId,
+        });
+      } catch {
+        this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "ATTACHMENT_FAILURE" });
+        return false;
+      }
     }
     if (result.kind === "DUPLICATE") {
       this.dependencies.logger.write({ event: "line_event_duplicate", correlationId, conversationType: event.identity.conversationType });
-      return;
+      return true;
     }
     if (result.kind === "OBSERVED") {
       this.dependencies.logger.write({ event: "line_event_completed", correlationId, conversationType: event.identity.conversationType });
-      return;
+      return true;
     }
     if (result.kind === "TECHNICAL_FAILURE" || event.replyToken === undefined) {
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "MODEL_FAILURE" });
-      return;
+      return true;
     }
     try {
       await this.dependencies.replyClient.reply({ replyToken: event.replyToken, text: result.responseText });
     } catch {
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "REPLY_FAILURE" });
-      return;
+      return true;
     }
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -346,12 +363,13 @@ export class LineWebhookHandler {
           acceptedAt: new Date().toISOString(),
         });
         this.dependencies.logger.write({ event: "line_event_completed", correlationId, conversationType: event.identity.conversationType });
-        return;
+        return true;
       } catch {
         // Retry the deterministic publication without sending another LINE reply.
       }
     }
     this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "RECEIPT_FAILURE" });
+    return true;
   }
 
   private async completeFailed(receiptKey: Parameters<ExternalEventReceiptStore["complete"]>[0]) {

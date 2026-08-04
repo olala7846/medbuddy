@@ -45,6 +45,7 @@ function createHarness(options: {
   modelFailure?: boolean;
   modelThrows?: boolean;
   replyFailure?: boolean;
+  attachmentFailures?: number;
 } = {}) {
   const persistence = new InMemoryPersistence();
   const continuity = new InMemoryContinuityRepository();
@@ -59,6 +60,8 @@ function createHarness(options: {
   };
   const replies: { replyToken: string; text: string }[] = [];
   const attachmentTasks: { workspaceId: string; attachmentId: string }[] = [];
+  const attachmentLocators: { workspaceId: string; attachmentId: string; providerMessageId: string }[] = [];
+  let attachmentFailures = options.attachmentFailures ?? 0;
   const logs: LineOperationalLogEntry[] = [];
   const threadConversation = new ThreadConversationService({
     messages: persistence.messages,
@@ -75,17 +78,24 @@ function createHarness(options: {
       familyMaps: persistence.familyMaps,
       responder,
       systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
-      attachmentDispatcher: {
-        async dispatch(input) { attachmentTasks.push(input); },
-      },
     }),
+    attachmentCoordinator: {
+      async prepare(input) {
+        if (attachmentFailures > 0) {
+          attachmentFailures -= 1;
+          throw new Error("fictional private coordinator outage");
+        }
+        attachmentLocators.push(input);
+        attachmentTasks.push({ workspaceId: input.workspaceId, attachmentId: input.attachmentId });
+      },
+    },
     replyClient: { async reply(input) {
       replies.push(input);
       if (options.replyFailure) throw new Error("fictional LINE outage");
     } },
     logger: { write(entry) { logs.push(entry); } },
   });
-  return { attachmentTasks, handler, continuity, logs, messages: persistence.messages, modelRequests, replies };
+  return { attachmentLocators, attachmentTasks, handler, continuity, logs, messages: persistence.messages, modelRequests, replies };
 }
 
 describe("LINE webhook", () => {
@@ -468,8 +478,33 @@ describe("LINE webhook", () => {
       attempts: 0,
     });
     expect(harness.attachmentTasks).toEqual([{ workspaceId: ids.workspaceId, attachmentId: ids.attachmentId }]);
+    expect(harness.attachmentLocators).toEqual([{
+      workspaceId: ids.workspaceId,
+      attachmentId: ids.attachmentId,
+      providerMessageId: "fictional-attachment-message",
+    }]);
     expect(harness.modelRequests).toEqual([]);
     expect(harness.replies).toEqual([]);
+  });
+
+  it("returns a retryable webhook failure and repairs locator dispatch on duplicate redelivery", async () => {
+    const harness = createHarness({ attachmentFailures: 1 });
+    const event = {
+      type: "message",
+      mode: "active",
+      timestamp,
+      webhookEventId: "fictional-attachment-retry-event",
+      source: { type: "user", userId: "fictional-user-a" },
+      message: { id: "fictional-attachment-retry-message", type: "image" },
+    };
+    const request = signedBody([event]);
+    await expect(harness.handler.handle({ ...request, correlationId: "request:fictional-attachment-first" }))
+      .resolves.toEqual({ status: 500 });
+    await expect(harness.handler.handle({ ...request, correlationId: "request:fictional-attachment-redelivery" }))
+      .resolves.toEqual({ status: 200 });
+    expect(harness.attachmentTasks).toHaveLength(1);
+    expect(harness.modelRequests).toEqual([]);
+    expect(harness.logs).toContainEqual(expect.objectContaining({ code: "ATTACHMENT_FAILURE" }));
   });
 
   it("rejects invalid signatures before parsing or persistence", async () => {

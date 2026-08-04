@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { LineContentClient } from "../src/line/content-client.js";
+import {
+  DurableLineAttachmentCoordinator,
+  LocatedLineAttachmentContentSource,
+  LineContentClient,
+} from "../src/line/index.js";
 
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 
@@ -38,5 +42,57 @@ describe("LINE private attachment content client", () => {
       "content-type": "image/png",
       "content-length": String(10 * 1024 * 1024 + 1),
     }).download("fictional-message")).rejects.toThrow(/size/i);
+  });
+});
+
+describe("adapter-private LINE attachment coordination", () => {
+  it("stores the raw locator privately but dispatches opaque IDs only", async () => {
+    const locatorWrites: unknown[] = [];
+    const tasks: unknown[] = [];
+    const coordinator = new DurableLineAttachmentCoordinator({
+      locator: {
+        async put(input) { locatorWrites.push(input); },
+        async resolve() { throw new Error("not used"); },
+      },
+      dispatcher: { async dispatch(input) { tasks.push(input); } },
+    });
+    await coordinator.prepare({
+      workspaceId: "workspace:orchard" as never,
+      attachmentId: "attachment:fictional-1" as never,
+      providerMessageId: "fictional-provider-message",
+    });
+    expect(locatorWrites).toEqual([{
+      workspaceId: "workspace:orchard",
+      attachmentId: "attachment:fictional-1",
+      providerMessageId: "fictional-provider-message",
+    }]);
+    expect(tasks).toEqual([{
+      workspaceId: "workspace:orchard",
+      attachmentId: "attachment:fictional-1",
+    }]);
+    expect(JSON.stringify(tasks)).not.toContain("provider-message");
+  });
+
+  it("resolves the provider ID only inside the content source adapter", async () => {
+    const resolved: unknown[] = [];
+    const downloaded: string[] = [];
+    const source = new LocatedLineAttachmentContentSource({
+      locator: {
+        async put() { throw new Error("not used"); },
+        async resolve(input) { resolved.push(input); return "fictional-provider-message"; },
+      },
+      content: {
+        async download(providerMessageId) {
+          downloaded.push(providerMessageId);
+          return { mimeType: "image/png", bytes: png, checksum: createHash("sha256").update(png).digest("hex") };
+        },
+      },
+    });
+    await source.download({
+      workspaceId: "workspace:orchard" as never,
+      attachmentId: "attachment:fictional-1" as never,
+    });
+    expect(resolved).toEqual([{ workspaceId: "workspace:orchard", attachmentId: "attachment:fictional-1" }]);
+    expect(downloaded).toEqual(["fictional-provider-message"]);
   });
 });
