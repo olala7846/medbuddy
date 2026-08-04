@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { AttachmentSchema, MessageSchema } from "@medbuddy/contracts";
 
 import {
+  ConversationResponder,
+  VertexConversationProvider,
   VertexReadableLabelExtractor,
   VertexRestClient,
   VertexTextCaptureExtractor,
@@ -20,6 +22,105 @@ function createConfiguredClient(): VertexRestClient {
 }
 
 describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
+  async function runFamilyMapTurn(
+    suffix: string,
+    body: string,
+    familyMap: { content: string; revision: number } = { content: "", revision: 0 },
+  ) {
+    const workspaceId = "workspace:vertex-fictional-family" as const;
+    const focalMessage = MessageSchema.parse({
+      id: `message:vertex-family-${suffix}`,
+      workspaceId,
+      authorMemberId: "member:vertex-fictional-mei",
+      body,
+      createdAt: "2026-08-04T12:00:00.000Z",
+      attachmentIds: [],
+      captureIntent: "PASSIVE",
+      processingStatus: "IGNORED",
+      processingAttempts: 0,
+    });
+    const updates: { expectedRevision: number; content: string }[] = [];
+    const responder = new ConversationResponder(
+      { async lookup() { return []; } },
+      new VertexConversationProvider(createConfiguredClient()),
+      50_000,
+    );
+    const result = await responder.respond({
+      messageId: focalMessage.id,
+      context: {
+        workspaceId: focalMessage.workspaceId,
+        messages: [focalMessage],
+        familyMap: { workspaceId: focalMessage.workspaceId, ...familyMap },
+      },
+    }, {
+      updateWorkspaceFamilyMap: {
+        async update(input) {
+          updates.push(input);
+          return {
+            kind: "UPDATED",
+            familyMap: {
+              workspaceId: focalMessage.workspaceId,
+              content: input.content,
+              revision: familyMap.revision + 1,
+            },
+          };
+        },
+      },
+    });
+    return { result, updates };
+  }
+
+  it("updates an explicit relationship and acknowledges only after the write", async () => {
+    const { result, updates } = await runFamilyMapTurn("explicit", "I am Mei. Kai is my son.");
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.content).toContain("Mei");
+    expect(result).toMatchObject({ kind: "RESPONDED", toolCalls: 1 });
+  });
+
+  it("does not write an inferred relationship", async () => {
+    const { updates } = await runFamilyMapTurn("inferred", "Mei brought Kai some tea today.");
+    expect(updates).toEqual([]);
+  });
+
+  it("corrects one direct relationship while preserving unrelated lines", async () => {
+    const map = "Members\n- member:vertex-fictional-mei: Mei\n- member:vertex-fictional-kai: Kai\n- member:vertex-fictional-lin: Lin\nDirect relationships\n- Mei is Kai's sister.\n- Lin is Mei's mother.";
+    const { updates } = await runFamilyMapTurn("correction", "Correction: Mei is Kai's mother, not his sister.", { content: map, revision: 2 });
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.content).toContain("Mei is Kai's mother");
+    expect(updates[0]?.content).toContain("Lin is Mei's mother");
+    expect(updates[0]?.content).not.toContain("Mei is Kai's sister");
+  });
+
+  it("inspects the supplied map without writing", async () => {
+    const { result, updates } = await runFamilyMapTurn("inspect", "What do you remember about our family?", { content: "Direct relationships\n- Mei is Kai's mother.", revision: 1 });
+    expect(updates).toEqual([]);
+    expect(result).toMatchObject({ kind: "RESPONDED" });
+  });
+
+  it("forgets one relationship without deleting unrelated lines", async () => {
+    const { updates } = await runFamilyMapTurn("forget", "Forget that Mei is Kai's mother.", { content: "Direct relationships\n- Mei is Kai's mother.\n- Lin is Mei's mother.", revision: 2 });
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.content).not.toContain("Mei is Kai's mother");
+    expect(updates[0]?.content).toContain("Lin is Mei's mother");
+  });
+
+  it("clears the complete map with empty replacement content", async () => {
+    const { updates } = await runFamilyMapTurn("clear", "Forget everything in our family map.", { content: "Direct relationships\n- Mei is Kai's mother.", revision: 1 });
+    expect(updates).toEqual([{ expectedRevision: 1, content: "" }]);
+  });
+
+  it("asks about an ambiguous reference without writing", async () => {
+    const { result, updates } = await runFamilyMapTurn("ambiguous", "She is my mother.", { content: "Members\n- member:vertex-fictional-kai: Kai\n- member:vertex-fictional-lin: Lin", revision: 1 });
+    expect(updates).toEqual([]);
+    expect(result).toMatchObject({ kind: "RESPONDED" });
+  });
+
+  it("uses an indirect relationship conversationally without persisting it", async () => {
+    const { result, updates } = await runFamilyMapTurn("indirect", "Who is Kai's grandmother?", { content: "Direct relationships\n- Mei is Kai's mother.\n- Lin is Mei's mother.", revision: 1 });
+    expect(updates).toEqual([]);
+    expect(result).toMatchObject({ kind: "RESPONDED" });
+  });
+
   it("returns a schema-validated text extraction for a fictional message", async () => {
     const focalMessage = MessageSchema.parse({
       id: "message:vertex-fictional-text",
