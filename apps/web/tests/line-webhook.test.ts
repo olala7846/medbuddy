@@ -1,6 +1,6 @@
-import { ThreadConversationService } from "@medbuddy/chat";
+import { ContinuityThreadConversationService, ThreadConversationService } from "@medbuddy/chat";
 import type { ConversationResponder } from "@medbuddy/contracts";
-import { InMemoryPersistence } from "@medbuddy/platform";
+import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
 import {
   CommittedSourceCardGrounding,
   ConversationResponder as IntelligenceConversationResponder,
@@ -47,6 +47,7 @@ function createHarness(options: {
   replyFailure?: boolean;
 } = {}) {
   const persistence = new InMemoryPersistence();
+  const continuity = new InMemoryContinuityRepository();
   const modelRequests: Parameters<ConversationResponder["respond"]>[0][] = [];
   const responder: ConversationResponder = {
     async respond(request) {
@@ -58,13 +59,21 @@ function createHarness(options: {
   };
   const replies: { replyToken: string; text: string }[] = [];
   const logs: LineOperationalLogEntry[] = [];
+  const threadConversation = new ThreadConversationService({
+    messages: persistence.messages,
+    familyMaps: persistence.familyMaps,
+    responder,
+  });
   const handler = new LineWebhookHandler({
     channelSecret,
     receipts: persistence.externalEvents,
-    conversation: new ThreadConversationService({
+    conversation: threadConversation,
+    continuityConversation: new ContinuityThreadConversationService({
+      continuity,
       messages: persistence.messages,
       familyMaps: persistence.familyMaps,
       responder,
+      systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
     }),
     replyClient: { async reply(input) {
       replies.push(input);
@@ -72,7 +81,7 @@ function createHarness(options: {
     } },
     logger: { write(entry) { logs.push(entry); } },
   });
-  return { handler, logs, messages: persistence.messages, modelRequests, replies };
+  return { handler, continuity, logs, messages: persistence.messages, modelRequests, replies };
 }
 
 describe("LINE webhook", () => {
@@ -373,6 +382,55 @@ describe("LINE webhook", () => {
       replyToken: "fictional-room-reply-a",
       text: "A fictional model reply.",
     }]);
+    const unmentionedIds = deriveLineConversationIds({
+      channel: "LINE",
+      conversationType: "GROUP",
+      conversationId: "fictional-group-a",
+      senderId: "fictional-user-a",
+      messageId: "fictional-message-a",
+      eventId: "fictional-group-event-a",
+    });
+    await expect(harness.continuity.listSourceEvents(unmentionedIds.workspaceId)).resolves.toHaveLength(1);
+  });
+
+  it("applies group edits and unsends to future continuity projection", async () => {
+    const harness = createHarness();
+    const original = textEvent({
+      webhookEventId: "fictional-edit-original-event",
+      source: { type: "group", groupId: "fictional-edit-group", userId: "fictional-user-a" },
+      message: { id: "fictional-edit-message", type: "text", text: "Original fictional text." },
+    });
+    const edited = {
+      type: "messageEdited",
+      mode: "active",
+      timestamp: timestamp + 1,
+      webhookEventId: "fictional-edit-event",
+      source: { type: "group", groupId: "fictional-edit-group", userId: "fictional-user-a" },
+      message: { id: "fictional-edit-message", type: "text", text: "Corrected fictional text." },
+    };
+    const unsent = {
+      type: "unsend",
+      mode: "active",
+      timestamp: timestamp + 2,
+      webhookEventId: "fictional-unsend-event",
+      source: { type: "group", groupId: "fictional-edit-group", userId: "fictional-user-a" },
+      unsend: { messageId: "fictional-edit-message" },
+    };
+    await harness.handler.handle({ ...signedBody([original, edited]), correlationId: "request:fictional-edit" });
+    const ids = deriveLineConversationIds({
+      channel: "LINE",
+      conversationType: "GROUP",
+      conversationId: "fictional-edit-group",
+      senderId: "fictional-user-a",
+      messageId: "fictional-edit-message",
+      eventId: "fictional-edit-original-event",
+    });
+    await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toMatchObject([
+      { payload: { kind: "TEXT", body: "Original fictional text." } },
+      { payload: { kind: "TEXT_EDIT", body: "Corrected fictional text." } },
+    ]);
+    await harness.handler.handle({ ...signedBody([unsent]), correlationId: "request:fictional-unsend" });
+    await expect(harness.continuity.listSourceEvents(ids.workspaceId)).resolves.toHaveLength(3);
   });
 
   it("rejects invalid signatures before parsing or persistence", async () => {

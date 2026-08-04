@@ -2,7 +2,11 @@ import { Firestore } from "@google-cloud/firestore";
 import { CloudTasksClient } from "@google-cloud/tasks";
 import { Storage } from "@google-cloud/storage";
 
-import { CloudTasksCaptureDispatcher, type CloudTasksDispatcherOptions } from "./cloud-tasks/dispatcher.js";
+import {
+  CloudTasksCaptureDispatcher,
+  CloudTasksContinuityDispatcher,
+  type CloudTasksDispatcherOptions,
+} from "./cloud-tasks/dispatcher.js";
 import { FirestorePersistence } from "./firestore/repositories.js";
 import { FirestoreContinuityRepository } from "./firestore/continuity.js";
 import { PrivateAttachmentStorage } from "./storage/attachments.js";
@@ -18,6 +22,10 @@ export function createConversationPlatform(projectId: string) {
     persistence: new FirestorePersistence(firestore),
     continuity: new FirestoreContinuityRepository(firestore),
   };
+}
+
+export function createContinuityDispatcher(options: CloudTasksDispatcherOptions) {
+  return new CloudTasksContinuityDispatcher(new CloudTasksClient(), options);
 }
 
 /**

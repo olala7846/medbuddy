@@ -7,6 +7,7 @@ import {
   WorkspaceIdSchema,
 } from "./ids.js";
 import { WorkspaceFamilyMapContentSchema } from "./workspace-family-map.js";
+import { AssembledContextSchema } from "./continuity.js";
 
 const TimestampSchema = z.string().datetime({ offset: true });
 
@@ -71,6 +72,7 @@ export const ConversationContextSchema = z
       content: WorkspaceFamilyMapContentSchema,
       revision: z.number().int().nonnegative(),
     }).strict().optional(),
+    assembledContext: AssembledContextSchema.optional(),
   })
   .superRefine((context, issueContext) => {
     for (const [index, message] of context.messages.entries()) {
@@ -87,6 +89,13 @@ export const ConversationContextSchema = z
         code: "custom",
         message: "Conversation family map must belong to the requested workspace.",
         path: ["familyMap", "workspaceId"],
+      });
+    }
+    if (context.assembledContext !== undefined && context.assembledContext.workspaceId !== context.workspaceId) {
+      issueContext.addIssue({
+        code: "custom",
+        message: "Assembled conversation context must belong to the requested workspace.",
+        path: ["assembledContext", "workspaceId"],
       });
     }
   })

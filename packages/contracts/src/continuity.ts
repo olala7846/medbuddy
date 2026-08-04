@@ -210,6 +210,7 @@ export const AttachmentTaskInputSchema = z.object({
 }).strict();
 
 export type SourceEvent = z.infer<typeof SourceEventSchema>;
+export type SourceEventPayload = z.infer<typeof SourceEventPayloadSchema>;
 export type AcceptSourceEventInput = z.infer<typeof AcceptSourceEventInputSchema>;
 export type AcceptSourceEventResult = z.infer<typeof AcceptSourceEventResultSchema>;
 export type OutboundCandidate = z.infer<typeof OutboundCandidateSchema>;
