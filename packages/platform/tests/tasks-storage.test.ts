@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { AttachmentDocumentSchema, CaptureJobInputSchema, ContinuityTaskInputSchema } from "@medbuddy/contracts";
+import { AttachmentDocumentSchema, AttachmentTaskInputSchema, CaptureJobInputSchema, ContinuityTaskInputSchema } from "@medbuddy/contracts";
 
 import {
   CloudTasksCaptureDispatcher,
+  CloudTasksAttachmentDispatcher,
   CloudTasksContinuityDispatcher,
   ContinuityPrivateAttachmentStorage,
+  EncryptedLineAttachmentLocatorStore,
   PrivateAttachmentStorage,
   taskAuthorizationToken,
   verifyTaskCallback,
@@ -130,6 +132,35 @@ describe("Cloud Tasks continuity dispatcher", () => {
   });
 });
 
+describe("Cloud Tasks attachment dispatcher", () => {
+  it("uses a deterministic task whose callback body contains opaque IDs only", async () => {
+    const requests: unknown[] = [];
+    const dispatcher = new CloudTasksAttachmentDispatcher({
+      queuePath: () => "queue",
+      taskPath: (_project, _location, _queue, taskId) => taskId,
+      createTask: async (input) => {
+        requests.push(input);
+        return [{} as never, input, {}] as [never, typeof input, object];
+      },
+    }, {
+      projectId: "fictional-project",
+      location: "us-west1",
+      queue: "attachments",
+      callbackUrl: "https://fictional.example.test/api/internal/attachment",
+      serviceAccountEmail: "attachments@fictional-project.iam.gserviceaccount.com",
+    });
+    const input = AttachmentTaskInputSchema.parse({
+      workspaceId: "workspace:orchard",
+      attachmentId: "attachment:fictional-1",
+    });
+    await dispatcher.dispatch(input);
+    const request = requests[0] as { task: { name: string; httpRequest: { body: string } } };
+    expect(request.task.name).toMatch(/^attachment-[a-f0-9]{64}$/);
+    expect(JSON.parse(Buffer.from(request.task.httpRequest.body, "base64").toString("utf8"))).toEqual(input);
+    expect(JSON.stringify(request)).not.toContain("provider-message");
+  });
+});
+
 describe("Cloud Tasks callback verification", () => {
   it("requires a verified configured service account", async () => {
     await verifyTaskCallback({
@@ -240,5 +271,51 @@ describe("private attachment storage", () => {
       bytes,
       checksum: "a".repeat(64),
     })).rejects.toThrow(/checksum/i);
+  });
+});
+
+describe("encrypted LINE attachment locator", () => {
+  it("stores ciphertext only and binds decryption to the opaque workspace scope", async () => {
+    const documents = new Map<string, unknown>();
+    const persistence = {
+      async put(workspaceId: string, attachmentId: string, value: unknown) {
+        documents.set(`${workspaceId}\0${attachmentId}`, structuredClone(value));
+      },
+      async get(workspaceId: string, attachmentId: string) {
+        return documents.get(`${workspaceId}\0${attachmentId}`) ?? null;
+      },
+    };
+    const key = Buffer.alloc(32, 7).toString("base64");
+    const locator = new EncryptedLineAttachmentLocatorStore(persistence, {
+      version: "locator-v1",
+      keyBase64: key,
+    });
+    await locator.put({
+      workspaceId: "workspace:orchard" as never,
+      attachmentId: "attachment:fictional-1" as never,
+      providerMessageId: "fictional-provider-message",
+    });
+    const stored = documents.get("workspace:orchard\0attachment:fictional-1");
+    expect(JSON.stringify(stored)).not.toContain("fictional-provider-message");
+    await expect(locator.resolve({
+      workspaceId: "workspace:orchard" as never,
+      attachmentId: "attachment:fictional-1" as never,
+    })).resolves.toBe("fictional-provider-message");
+
+    documents.set("workspace:other\0attachment:fictional-1", stored);
+    await expect(locator.resolve({
+      workspaceId: "workspace:other" as never,
+      attachmentId: "attachment:fictional-1" as never,
+    })).rejects.toThrow(/scope|decrypt|workspace/i);
+  });
+
+  it("rejects malformed runtime key material without echoing it", () => {
+    const secret = "fictional-invalid-key-material";
+    expect(() => new EncryptedLineAttachmentLocatorStore({
+      async put() {}, async get() { return null; },
+    }, { version: "locator-v1", keyBase64: secret })).toThrow(/key/i);
+    expect(() => new EncryptedLineAttachmentLocatorStore({
+      async put() {}, async get() { return null; },
+    }, { version: "locator-v1", keyBase64: secret })).not.toThrow(secret);
   });
 });
