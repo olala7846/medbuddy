@@ -1,5 +1,6 @@
 import {
   AGENT_ACTION_MAX_UTF16,
+  ASSEMBLED_CONTEXT_MAX_UTF16,
   AgentActionContextSchema,
   AssembledContextSchema,
   type CompactionSegment,
@@ -12,6 +13,11 @@ import {
 
 const PENDING_HISTORY_MARKER = "[OLDER HISTORY IS PENDING COMPACTION — OMITTED CONTENT REMAINS STORED]";
 const FOCAL_EXCERPT_LABEL = "BEGIN BOUNDED EXCERPT — NOT VERBATIM MESSAGE";
+const OMITTED_HISTORY_MARKER = "[OLDER DERIVED HISTORY OMITTED TO FIT THE REQUEST BUDGET]";
+
+function joinBlocks(blocks: readonly (string | undefined)[]): string {
+  return blocks.filter((block): block is string => block !== undefined && block.length > 0).join("\n\n");
+}
 
 export type ProjectedTurn = {
   workspaceId: WorkspaceId;
@@ -162,23 +168,22 @@ function validateAndSelectFrontier(
   return selected;
 }
 
-function renderHistory(segments: readonly CompactionSegment[]): string {
-  return segments.map((segment) => [
+function renderHistorySegment(segment: CompactionSegment): string {
+  return [
     `BEGIN DERIVED NON-AUTHORITATIVE HISTORY (level ${segment.level}; sources ${segment.firstSourceSequence}-${segment.lastSourceSequence})`,
     JSON.stringify(segment.summary),
     "END DERIVED NON-AUTHORITATIVE HISTORY",
-  ].join("\n")).join("\n\n");
+  ].join("\n");
 }
 
 function renderActions(actions: ReturnType<typeof AgentActionContextSchema.parse> | undefined): string | undefined {
   if (actions === undefined) return undefined;
   const items: string[] = [];
-  let used = 0;
   for (const item of [...actions.items].reverse()) {
     const rendered = `[${item.kind} | source ${item.sourceEventId}]\n${JSON.stringify(item.outcome)}`;
-    if (rendered.length > AGENT_ACTION_MAX_UTF16 || used + rendered.length > AGENT_ACTION_MAX_UTF16) continue;
+    const candidate = `BEGIN UNTRUSTED AGENT ACTION OUTCOMES\n${[rendered, ...items].join("\n\n")}\nEND UNTRUSTED AGENT ACTION OUTCOMES`;
+    if (candidate.length > AGENT_ACTION_MAX_UTF16) continue;
     items.unshift(rendered);
-    used += rendered.length;
   }
   return items.length === 0 ? undefined : `BEGIN UNTRUSTED AGENT ACTION OUTCOMES\n${items.join("\n\n")}\nEND UNTRUSTED AGENT ACTION OUTCOMES`;
 }
@@ -212,7 +217,14 @@ export function assembleConversationContext(input: AssembleConversationContextIn
   const projected = projectEffectiveConversation(input.workspaceId, input.sourceEvents, input.attachments);
   const focal = projected.find((turn) => turn.sourceEventId === input.focalSourceEventId);
   if (focal === undefined) throw new Error("The focal source event is not available in the effective projection.");
-  const recentLimit = input.compactionPending ? RECENT_HARD_CEILING_UTF16 : 20_000;
+  const familyMap = input.familyMap?.content;
+  const agentActions = renderActions(actions);
+  const protectedPrefix = joinBlocks([input.system, familyMap, agentActions]);
+  const recentLimit = Math.min(
+    input.compactionPending ? RECENT_HARD_CEILING_UTF16 : 20_000,
+    ASSEMBLED_CONTEXT_MAX_UTF16 - protectedPrefix.length - (protectedPrefix.length === 0 ? 0 : 2),
+  );
+  if (recentLimit <= 0) throw new Error("Protected context blocks leave no room for the focal conversation turn.");
   const renderedFocal = renderProjectedTurn(focal);
   const focalRendering = renderedFocal.length <= recentLimit
     ? renderedFocal
@@ -220,11 +232,10 @@ export function assembleConversationContext(input: AssembleConversationContextIn
 
   const selectedNewestFirst: Array<{ turn: ProjectedTurn; rendered: string }> = [{ turn: focal, rendered: focalRendering }];
   let used = focalRendering.length;
-  for (const turn of [...projected].reverse()) {
-    if (turn.sourceEventId === focal.sourceEventId) continue;
+  for (const turn of projected.filter((candidate) => candidate.sourceSequence < focal.sourceSequence).reverse()) {
     const rendered = renderProjectedTurn(turn);
     const separatorCost = selectedNewestFirst.length === 0 ? 0 : 2;
-    if (used + separatorCost + rendered.length > recentLimit) continue;
+    if (used + separatorCost + rendered.length > recentLimit) break;
     selectedNewestFirst.push({ turn, rendered });
     used += separatorCost + rendered.length;
   }
@@ -242,6 +253,15 @@ export function assembleConversationContext(input: AssembleConversationContextIn
       omittedSourceEventCount += 1;
       recentParts = selectedNewestFirst.map((entry) => entry.rendered);
     }
+    if ([PENDING_HISTORY_MARKER, ...recentParts].join("\n\n").length > recentLimit) {
+      const focalEntry = selectedNewestFirst.find((entry) => entry.turn.sourceEventId === focal.sourceEventId);
+      if (focalEntry === undefined) throw new Error("The focal turn was lost during context selection.");
+      const focalLimit = recentLimit - PENDING_HISTORY_MARKER.length - 2;
+      focalEntry.rendered = renderedFocal.length <= focalLimit
+        ? renderedFocal
+        : renderFocalExcerpt(focal, focalLimit);
+      recentParts = selectedNewestFirst.map((entry) => entry.rendered);
+    }
     recentParts = [PENDING_HISTORY_MARKER, ...recentParts];
   }
   const recentConversation = recentParts.join("\n\n");
@@ -249,9 +269,24 @@ export function assembleConversationContext(input: AssembleConversationContextIn
 
   const firstRecentSequence = Math.min(...selectedNewestFirst.map((entry) => entry.turn.sourceSequence));
   const frontier = validateAndSelectFrontier(input.workspaceId, input.readySegments, firstRecentSequence);
-  const history = renderHistory(frontier);
-  const familyMap = input.familyMap?.content;
-  const agentActions = renderActions(actions);
+  const selectedSegments: CompactionSegment[] = [];
+  let history = "";
+  const fixedWithoutHistory = [input.system, familyMap, agentActions, recentConversation];
+  for (const candidate of [...frontier].reverse()) {
+    const candidateSegments = [candidate, ...selectedSegments];
+    const candidateHistory = candidateSegments.map(renderHistorySegment).join("\n\n");
+    const omitted = candidateSegments.length < frontier.length;
+    const markedHistory = omitted ? `${OMITTED_HISTORY_MARKER}\n\n${candidateHistory}` : candidateHistory;
+    if (joinBlocks([input.system, familyMap, agentActions, markedHistory, recentConversation]).length > ASSEMBLED_CONTEXT_MAX_UTF16) {
+      break;
+    }
+    selectedSegments.unshift(candidate);
+    history = markedHistory;
+  }
+  if (selectedSegments.length === 0 && frontier.length > 0 &&
+      joinBlocks([...fixedWithoutHistory.slice(0, 3), OMITTED_HISTORY_MARKER, recentConversation]).length <= ASSEMBLED_CONTEXT_MAX_UTF16) {
+    history = OMITTED_HISTORY_MARKER;
+  }
   const context = AssembledContextSchema.parse({
     workspaceId: input.workspaceId,
     focalSourceEventId: input.focalSourceEventId,
@@ -262,8 +297,6 @@ export function assembleConversationContext(input: AssembleConversationContextIn
     recentConversation,
     omittedSourceEventCount,
   });
-  const rendered = [context.system, context.familyMap, context.agentActions, context.history, context.recentConversation]
-    .filter((block): block is string => block !== undefined && block.length > 0)
-    .join("\n\n");
-  return { ...context, rendered, selectedSegments: frontier, projectedTurns: projected };
+  const rendered = joinBlocks([context.system, context.familyMap, context.agentActions, context.history, context.recentConversation]);
+  return { ...context, rendered, selectedSegments, projectedTurns: projected };
 }

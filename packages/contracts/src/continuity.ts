@@ -15,6 +15,8 @@ export const SOURCE_TEXT_MAX_UTF16 = 100_000;
 export const PROTECTED_RECENT_MAX_UTF16 = 10_000;
 export const COMPACTION_TRIGGER_UTF16 = 20_000;
 export const RECENT_HARD_CEILING_UTF16 = 30_000;
+export const ASSEMBLED_CONTEXT_MAX_UTF16 = 40_000;
+export const SYSTEM_CONTEXT_MAX_UTF16 = 8_000;
 export const SUMMARY_MAX_UTF16 = 4_000;
 export const AGENT_ACTION_MAX_UTF16 = 4_000;
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
@@ -196,13 +198,20 @@ export const CompactionSegmentSchema = z.object({
 export const AssembledContextSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   focalSourceEventId: SourceEventIdSchema,
-  system: z.string().min(1),
+  system: z.string().min(1).max(SYSTEM_CONTEXT_MAX_UTF16),
   familyMap: z.string().max(4_000).optional(),
   agentActions: z.string().max(AGENT_ACTION_MAX_UTF16).optional(),
-  history: z.string(),
+  history: z.string().max(ASSEMBLED_CONTEXT_MAX_UTF16),
   recentConversation: z.string().max(RECENT_HARD_CEILING_UTF16),
   omittedSourceEventCount: z.number().int().nonnegative(),
-}).strict();
+}).strict().superRefine((context, issueContext) => {
+  const rendered = [context.system, context.familyMap, context.agentActions, context.history, context.recentConversation]
+    .filter((block): block is string => block !== undefined && block.length > 0)
+    .join("\n\n");
+  if (rendered.length > ASSEMBLED_CONTEXT_MAX_UTF16) {
+    issueContext.addIssue({ code: "custom", message: "Fully rendered context exceeds its global character budget." });
+  }
+});
 
 export const ContinuityTaskInputSchema = z.object({
   workspaceId: WorkspaceIdSchema,

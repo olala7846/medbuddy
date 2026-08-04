@@ -36,6 +36,23 @@
 - [ ] Implementer fixes every actionable finding.
 - [ ] Fresh-context verifier reruns affected and full verification until clean.
 
+### Verifier remediation
+
+- [x] Bound the complete assembled and serialized provider context, reserve
+  output tokens, retain only a bounded newest historical frontier, and count
+  action wrappers/separators.
+- [x] Keep the selected recent window contiguous by stopping at the first
+  older non-fitting turn.
+- [ ] Preserve sender-less LINE group/room unsends and accept text through the
+  100,000-character contract boundary.
+- [ ] Invalidate compaction candidates on later in-range mutations, bound
+  compaction input, and make failed work recoverable.
+- [ ] Prevent historical summaries from authorizing family-map mutation.
+- [ ] Self-schedule remaining compaction backlog after publication and claim
+  model attempts atomically.
+- [ ] Reject attachment media-class/MIME mismatches.
+- [ ] Reconcile stale app/web documentation and rerun all verification gates.
+
 ## Final gates
 
 - [x] `npm run check`

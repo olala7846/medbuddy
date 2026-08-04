@@ -65,7 +65,16 @@ export type VertexGenerationRequest = {
   }[];
   tools?: readonly unknown[];
   toolConfig?: unknown;
+  generationConfig?: {
+    maxOutputTokens?: number;
+    responseMimeType?: string;
+  };
 };
+
+/** Includes serialized conversational instructions, tool declarations, and context. */
+export const CONVERSATION_PROVIDER_REQUEST_MAX_UTF16 = 60_000;
+/** Reserves a deterministic response allowance instead of accepting the model default. */
+export const CONVERSATION_MAX_OUTPUT_TOKENS = 2_048;
 
 /** Minimal model boundary shared by the live and fixed adapters. */
 export interface VertexModelClient {
@@ -154,9 +163,18 @@ export class VertexRestClient implements VertexModelClient {
             contents: input.contents,
             ...(input.tools === undefined ? {} : { tools: input.tools }),
             ...(input.toolConfig === undefined ? {} : { toolConfig: input.toolConfig }),
-            ...(input.tools === undefined
-              ? { generationConfig: { responseMimeType: "application/json" } }
-              : {}),
+            ...(
+              input.generationConfig === undefined && input.tools !== undefined
+                ? {}
+                : {
+                    generationConfig: {
+                      ...input.generationConfig,
+                      ...(input.tools === undefined
+                        ? { responseMimeType: input.generationConfig?.responseMimeType ?? "application/json" }
+                        : {}),
+                    },
+                  }
+            ),
           }),
           signal: controller.signal,
         });
@@ -290,7 +308,7 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
       }],
     });
   }
-  return {
+  const request: VertexGenerationRequest = {
     systemInstruction: [
       "Return JSON only.",
       context.assembledContext?.system ?? "",
@@ -316,7 +334,12 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
     toolConfig: {
       functionCallingConfig: { mode: input.familyMapUpdatesAllowed ? "AUTO" : "NONE" },
     },
+    generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
   };
+  if (JSON.stringify(request).length > CONVERSATION_PROVIDER_REQUEST_MAX_UTF16) {
+    throw new ConversationProviderError("MALFORMED_TRANSPORT");
+  }
+  return request;
 }
 
 function parseConversationStep(response: unknown): unknown {

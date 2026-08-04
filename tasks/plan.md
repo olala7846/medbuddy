@@ -148,6 +148,12 @@ historical frontier selection as one deep Chat module.
 
 - Tests cover surrogate pairs, attribution/marker costs, whole-message
   boundaries, focal oversize, hard-ceiling gaps, and temporal render order.
+- The newest recent window is contiguous: selection stops at the first older
+  non-fitting turn rather than skipping it, and action wrappers plus separators
+  count toward their cap.
+- The joined system, family-map, actions, history, marker, and recent blocks are
+  at most 40,000 UTF-16 units; the serialized conversational Vertex request is
+  at most 60,000 units and reserves 2,048 output tokens.
 - Edits and unsends change recent/future projection without modifying sources.
 - Mixed workspaces, overlapping ranges, and parent/child duplication fail
   before Intelligence receives context.

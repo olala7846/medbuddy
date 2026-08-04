@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_ACTION_MAX_UTF16,
+  ASSEMBLED_CONTEXT_MAX_UTF16,
   AgentActionContextSchema,
   CompactionSegmentSchema,
   ContinuityAttachmentSchema,
@@ -27,8 +29,8 @@ function event(sequence: number, body: string, overrides: Record<string, unknown
   });
 }
 
-function segment(input: { id: string; level: number; first: number; last: number; children?: string[] }) {
-  const summary = { overview: `Fictional history ${input.first}-${input.last}.`, keyEvents: [], openLoops: [], caveats: [] };
+function segment(input: { id: string; level: number; first: number; last: number; children?: string[]; summaryText?: string }) {
+  const summary = { overview: input.summaryText ?? `Fictional history ${input.first}-${input.last}.`, keyEvents: [], openLoops: [], caveats: [] };
   return CompactionSegmentSchema.parse({
     id: `compaction-segment:${input.id}`,
     workspaceId: "workspace:orchard",
@@ -107,17 +109,19 @@ describe("deterministic conversation context", () => {
   });
 
   it("keeps an oversized focal event through a marked deterministic head/tail excerpt", () => {
-    const focal = event(1, "a".repeat(40_000));
+    const older = event(1, "Older fictional context.");
+    const focal = event(2, "a".repeat(40_000));
     const assembled = assembleConversationContext({
       workspaceId: "workspace:orchard" as never,
       focalSourceEventId: focal.id,
-      sourceEvents: [focal],
+      sourceEvents: [older, focal],
       readySegments: [],
       system: "SYSTEM SAFETY",
       compactionPending: true,
     });
     expect(assembled.recentConversation).toContain("BEGIN BOUNDED EXCERPT — NOT VERBATIM MESSAGE");
     expect(assembled.recentConversation).toMatch(/OMITTED [1-9][0-9]* UTF-16 CODE UNITS/);
+    expect(assembled.recentConversation).toContain("OLDER HISTORY IS PENDING COMPACTION");
     expect(assembled.recentConversation.length).toBeLessThanOrEqual(30_000);
   });
 
@@ -134,6 +138,67 @@ describe("deterministic conversation context", () => {
     expect(assembled.recentConversation.length).toBeLessThanOrEqual(30_000);
     expect(assembled.recentConversation.match(/OLDER HISTORY IS PENDING COMPACTION/g)).toHaveLength(1);
     expect(assembled.omittedSourceEventCount).toBeGreaterThan(0);
+  });
+
+  it("stops at the first non-fitting older turn instead of creating a temporal gap", () => {
+    const sources = [event(1, "old-small"), event(2, "m".repeat(19_990)), event(3, "focal-small")];
+    const assembled = assembleConversationContext({
+      workspaceId: "workspace:orchard" as never,
+      focalSourceEventId: sources[2]!.id,
+      sourceEvents: sources,
+      readySegments: [],
+      system: "SYSTEM SAFETY",
+      compactionPending: false,
+    });
+    expect(assembled.recentConversation).toContain("focal-small");
+    expect(assembled.recentConversation).not.toContain("old-small");
+    expect(assembled.recentConversation).toContain("OLDER HISTORY IS PENDING COMPACTION");
+  });
+
+  it("bounds the fully wrapped request context and newest historical frontier", () => {
+    const focal = event(40, "Fictional focal update.");
+    const roots = Array.from({ length: 20 }, (_, index) => segment({
+      id: `root-${index}`,
+      level: 1,
+      first: index * 2 + 1,
+      last: index * 2 + 2,
+      summaryText: `${index}:`.padEnd(3_500, "h"),
+    }));
+    const assembled = assembleConversationContext({
+      workspaceId: "workspace:orchard" as never,
+      focalSourceEventId: focal.id,
+      sourceEvents: [focal],
+      readySegments: roots,
+      familyMap: { workspaceId: "workspace:orchard" as never, content: "f".repeat(4_000), revision: 1 },
+      system: "s".repeat(8_000),
+      compactionPending: false,
+    });
+    expect(assembled.rendered.length).toBeLessThanOrEqual(ASSEMBLED_CONTEXT_MAX_UTF16);
+    expect(assembled.selectedSegments.length).toBeLessThan(roots.length);
+    expect(assembled.selectedSegments.at(-1)?.id).toBe(roots.at(-2)?.id);
+  });
+
+  it("counts action block wrappers and separators inside the 4k action ceiling", () => {
+    const focal = event(1, "Fictional focal.");
+    const actions = AgentActionContextSchema.parse({
+      workspaceId: "workspace:orchard",
+      items: [{
+        workspaceId: "workspace:orchard",
+        sourceEventId: focal.id,
+        kind: "SYSTEM_OUTCOME",
+        outcome: { detail: "x".repeat(3_900) },
+      }],
+    });
+    const assembled = assembleConversationContext({
+      workspaceId: "workspace:orchard" as never,
+      focalSourceEventId: focal.id,
+      sourceEvents: [focal],
+      readySegments: [],
+      agentActions: actions,
+      system: "SYSTEM SAFETY",
+      compactionPending: false,
+    });
+    expect(assembled.agentActions?.length ?? 0).toBeLessThanOrEqual(AGENT_ACTION_MAX_UTF16);
   });
 
   it("renders system, family map, actions, parent frontier, then newer attributed evidence", () => {

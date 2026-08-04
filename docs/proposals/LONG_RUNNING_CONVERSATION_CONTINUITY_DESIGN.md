@@ -229,6 +229,8 @@ All thresholds count JavaScript string `.length` over the fully rendered attribu
 | 10,000 protected recent | Select the newest complete projected turns up to this rendered bound before optional family/history allocation. |
 | Above 20,000 uncompacted recent | Durably schedule asynchronous level-1 compaction. Continue replying. |
 | 30,000 model-request ceiling | Never render more verbatim conversation. Omit oldest uncompacted complete turns and insert one pending-history marker. |
+| 40,000 assembled-context ceiling | Bound the fully joined system, family-map, agent-action, historical, marker, and recent blocks, including every separator. |
+| 60,000 serialized conversation-request ceiling | Bound the complete Vertex request including prompts, envelopes, declarations, and JSON wrappers. Reserve output with `maxOutputTokens: 2048`. |
 | After level-1 publication | Cover enough oldest complete events that remaining recent conversation is at most 10,000; whole-message boundaries may undershoot. |
 
 The focal text is always protected. If its attributed rendering alone cannot fit the focal allocation, retain the complete accepted source in storage and render a deterministic head/tail excerpt with `BEGIN BOUNDED EXCERPT — NOT VERBATIM MESSAGE` and an omission count. No other ordinary message is split.
@@ -272,12 +274,12 @@ assemble(workspace, focal, familyMap?, actions, requestBudget):
   actionsBlock = newest relevant actions fitting 4k
   recent = newest whole projected turns fitting 10k
   familyBlock = include current bounded map if remaining budget permits
-  history = chooseReadyFrontier(before recent.firstSequence, remaining budget)
-  expand recent backward contiguously toward 20k
+  history = chooseNewestReadyFrontier(before recent.firstSequence, remaining budget)
+  expand recent backward contiguously toward 20k, stopping at the first non-fitting turn
   if compaction is pending and budget remains, expand toward 30k
   if older uncompacted projected turns remain:
     prepend one pending-history marker inside the 30k conversation ceiling
-  validate no cross-workspace, range overlap, parent/child overlap, or hard-ceiling breach
+  validate no cross-workspace, range overlap, parent/child overlap, assembled-context breach, or serialized-provider-request breach
   render family, actions, history, marker, recent in temporal order
 ```
 
