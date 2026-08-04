@@ -87,6 +87,29 @@ export class FixedConversationProvider implements ConversationProvider {
 const acknowledgmentText =
   "Thanks for sharing. I can help record what you observed or show general information from a supplied medication source card.";
 
+export const FAMILY_MAP_UPDATE_FAILURE_TEXT =
+  "I couldn’t save that family-map change. Please try again.";
+export const AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT =
+  "Who do you mean by “she”? Please name the observed member before I update this chat’s family map.";
+
+function needsRelationshipTargetClarification(
+  focalMessage: Message,
+  context: ConversationContext,
+): boolean {
+  if (!/\b(?:she|he|they)\s+is\s+(?:my|our|the)\s+(?:mother|mom|father|dad|parent|sister|brother|daughter|son|grandmother|grandma|grandfather|grandpa|caregiver)\b/i.test(focalMessage.body)) {
+    return false;
+  }
+  const observed = new Set(
+    context.messages.flatMap((message) =>
+      message.authorMemberId === "MEDBUDDY" ? [] : [message.authorMemberId],
+    ),
+  );
+  for (const match of context.familyMap.content.matchAll(/\bmember:[A-Za-z0-9][A-Za-z0-9_-]{0,127}\b/g)) {
+    observed.add(match[0] as never);
+  }
+  return observed.size > 1;
+}
+
 function renderLookup(result: MedicationLookupRenderResult): string {
   if (result.kind === "UNSUPPORTED") {
     return result.text;
@@ -152,6 +175,14 @@ export class ConversationResponder implements ConversationResponderPort {
         retryable: refusal.retryable,
       };
     }
+    if (needsRelationshipTargetClarification(focalMessage, request.data.context)) {
+      return {
+        kind: "RESPONDED",
+        responseText: AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT,
+        retryable: false,
+        toolCalls: 0,
+      };
+    }
 
     try {
       const deadline = Date.now() + this.turnTimeoutMs;
@@ -166,19 +197,21 @@ export class ConversationResponder implements ConversationResponderPort {
           toolResult,
           familyMapUpdatesAllowed: toolCalls === 0 || retryAfterConflict,
         }), deadline);
+        if (terminalToolFailure) {
+          this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+          return {
+            kind: "RESPONDED",
+            responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
+            retryable: false,
+            toolCalls,
+          };
+        }
         const instruction = ConversationInstructionSchema.safeParse(output);
         if (!instruction.success) {
           this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return technicalFailure(toolCalls || undefined);
         }
         if (instruction.data.kind !== "UPDATE_WORKSPACE_FAMILY_MAP") {
-          if (terminalToolFailure && (
-            instruction.data.kind !== "REPLY"
-            || !/couldn['’]?t|could not|wasn['’]?t|not saved|unable|failed|did not/i.test(instruction.data.text)
-          )) {
-            this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
-            return technicalFailure(toolCalls);
-          }
           const response = await this.respondToInstruction(instruction.data);
           this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return toolCalls === 0 ? response : { ...response, toolCalls };

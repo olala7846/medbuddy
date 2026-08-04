@@ -10,6 +10,7 @@ import {
 import {
   ConversationProviderError,
   ConversationResponder,
+  FAMILY_MAP_UPDATE_FAILURE_TEXT,
   FixedConversationProvider,
   createFixtureMedicationGrounding,
 } from "../src/index.js";
@@ -96,7 +97,7 @@ describe("conversation responder", () => {
     })).resolves.toEqual({
       kind: "RESPONDED",
       retryable: false,
-      responseText: "I couldn’t save that family-map change.",
+      responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
       toolCalls: 1,
     });
     expect(provider.requests[1]).toMatchObject({
@@ -105,10 +106,10 @@ describe("conversation responder", () => {
     });
   });
 
-  it("rejects a false success claim after a failed map update", async () => {
+  it("replaces mixed false-success model text with the deterministic failure acknowledgment", async () => {
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
       { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "x" } },
-      { kind: "REPLY", text: "Okay, I saved it." },
+      { kind: "REPLY", text: "I saved it, but I couldn't provide details." },
     ]]]));
     const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
 
@@ -116,7 +117,12 @@ describe("conversation responder", () => {
       updateWorkspaceFamilyMap: {
         async update() { return { kind: "TECHNICAL_FAILURE", retryable: true }; },
       },
-    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      retryable: false,
+      responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
+      toolCalls: 1,
+    });
   });
 
   it("emits metadata-only family-map and tool-loop telemetry", async () => {
@@ -262,6 +268,27 @@ describe("conversation responder", () => {
       retryable: false,
       responseText: expect.stringContaining("cannot decide"),
     });
+    expect(provider.requests).toEqual([]);
+  });
+
+  it("asks for a named observed member before an ambiguous pronoun relationship can call the tool", async () => {
+    const provider = new FixedConversationProvider(new Map());
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+    const result = await responder.respond({
+      ...request,
+      context: {
+        ...request.context,
+        familyMap: {
+          workspaceId: focalMessage.workspaceId,
+          content: "Members\n- member:fictional-kai: Kai\n- member:fictional-lin: Lin",
+          revision: 1,
+        },
+        messages: [{ ...focalMessage, body: "She is my mother." }],
+      },
+    });
+
+    expect(result).toMatchObject({ kind: "RESPONDED", toolCalls: 0 });
+    expect(result.responseText).toMatch(/who.*she|name.*member/i);
     expect(provider.requests).toEqual([]);
   });
 

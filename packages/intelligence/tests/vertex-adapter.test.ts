@@ -91,7 +91,7 @@ describe("Vertex adapters", () => {
     ]);
   });
 
-  it("omits JSON response MIME constraints when function tools are enabled", async () => {
+  it("keeps the declaration and omits JSON MIME constraints for AUTO and NONE tool steps", async () => {
     const bodies: unknown[] = [];
     const fetchStub: typeof fetch = async (_input, init) => {
       bodies.push(JSON.parse(String(init?.body)) as unknown);
@@ -109,8 +109,26 @@ describe("Vertex adapters", () => {
       tools: [{ functionDeclarations: [] }],
       toolConfig: { functionCallingConfig: { mode: "AUTO" } },
     });
+    await client.generate({
+      systemInstruction: "fictional",
+      contents: [{ role: "user", parts: [{ text: "fictional continuation" }] }],
+      tools: [{ functionDeclarations: [{ name: "update_workspace_family_map" }] }],
+      toolConfig: { functionCallingConfig: { mode: "NONE" } },
+    });
 
-    expect(bodies).toEqual([expect.not.objectContaining({ generationConfig: expect.anything() })]);
+    expect(bodies).toEqual([
+      expect.objectContaining({
+        tools: [{ functionDeclarations: [] }],
+        toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+      }),
+      expect.objectContaining({
+        tools: [{ functionDeclarations: [{ name: "update_workspace_family_map" }] }],
+        toolConfig: { functionCallingConfig: { mode: "NONE" } },
+      }),
+    ]);
+    for (const body of bodies as Record<string, unknown>[]) {
+      expect(body).not.toHaveProperty("generationConfig");
+    }
   });
 
   it("bounds a stalled provider request and returns a typed timeout", async () => {
@@ -149,16 +167,45 @@ describe("Vertex adapters", () => {
     await expect(image.extract({ focalMessage, attachments: [attachment] }, attachment)).resolves.toEqual({ kind: "UNREADABLE" });
   });
 
-  it("does not pass malformed transport or invalid model JSON into intelligence", async () => {
+  it("does not pass malformed transport into intelligence", async () => {
     const malformedClient: VertexModelClient = {
       async generate() {
-        return { candidates: [{ content: { parts: [{ text: "not JSON" }] } }] };
+        return { candidates: [{ unexpected: "missing content" }] };
       },
     };
     const conversation = new VertexConversationProvider(malformedClient);
 
     await expect(conversation.respond({ focalMessage, context: conversationInput.context }))
       .rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
+  });
+
+  it("accepts bounded plain final text when a tool-enabled model does not return JSON", async () => {
+    const plainTextClient: VertexModelClient = {
+      async generate() {
+        return { candidates: [{ content: { role: "model", parts: [{ text: "Lin is Kai’s grandmother." }] } }] };
+      },
+    };
+
+    await expect(new VertexConversationProvider(plainTextClient).respond({
+      focalMessage,
+      context: conversationInput.context,
+      familyMapUpdatesAllowed: true,
+    })).resolves.toEqual({ kind: "REPLY", text: "Lin is Kai’s grandmother." });
+  });
+
+  it("rejects empty and oversized plain conversational text", async () => {
+    for (const text of ["   ", "x".repeat(5_001)]) {
+      const invalidClient: VertexModelClient = {
+        async generate() {
+          return { candidates: [{ content: { role: "model", parts: [{ text }] } }] };
+        },
+      };
+      await expect(new VertexConversationProvider(invalidClient).respond({
+        focalMessage,
+        context: conversationInput.context,
+        familyMapUpdatesAllowed: true,
+      })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
+    }
   });
 
   it("sends only the focal body to Vertex text capture", async () => {
@@ -233,6 +280,9 @@ describe("Vertex adapters", () => {
     expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
       "BEGIN WORKSPACE FAMILY MAP (revision 3; user-maintained context)\nMembers\n- member:vertex: Mei\nEND WORKSPACE FAMILY MAP",
     );
+    expect((requests[0] as { systemInstruction: string }).systemInstruction).toContain(
+      "If someone says ‘She is my mother’ and ‘she’ cannot be mapped to exactly one observed opaque member, ask who they mean and do not call the tool.",
+    );
   });
 
   it("parses a native Vertex family-map function call and sends its result into the next step", async () => {
@@ -306,5 +356,31 @@ describe("Vertex adapters", () => {
         }],
       },
     ]);
+    expect(requests[1]).toMatchObject({
+      tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
+      toolConfig: { functionCallingConfig: { mode: "NONE" } },
+    });
+  });
+
+  it.each([
+    ["parallel calls", [
+      { functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 0, content: "First" } } },
+      { functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 0, content: "Second" } } },
+    ]],
+    ["a call plus extra text", [
+      { functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 0, content: "First" } } },
+      { text: "Also do something else." },
+    ]],
+  ])("rejects %s in one model content", async (_label, parts) => {
+    const invalidClient: VertexModelClient = {
+      async generate() {
+        return { candidates: [{ content: { role: "model", parts } }] };
+      },
+    };
+    await expect(new VertexConversationProvider(invalidClient).respond({
+      focalMessage,
+      context: conversationInput.context,
+      familyMapUpdatesAllowed: true,
+    })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
   });
 });
