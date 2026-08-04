@@ -393,6 +393,9 @@ The current PR #78 conversation provider performs one model call and explicitly 
 4. If the model returns final text, validate and finish.
 5. If the model calls `update_workspace_family_map`, validate arguments and execute the bound tool.
 6. Return the typed tool result to the model.
+   For `REJECTED` or `TECHNICAL_FAILURE`, disable further calls and make one
+   bounded continuation call, then discard model-authored acknowledgment text
+   and render the application-owned failure acknowledgment.
 7. Accept either final text or, after a `REVISION_CONFLICT`, one retry call built from the returned current map.
 8. After one successful update, disable further family-map calls for this inbound message and require final text.
 9. Stop on the final response or the overall turn deadline.
@@ -414,9 +417,9 @@ The general future loop—multiple tools, parallel or sequential tool calls, sev
 | Duplicate LINE webhook | Existing receipt claim prevents another model turn, map update, persisted message, or reply. |
 | Duplicate identical tool call | `NO_CHANGE`; no revision increment. |
 | Stale revision with different content | `REVISION_CONFLICT`; no write. The model may retry once using the current map. |
-| Oversized content | `REJECTED/CONTENT_TOO_LARGE`; no write and no success acknowledgment. |
-| Invalid bound source | `REJECTED/INVALID_SOURCE`; no write and a metadata-only security event. |
-| Firestore failure | `TECHNICAL_FAILURE`; no claim that the relationship was saved. |
+| Oversized content | `REJECTED/CONTENT_TOO_LARGE`; no write; return the typed result to the model, then render the deterministic application-owned failure acknowledgment. |
+| Invalid bound source | `REJECTED/INVALID_SOURCE`; no write and a metadata-only security event; render the deterministic failure acknowledgment. |
+| Firestore failure | `TECHNICAL_FAILURE`; no claim that the relationship was saved; render the deterministic failure acknowledgment after the bounded continuation step. |
 | Model failure before update | No map write and no fabricated answer. |
 | Model failure after update | The update remains committed; do not roll it back. The webhook completes as failed and no false reply is invented. |
 | LINE reply failure after update | The update remains committed. Existing at-most-once receipt behavior prevents a duplicate reply. |

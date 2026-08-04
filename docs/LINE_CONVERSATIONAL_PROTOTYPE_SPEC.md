@@ -9,6 +9,9 @@
 > **Effort 1 follow-up:** The base loop below now includes the approved
 > workspace family map and its single server-bound update tool. See
 > [`proposals/WORKSPACE_FAMILY_MAP_DESIGN.md`](./proposals/WORKSPACE_FAMILY_MAP_DESIGN.md).
+> Statements below that describe the original one-call/no-tool baseline are
+> superseded only for this narrow capability; repository access, medical writes,
+> additional tools, and broader memory remain prohibited or deferred.
 
 ## Objective
 

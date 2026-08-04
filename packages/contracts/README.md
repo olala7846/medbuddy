@@ -6,6 +6,7 @@ Shared Zod schemas, branded IDs, errors, public service ports, and golden-scenar
 
 - `.` → `src/index.ts` (schemas, types, ports, `GoldenScenario`)
 - `./adapter-contract-tests` → shared persistence adapter contract harness
+- `./workspace-family-map-adapter-contract-tests` → shared family-map CAS/isolation harness
 - `./transaction-contract-tests` → transactional persistence contract harness
 
 ## Depends on
@@ -19,8 +20,8 @@ Shared Zod schemas, branded IDs, errors, public service ports, and golden-scenar
 
 ## Key surfaces
 
-- Ports: `ChatService`, `CareRecordService`, `ConversationResponder`, `CaptureProcessor`, `MedicationGrounding`, `DemoWorkspaceProvisioner`
-- Domains: auth, chat, capture, care-record, handoff, grounding, persistence, demo
+- Ports: `ChatService`, `CareRecordService`, `ConversationResponder`, `WorkspaceFamilyMapRepository`, `CaptureProcessor`, `MedicationGrounding`, `DemoWorkspaceProvisioner`
+- Domains: auth, chat, workspace family map, capture, care-record, handoff, grounding, persistence, demo
 
 ## Tests
 
