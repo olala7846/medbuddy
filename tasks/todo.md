@@ -23,7 +23,7 @@
 - [x] Task 6: Add bounded four-field summary generation for `gemini-3.6-flash`.
 - [x] Checkpoint B: Chat and Intelligence continuity suites pass.
 - [x] Task 7: Implement and emulator-test the Firestore adapter.
-- [ ] Task 8: Add durable compaction dispatch and private task execution.
+- [x] Task 8: Add durable compaction dispatch and private task execution.
 - [ ] Task 9: Replace count-based LINE orchestration and publish outbound only after acceptance.
 - [ ] Task 10: Add private bounded LINE attachment ingestion.
 - [ ] Checkpoint C: Synthetic LINE continuity and attachment paths pass.

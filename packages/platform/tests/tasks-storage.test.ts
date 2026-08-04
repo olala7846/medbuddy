@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { AttachmentDocumentSchema, CaptureJobInputSchema } from "@medbuddy/contracts";
+import { AttachmentDocumentSchema, CaptureJobInputSchema, ContinuityTaskInputSchema } from "@medbuddy/contracts";
 
 import {
   CloudTasksCaptureDispatcher,
+  CloudTasksContinuityDispatcher,
   PrivateAttachmentStorage,
   taskAuthorizationToken,
   verifyTaskCallback,
@@ -69,6 +70,62 @@ describe("Cloud Tasks capture dispatcher", () => {
       createTask: async () => { throw { code: 6 }; },
     }, { projectId: "demo", location: "us-west1", queue: "capture", callbackUrl: "https://example.test/capture", serviceAccountEmail: "capture@demo.iam.gserviceaccount.com" });
     await expect(dispatcher.dispatch(CaptureJobInputSchema.parse({ workspaceId: "workspace:demo", messageId: "message:visit-1" }))).resolves.toBeUndefined();
+  });
+});
+
+describe("Cloud Tasks continuity dispatcher", () => {
+  it("uses the deterministic job identity and an OIDC-authenticated private callback", async () => {
+    const requests: unknown[] = [];
+    const dispatcher = new CloudTasksContinuityDispatcher({
+      queuePath: () => "queue",
+      taskPath: (_project, _location, _queue, taskId) => taskId,
+      createTask: async (input) => {
+        requests.push(input);
+        return [{} as never, input, {}] as [never, typeof input, object];
+      },
+    }, {
+      projectId: "fictional-project",
+      location: "us-west1",
+      queue: "continuity",
+      callbackUrl: "https://fictional.example.test/api/internal/continuity",
+      serviceAccountEmail: "continuity@fictional-project.iam.gserviceaccount.com",
+    });
+    const input = ContinuityTaskInputSchema.parse({
+      workspaceId: "workspace:orchard",
+      jobId: `compaction-job:${"a".repeat(64)}`,
+    });
+    await dispatcher.dispatch(input);
+    await dispatcher.dispatch(input);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      task: {
+        name: `continuity-${"a".repeat(64)}`,
+        httpRequest: {
+          oidcToken: {
+            audience: "https://fictional.example.test/api/internal/continuity",
+            serviceAccountEmail: "continuity@fictional-project.iam.gserviceaccount.com",
+          },
+        },
+      },
+    });
+  });
+
+  it("converges an already-created task without changing its name", async () => {
+    const dispatcher = new CloudTasksContinuityDispatcher({
+      queuePath: () => "queue",
+      taskPath: () => "task",
+      createTask: async () => { throw { code: "ALREADY_EXISTS" }; },
+    }, {
+      projectId: "fictional-project",
+      location: "us-west1",
+      queue: "continuity",
+      callbackUrl: "https://fictional.example.test/api/internal/continuity",
+      serviceAccountEmail: "continuity@fictional-project.iam.gserviceaccount.com",
+    });
+    await expect(dispatcher.dispatch(ContinuityTaskInputSchema.parse({
+      workspaceId: "workspace:orchard",
+      jobId: `compaction-job:${"a".repeat(64)}`,
+    }))).resolves.toBeUndefined();
   });
 });
 

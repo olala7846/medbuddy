@@ -4,6 +4,7 @@ import { Storage } from "@google-cloud/storage";
 
 import { CloudTasksCaptureDispatcher, type CloudTasksDispatcherOptions } from "./cloud-tasks/dispatcher.js";
 import { FirestorePersistence } from "./firestore/repositories.js";
+import { FirestoreContinuityRepository } from "./firestore/continuity.js";
 import { PrivateAttachmentStorage } from "./storage/attachments.js";
 
 export interface ProductionPlatformOptions extends CloudTasksDispatcherOptions {
@@ -12,8 +13,10 @@ export interface ProductionPlatformOptions extends CloudTasksDispatcherOptions {
 
 /** Minimal Firestore-only platform for synchronous external conversations. */
 export function createConversationPlatform(projectId: string) {
+  const firestore = new Firestore({ projectId });
   return {
-    persistence: new FirestorePersistence(new Firestore({ projectId })),
+    persistence: new FirestorePersistence(firestore),
+    continuity: new FirestoreContinuityRepository(firestore),
   };
 }
 
@@ -25,6 +28,7 @@ export function createProductionPlatform(options: ProductionPlatformOptions) {
   const firestore = new Firestore({ projectId: options.projectId });
   return {
     persistence: new FirestorePersistence(firestore),
+    continuity: new FirestoreContinuityRepository(firestore),
     captureDispatcher: new CloudTasksCaptureDispatcher(new CloudTasksClient(), options),
     attachmentStorage: new PrivateAttachmentStorage(new Storage({ projectId: options.projectId }), options.storageBucket),
   };

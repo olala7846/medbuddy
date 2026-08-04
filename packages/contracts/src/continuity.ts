@@ -199,6 +199,16 @@ export const AssembledContextSchema = z.object({
   omittedSourceEventCount: z.number().int().nonnegative(),
 }).strict();
 
+export const ContinuityTaskInputSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  jobId: CompactionJobIdSchema,
+}).strict();
+
+export const AttachmentTaskInputSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  attachmentId: AttachmentIdSchema,
+}).strict();
+
 export type SourceEvent = z.infer<typeof SourceEventSchema>;
 export type AcceptSourceEventInput = z.infer<typeof AcceptSourceEventInputSchema>;
 export type AcceptSourceEventResult = z.infer<typeof AcceptSourceEventResultSchema>;
@@ -209,6 +219,8 @@ export type SegmentSummary = z.infer<typeof SegmentSummarySchema>;
 export type CompactionJob = z.infer<typeof CompactionJobSchema>;
 export type CompactionSegment = z.infer<typeof CompactionSegmentSchema>;
 export type AssembledContext = z.infer<typeof AssembledContextSchema>;
+export type ContinuityTaskInput = z.infer<typeof ContinuityTaskInputSchema>;
+export type AttachmentTaskInput = z.infer<typeof AttachmentTaskInputSchema>;
 
 export interface ContinuityRepository {
   acceptSourceEvent(input: AcceptSourceEventInput): Promise<AcceptSourceEventResult>;

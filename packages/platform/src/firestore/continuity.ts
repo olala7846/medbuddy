@@ -292,6 +292,12 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       if (existing.exists) {
         const stored = CompactionSegmentSchema.parse(record(existing.data()));
         if (!same(stored, segment)) throw new Error("An immutable ready segment already exists with a different value.");
+        if (active?.exists) {
+          const activeJob = CompactionJobSchema.parse(record(active.data()));
+          if (activeJob.firstSourceSequence === segment.firstSourceSequence && activeJob.lastSourceSequence === segment.lastSourceSequence) {
+            transaction.set(stateRef, { activeJobId: null });
+          }
+        }
         return stored;
       }
       for (const document of sameLevel.docs) {

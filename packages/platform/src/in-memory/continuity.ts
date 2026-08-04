@@ -187,6 +187,10 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       const existing = this.segments.get(key);
       if (existing !== undefined) {
         if (!same(existing, segment)) throw new Error("An immutable ready segment already exists with a different value.");
+        const active = this.activeJobs.get(segment.workspaceId);
+        if (active?.firstSourceSequence === segment.firstSourceSequence && active.lastSourceSequence === segment.lastSourceSequence) {
+          this.activeJobs.delete(segment.workspaceId);
+        }
         return clone(existing);
       }
       const levelSegments = [...this.segments.values()].filter((entry) =>
