@@ -5,6 +5,8 @@ import {
   type ConversationResponder as ConversationResponderPort,
   type ConversationResult,
   type ConversationTurnTools,
+  type ConversationTelemetryEntry,
+  type ConversationTelemetryLogger,
   type MedicationGrounding,
   type Message,
   UpdateWorkspaceFamilyMapInputSchema,
@@ -107,6 +109,14 @@ function technicalFailure(toolCalls?: number): ConversationResult {
     : { kind: "TECHNICAL_FAILURE", retryable: true, toolCalls };
 }
 
+function characterCountClass(content: string): "EMPTY" | "SHORT" | "MEDIUM" | "LARGE" {
+  const count = [...content].length;
+  if (count === 0) return "EMPTY";
+  if (count <= 500) return "SHORT";
+  if (count <= 2_000) return "MEDIUM";
+  return "LARGE";
+}
+
 /**
  * Handles a Chat-supplied, bounded conversation turn without canonical writes.
  * Diagnosis, prescribing, and medication decisions are rejected before provider
@@ -117,6 +127,7 @@ export class ConversationResponder implements ConversationResponderPort {
     private readonly grounding: MedicationGrounding,
     private readonly provider: ConversationProvider,
     private readonly turnTimeoutMs = 25_000,
+    private readonly telemetry?: ConversationTelemetryLogger,
   ) {}
 
   async respond(input: ConversationTurnRequest, tools?: ConversationTurnTools): Promise<ConversationResult> {
@@ -146,6 +157,7 @@ export class ConversationResponder implements ConversationResponderPort {
       const deadline = Date.now() + this.turnTimeoutMs;
       let toolCalls = 0;
       let retryAfterConflict = false;
+      let terminalToolFailure = false;
       let toolResult: unknown;
       for (let modelStep = 0; modelStep < 3; modelStep += 1) {
         const output = await this.beforeDeadline(() => this.provider.respond({
@@ -155,36 +167,80 @@ export class ConversationResponder implements ConversationResponderPort {
           familyMapUpdatesAllowed: toolCalls === 0 || retryAfterConflict,
         }), deadline);
         const instruction = ConversationInstructionSchema.safeParse(output);
-        if (!instruction.success) return technicalFailure(toolCalls || undefined);
+        if (!instruction.success) {
+          this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+          return technicalFailure(toolCalls || undefined);
+        }
         if (instruction.data.kind !== "UPDATE_WORKSPACE_FAMILY_MAP") {
+          if (terminalToolFailure && (
+            instruction.data.kind !== "REPLY"
+            || !/couldn['’]?t|could not|wasn['’]?t|not saved|unable|failed|did not/i.test(instruction.data.text)
+          )) {
+            this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+            return technicalFailure(toolCalls);
+          }
           const response = await this.respondToInstruction(instruction.data);
+          this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return toolCalls === 0 ? response : { ...response, toolCalls };
         }
-        if (tools === undefined || (toolCalls > 0 && !retryAfterConflict)) {
+        if (tools === undefined || terminalToolFailure || (toolCalls > 0 && !retryAfterConflict)) {
+          this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return technicalFailure(toolCalls || undefined);
         }
         toolCalls += 1;
         const updateInput = instruction.data.input;
+        this.log({
+          event: "family_map_tool_requested",
+          priorRevision: updateInput.expectedRevision,
+          characterCountClass: characterCountClass(updateInput.content),
+          toolAttemptCount: toolCalls,
+          modelStepCount: modelStep + 1,
+        });
         const result = await this.beforeDeadline(
           () => tools.updateWorkspaceFamilyMap.update(updateInput),
           deadline,
         );
         if (result.kind === "REJECTED" || result.kind === "TECHNICAL_FAILURE") {
-          return technicalFailure(toolCalls);
+          terminalToolFailure = true;
+          retryAfterConflict = false;
+          toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+          this.log({
+            event: result.kind === "REJECTED" ? "family_map_rejected" : "family_map_failed",
+            outcome: result.kind === "REJECTED" ? result.code : "TECHNICAL_FAILURE",
+            priorRevision: updateInput.expectedRevision,
+            characterCountClass: characterCountClass(updateInput.content),
+            toolAttemptCount: toolCalls,
+            modelStepCount: modelStep + 1,
+          });
+          continue;
         }
         if (result.kind === "REVISION_CONFLICT") {
           if (toolCalls > 1) return technicalFailure(toolCalls);
           retryAfterConflict = true;
           toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+          this.log({ event: "family_map_revision_conflict", priorRevision: updateInput.expectedRevision, resultingRevision: result.familyMap.revision, toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           continue;
         }
         retryAfterConflict = false;
         toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+        this.log({
+          event: result.kind === "UPDATED" ? "family_map_updated" : "family_map_no_change",
+          priorRevision: updateInput.expectedRevision,
+          resultingRevision: result.familyMap.revision,
+          characterCountClass: characterCountClass(result.familyMap.content),
+          toolAttemptCount: toolCalls,
+          modelStepCount: modelStep + 1,
+        });
       }
+      this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: 3 });
       return technicalFailure(toolCalls);
     } catch {
       return technicalFailure();
     }
+  }
+
+  private log(entry: ConversationTelemetryEntry): void {
+    this.telemetry?.write(entry);
   }
 
   private async beforeDeadline<Value>(operation: () => Promise<Value>, deadline: number): Promise<Value> {

@@ -1,8 +1,8 @@
 import { createLineWebhookComposition } from "../composition/line.js";
-import type { LineWebhookLogEntry, LineWebhookLogger } from "./webhook.js";
+import type { LineOperationalLogEntry, LineWebhookLogger } from "./webhook.js";
 
 export const productionLineWebhookLogger: LineWebhookLogger = {
-  write(entry: LineWebhookLogEntry) {
+  write(entry: LineOperationalLogEntry) {
     process.stdout.write(`${JSON.stringify(entry)}\n`);
   },
 };

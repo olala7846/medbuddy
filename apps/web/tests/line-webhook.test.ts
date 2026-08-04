@@ -12,7 +12,7 @@ import {
   LineWebhookHandler,
   createLineSignature,
   deriveLineConversationIds,
-  type LineWebhookLogEntry,
+  type LineOperationalLogEntry,
 } from "../src/line/index.js";
 
 const channelSecret = "fictional-channel-secret-for-tests";
@@ -57,7 +57,7 @@ function createHarness(options: {
     },
   };
   const replies: { replyToken: string; text: string }[] = [];
-  const logs: LineWebhookLogEntry[] = [];
+  const logs: LineOperationalLogEntry[] = [];
   const handler = new LineWebhookHandler({
     channelSecret,
     receipts: persistence.externalEvents,

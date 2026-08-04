@@ -74,6 +74,28 @@ export interface ConversationTurnTools {
   updateWorkspaceFamilyMap: UpdateWorkspaceFamilyMapTool;
 }
 
+export type ConversationTelemetryEntry = {
+  event:
+    | "family_map_tool_requested"
+    | "family_map_updated"
+    | "family_map_no_change"
+    | "family_map_revision_conflict"
+    | "family_map_rejected"
+    | "family_map_failed"
+    | "conversation_tool_loop_completed"
+    | "conversation_tool_loop_exhausted";
+  outcome?: string;
+  priorRevision?: number;
+  resultingRevision?: number;
+  characterCountClass?: "EMPTY" | "SHORT" | "MEDIUM" | "LARGE";
+  toolAttemptCount: number;
+  modelStepCount: number;
+};
+
+export interface ConversationTelemetryLogger {
+  write(entry: ConversationTelemetryEntry): void;
+}
+
 export interface ConversationResponder {
   respond(input: ConversationTurnRequest, tools?: ConversationTurnTools): Promise<ConversationResult>;
 }

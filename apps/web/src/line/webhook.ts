@@ -1,4 +1,4 @@
-import type { ExternalConversationIdentity, ExternalEventReceiptStore, ThreadConversation } from "@medbuddy/contracts";
+import type { ConversationTelemetryEntry, ExternalConversationIdentity, ExternalEventReceiptStore, ThreadConversation } from "@medbuddy/contracts";
 import { ExternalConversationIdentitySchema } from "@medbuddy/contracts";
 import { z } from "zod";
 
@@ -53,8 +53,10 @@ export type LineWebhookLogEntry = {
   code?: "INVALID_SIGNATURE" | "INVALID_BODY" | "BODY_TOO_LARGE" | "MODEL_FAILURE" | "REPLY_FAILURE" | "RECEIPT_FAILURE";
 };
 
+export type LineOperationalLogEntry = LineWebhookLogEntry | ConversationTelemetryEntry;
+
 export interface LineWebhookLogger {
-  write(entry: LineWebhookLogEntry): void;
+  write(entry: LineOperationalLogEntry): void;
 }
 
 export interface LineReplyClient {

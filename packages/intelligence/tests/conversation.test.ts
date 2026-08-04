@@ -82,7 +82,30 @@ describe("conversation responder", () => {
     }]);
   });
 
-  it("never accepts a success acknowledgment after a rejected map update", async () => {
+  it("returns a rejected map result to the model for one truthful failure reply", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "x" } },
+      { kind: "REPLY", text: "I couldn’t save that family-map change." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      updateWorkspaceFamilyMap: {
+        async update() { return { kind: "REJECTED", code: "CONTENT_TOO_LARGE" }; },
+      },
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      retryable: false,
+      responseText: "I couldn’t save that family-map change.",
+      toolCalls: 1,
+    });
+    expect(provider.requests[1]).toMatchObject({
+      familyMapUpdatesAllowed: false,
+      toolResult: { result: { kind: "REJECTED", code: "CONTENT_TOO_LARGE" } },
+    });
+  });
+
+  it("rejects a false success claim after a failed map update", async () => {
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
       { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "x" } },
       { kind: "REPLY", text: "Okay, I saved it." },
@@ -91,9 +114,47 @@ describe("conversation responder", () => {
 
     await expect(responder.respond(request, {
       updateWorkspaceFamilyMap: {
-        async update() { return { kind: "REJECTED", code: "CONTENT_TOO_LARGE" }; },
+        async update() { return { kind: "TECHNICAL_FAILURE", retryable: true }; },
       },
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+  });
+
+  it("emits metadata-only family-map and tool-loop telemetry", async () => {
+    const entries: unknown[] = [];
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "Members\n- member:fictional-owner: Mei" } },
+      { kind: "REPLY", text: "Okay—I’ll remember that in this chat." },
+    ]]]));
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      provider,
+      25_000,
+      { write(entry) { entries.push(entry); } },
+    );
+
+    await responder.respond(request, {
+      updateWorkspaceFamilyMap: {
+        async update(input) {
+          return { kind: "UPDATED", familyMap: { workspaceId: focalMessage.workspaceId, content: input.content, revision: 1 } };
+        },
+      },
+    });
+
+    expect(entries).toEqual([
+      expect.objectContaining({ event: "family_map_tool_requested", toolAttemptCount: 1 }),
+      expect.objectContaining({ event: "family_map_updated", resultingRevision: 1 }),
+      expect.objectContaining({ event: "conversation_tool_loop_completed", modelStepCount: 2 }),
+    ]);
+    const serialized = JSON.stringify(entries);
+    for (const forbidden of [
+      focalMessage.workspaceId,
+      focalMessage.authorMemberId,
+      focalMessage.id,
+      focalMessage.body,
+      "Members",
+      "Mei",
+      "Okay",
+    ]) expect(serialized).not.toContain(forbidden);
   });
 
   it("rejects a second family-map update after one successful update", async () => {
