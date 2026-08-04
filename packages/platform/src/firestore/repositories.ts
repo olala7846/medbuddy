@@ -200,6 +200,9 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
           this.familyMapRef(workspaceId),
           WorkspaceFamilyMapSchema,
         );
+        if (existing !== null && existing.workspaceId !== workspaceId) {
+          throw new Error("Stored family map does not match its workspace path.");
+        }
         return existing ?? WorkspaceFamilyMapSchema.parse({
           workspaceId,
           content: "",
@@ -231,6 +234,9 @@ export class FirestorePersistence implements TransactionalPersistence, DemoWorks
                 content: "",
                 revision: 0,
               });
+            if (current.workspaceId !== input.workspaceId) {
+              throw new Error("Stored family map does not match its workspace path.");
+            }
             const content = WorkspaceFamilyMapContentSchema.parse(normalized);
             if (content === current.content) {
               return { kind: "NO_CHANGE", familyMap: current } as const;

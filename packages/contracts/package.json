@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./adapter-contract-tests": "./tests/adapter-contract.ts",
+    "./workspace-family-map-adapter-contract-tests": "./tests/workspace-family-map-adapter-contract.ts",
     "./transaction-contract-tests": "./tests/transaction-contract.ts"
   },
   "scripts": {

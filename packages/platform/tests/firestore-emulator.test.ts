@@ -17,6 +17,7 @@ import {
   describeWorkspaceRepositoryContract,
 } from "@medbuddy/contracts/adapter-contract-tests";
 import { describeTransactionalPersistenceContract } from "@medbuddy/contracts/transaction-contract-tests";
+import { describeWorkspaceFamilyMapRepositoryContract } from "@medbuddy/contracts/workspace-family-map-adapter-contract-tests";
 
 import { FirestorePersistence } from "../src/index.js";
 import { FictionalDemoWorkspaceProvisioner } from "@medbuddy/web/server";
@@ -35,6 +36,10 @@ describeEmulator("Firestore emulator persistence", () => {
   describeMessageRepositoryContract(() => persistence().messages);
   describeAttachmentRepositoryContract(() => persistence().attachments);
   describeCareRecordRepositoryContract(() => persistence().careRecords);
+  describeWorkspaceFamilyMapRepositoryContract(() => {
+    const platform = persistence();
+    return { familyMaps: platform.familyMaps, messages: platform.messages };
+  });
 
   it("buffers generic cross-repository transaction writes until all reads complete", async () => {
     const platform = persistence();
@@ -214,6 +219,20 @@ describeEmulator("Firestore emulator persistence", () => {
       content: "Different",
       updatedAt: source.createdAt,
     })).resolves.toMatchObject({ kind: "REVISION_CONFLICT", familyMap: { revision: 1 } });
+  });
+
+  it("rejects a family-map document whose embedded workspace differs from its path", async () => {
+    const firestore = new Firestore({ projectId: `medbuddy-platform-test-${randomUUID()}` });
+    const platform = new FirestorePersistence(firestore);
+    await firestore.collection("workspaces").doc("workspace:map-path")
+      .collection("workspaceMemory").doc("familyMap").set({
+        workspaceId: "workspace:map-other",
+        content: "",
+        revision: 1,
+      });
+
+    await expect(platform.familyMaps.get("workspace:map-path" as never))
+      .rejects.toThrow("does not match");
   });
 
   it("provisions and resets fictional workspaces without read-after-write transactions", async () => {
