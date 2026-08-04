@@ -26,6 +26,7 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
     suffix: string,
     body: string,
     familyMap: { content: string; revision: number } = { content: "", revision: 0 },
+    rejectUpdate = false,
   ) {
     const workspaceId = "workspace:vertex-fictional-family" as const;
     const focalMessage = MessageSchema.parse({
@@ -56,6 +57,7 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
       updateWorkspaceFamilyMap: {
         async update(input) {
           updates.push(input);
+          if (rejectUpdate) return { kind: "REJECTED", code: "CONTENT_TOO_LARGE" };
           return {
             kind: "UPDATED",
             familyMap: {
@@ -75,6 +77,18 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]?.content).toContain("Mei");
     expect(result).toMatchObject({ kind: "RESPONDED", toolCalls: 1 });
+  });
+
+  it("truthfully reports a rejected update instead of claiming it was saved", async () => {
+    const { result, updates } = await runFamilyMapTurn(
+      "rejected",
+      "I am Mei. Kai is my son.",
+      { content: "", revision: 0 },
+      true,
+    );
+    expect(updates).toHaveLength(1);
+    expect(result).toMatchObject({ kind: "RESPONDED", toolCalls: 1 });
+    expect(result.responseText).toMatch(/couldn['’]?t|could not|wasn['’]?t|not saved|unable|failed|did not/i);
   });
 
   it("does not write an inferred relationship", async () => {
