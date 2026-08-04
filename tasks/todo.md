@@ -33,7 +33,7 @@
 
 - [x] Implementer completes small logical commits and reports evidence.
 - [ ] Fresh-context verifier reviews design, plan, full diff, isolation, privacy, and safety.
-- [ ] Implementer fixes every actionable finding.
+- [x] Implementer fixes every actionable finding.
 - [ ] Fresh-context verifier reruns affected and full verification until clean.
 
 ### Verifier remediation
@@ -52,7 +52,7 @@
   model attempts atomically.
 - [x] Reject attachment media-class/MIME mismatches.
 - [x] Reconcile stale app/web Storage and continuity documentation.
-- [ ] Rerun all verification gates.
+- [x] Rerun all verification gates.
 
 ## Final gates
 
@@ -68,12 +68,17 @@
 ## Implementer verification evidence (2026-08-04)
 
 - `npm run check`: passed.
-- `npm test`: 46 files and 300 tests passed; 3 files and 47 tests were
+- `npm test`: 46 files and 321 tests passed; 3 files and 48 tests were
   configuration-gated and skipped.
 - `npm run build --workspace @medbuddy/web`: passed, including the private
   `/api/internal/attachment` and `/api/internal/continuity` routes.
-- Firestore emulator continuity contract: 5 tests passed, including concurrent
-  atomic attachment-attempt allocation.
+- Full Firestore-emulator-enabled suite: 48 files and 351 tests passed; one
+  live-provider file and 18 tests remained configuration-gated. The focused
+  continuity contract passed 6 tests, including concurrent atomic attachment
+  and compaction-attempt allocation plus failed-job reclaim.
+- The broader legacy concurrent-message emulator test now allows 20 seconds
+  and asserts unique revisions without assuming concurrent submission order;
+  the complete emulator-enabled rerun passed.
 - Checkpoint C: Web 74 passed/5 skipped; Chat 38 passed/5 skipped.
 - `npm audit --omit=dev`: completed with 9 transitive findings (4 high, 5
   moderate). `brace-expansion` is under Firestore's `rimraf/glob` tooling;
