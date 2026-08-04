@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { AttachmentSchema, ConversationRequestSchema, MessageSchema } from "@medbuddy/contracts";
 
 import {
+  CommittedSourceCardGrounding,
+  ConversationResponder,
   VertexConversationProvider,
+  type VertexGenerationRequest,
   VertexRestClient,
   VertexModelClient,
   VertexReadableLabelExtractor,
@@ -385,5 +388,75 @@ describe("Vertex adapters", () => {
       context: conversationInput.context,
       familyMapUpdatesAllowed: true,
     })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
+  });
+
+  it("carries both conflict-retry exchanges and thought signatures into step three", async () => {
+    const requests: VertexGenerationRequest[] = [];
+    let modelStep = 0;
+    const retryClient: VertexModelClient = {
+      async generate(input) {
+        requests.push(input);
+        modelStep += 1;
+        if (modelStep === 1) return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 0, content: "First" } },
+          thoughtSignature: "fictional-signature-a",
+        }] } }] };
+        if (modelStep === 2) return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 2, content: "Current plus correction" } },
+          thoughtSignature: "fictional-signature-b",
+        }] } }] };
+        return { candidates: [{ content: { role: "model", parts: [{ text: "Okay—I updated the relationship." }] } }] };
+      },
+    };
+    let attempts = 0;
+    const responder = new ConversationResponder(
+      new CommittedSourceCardGrounding([]),
+      new VertexConversationProvider(retryClient),
+    );
+
+    await expect(responder.respond({
+      messageId: focalMessage.id,
+      context: conversationInput.context,
+    }, {
+      updateWorkspaceFamilyMap: {
+        async update(input) {
+          attempts += 1;
+          return attempts === 1
+            ? {
+                kind: "REVISION_CONFLICT",
+                familyMap: { workspaceId: focalMessage.workspaceId, content: "Current", revision: 2 },
+              }
+            : {
+                kind: "UPDATED",
+                familyMap: { workspaceId: focalMessage.workspaceId, content: input.content, revision: 3 },
+              };
+        },
+      },
+    })).resolves.toMatchObject({ kind: "RESPONDED", toolCalls: 2 });
+
+    expect(requests[2]?.contents.slice(-4)).toEqual([
+      {
+        role: "model",
+        parts: [{
+          functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 0, content: "First" } },
+          thoughtSignature: "fictional-signature-a",
+        }],
+      },
+      {
+        role: "user",
+        parts: [{ functionResponse: { name: "update_workspace_family_map", response: expect.objectContaining({ kind: "REVISION_CONFLICT" }) } }],
+      },
+      {
+        role: "model",
+        parts: [{
+          functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 2, content: "Current plus correction" } },
+          thoughtSignature: "fictional-signature-b",
+        }],
+      },
+      {
+        role: "user",
+        parts: [{ functionResponse: { name: "update_workspace_family_map", response: expect.objectContaining({ kind: "UPDATED" }) } }],
+      },
+    ]);
   });
 });

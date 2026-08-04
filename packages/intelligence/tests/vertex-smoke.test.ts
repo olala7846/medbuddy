@@ -70,13 +70,16 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
         },
       },
     });
-    return { result, updates };
+    return { result, updates, focalMessage };
   }
 
   it("updates an explicit relationship and acknowledges only after the write", async () => {
-    const { result, updates } = await runFamilyMapTurn("explicit", "I am Mei. Kai is my son.");
+    const { result, updates, focalMessage } = await runFamilyMapTurn("explicit", "I am Mei. Kai is my son.");
     expect(updates).toHaveLength(1);
     expect(updates[0]?.content).toContain("Mei");
+    expect(updates[0]?.content).toContain(`- ${focalMessage.authorMemberId}: Mei`);
+    expect(updates[0]?.content.match(/\bmember:[A-Za-z0-9][A-Za-z0-9_-]{0,127}\b/g))
+      .toEqual([focalMessage.authorMemberId]);
     expect(result).toMatchObject({ kind: "RESPONDED", toolCalls: 1 });
     expect(result.responseText).toMatch(/Mei.*Kai|Kai.*Mei/i);
     expect(result.responseText).toMatch(/mother|son/i);

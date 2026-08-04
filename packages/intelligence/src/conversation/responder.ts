@@ -59,6 +59,7 @@ export interface ConversationProvider {
     focalMessage: Message;
     context: ConversationContext;
     toolResult?: unknown;
+    toolHistory?: readonly unknown[];
     familyMapUpdatesAllowed?: boolean;
   }): Promise<unknown>;
 }
@@ -90,13 +91,13 @@ const acknowledgmentText =
 export const FAMILY_MAP_UPDATE_FAILURE_TEXT =
   "I couldn’t save that family-map change. Please try again.";
 export const AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT =
-  "Who do you mean by “she”? Please name the observed member before I update this chat’s family map.";
+  "Which observed member do you mean? Please name them before I update this chat’s family map.";
 
 function needsRelationshipTargetClarification(
   focalMessage: Message,
   context: ConversationContext,
 ): boolean {
-  if (!/\b(?:she|he|they)\s+is\s+(?:my|our|the)\s+(?:mother|mom|father|dad|parent|sister|brother|daughter|son|grandmother|grandma|grandfather|grandpa|caregiver)\b/i.test(focalMessage.body)) {
+  if (!/\b(?:(?:she|he)\s+is|they\s+are)\s+(?:my|our|the)\s+(?:mother|mom|father|dad|parent|sister|brother|daughter|son|grandmother|grandma|grandfather|grandpa|caregiver)\b/i.test(focalMessage.body)) {
     return false;
   }
   const observed = new Set(
@@ -190,6 +191,7 @@ export class ConversationResponder implements ConversationResponderPort {
       let retryAfterConflict = false;
       let terminalToolFailure = false;
       let toolResult: unknown;
+      const toolHistory: unknown[] = [];
       for (let modelStep = 0; modelStep < 3; modelStep += 1) {
         let output: unknown;
         try {
@@ -197,6 +199,7 @@ export class ConversationResponder implements ConversationResponderPort {
             focalMessage,
             context: request.data.context,
             toolResult,
+            toolHistory: [...toolHistory],
             familyMapUpdatesAllowed: toolCalls === 0 || retryAfterConflict,
           }), deadline);
         } catch (error) {
@@ -249,6 +252,7 @@ export class ConversationResponder implements ConversationResponderPort {
           terminalToolFailure = true;
           retryAfterConflict = false;
           toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+          toolHistory.push(toolResult);
           this.log({
             event: result.kind === "REJECTED" ? "family_map_rejected" : "family_map_failed",
             outcome: result.kind === "REJECTED" ? result.code : "TECHNICAL_FAILURE",
@@ -263,11 +267,13 @@ export class ConversationResponder implements ConversationResponderPort {
           if (toolCalls > 1) return technicalFailure(toolCalls);
           retryAfterConflict = true;
           toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+          toolHistory.push(toolResult);
           this.log({ event: "family_map_revision_conflict", priorRevision: updateInput.expectedRevision, resultingRevision: result.familyMap.revision, toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           continue;
         }
         retryAfterConflict = false;
         toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+        toolHistory.push(toolResult);
         this.log({
           event: result.kind === "UPDATED" ? "family_map_updated" : "family_map_no_change",
           priorRevision: updateInput.expectedRevision,

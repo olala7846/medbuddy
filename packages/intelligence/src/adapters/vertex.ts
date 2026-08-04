@@ -237,19 +237,26 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
         : `[${message.authorMemberId}]\n${message.body}`,
     }],
   }));
-  const prior = z.object({
+  const ToolExchangeSchema = z.object({
     call: UpdateWorkspaceFamilyMapInputSchema,
     result: z.unknown(),
     continuation: VertexModelContentSchema.optional(),
-  }).safeParse(input.toolResult);
-  if (prior.success) {
-    const continuation = prior.data.continuation === undefined
+  });
+  const history = z.array(ToolExchangeSchema).safeParse(input.toolHistory);
+  const prior = ToolExchangeSchema.safeParse(input.toolResult);
+  const exchanges = history.success
+    ? history.data
+    : prior.success
+      ? [prior.data]
+      : [];
+  for (const exchange of exchanges) {
+    const continuation = exchange.continuation === undefined
       ? {
           role: "model" as const,
-          parts: [{ functionCall: { name: "update_workspace_family_map", args: prior.data.call } }],
+          parts: [{ functionCall: { name: "update_workspace_family_map", args: exchange.call } }],
         }
       : {
-          ...prior.data.continuation,
+          ...exchange.continuation,
           role: "model" as const,
         };
     contents.push(continuation, {
@@ -257,7 +264,7 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
       parts: [{
         functionResponse: {
           name: "update_workspace_family_map",
-          response: prior.data.result,
+          response: exchange.result,
         },
       }],
     });

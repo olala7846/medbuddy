@@ -8,6 +8,7 @@ import {
 } from "@medbuddy/contracts";
 
 import {
+  AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT,
   ConversationProviderError,
   ConversationResponder,
   FAMILY_MAP_UPDATE_FAILURE_TEXT,
@@ -291,7 +292,11 @@ describe("conversation responder", () => {
     expect(provider.requests).toEqual([]);
   });
 
-  it("asks for a named observed member before an ambiguous pronoun relationship can call the tool", async () => {
+  it.each([
+    "She is my mother.",
+    "He is my father.",
+    "They are our caregiver.",
+  ])("asks a pronoun-neutral clarification before an ambiguous relationship can call the tool: %s", async (body) => {
     const provider = new FixedConversationProvider(new Map());
     const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
     const result = await responder.respond({
@@ -303,12 +308,15 @@ describe("conversation responder", () => {
           content: "Members\n- member:fictional-kai: Kai\n- member:fictional-lin: Lin",
           revision: 1,
         },
-        messages: [{ ...focalMessage, body: "She is my mother." }],
+        messages: [{ ...focalMessage, body }],
       },
     });
 
-    expect(result).toMatchObject({ kind: "RESPONDED", toolCalls: 0 });
-    expect(result.responseText).toMatch(/who.*she|name.*member/i);
+    expect(result).toMatchObject({
+      kind: "RESPONDED",
+      toolCalls: 0,
+      responseText: AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT,
+    });
     expect(provider.requests).toEqual([]);
   });
 
