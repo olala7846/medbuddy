@@ -41,6 +41,17 @@ function sameJobIdentity(left: CompactionJob, right: CompactionJob): boolean {
     left.policyVersion === right.policyVersion;
 }
 
+function matchesJobEnvelope(job: CompactionJob, segment: CompactionSegment): boolean {
+  return segment.id === `compaction-segment:${job.id.slice("compaction-job:".length)}` &&
+    segment.workspaceId === job.workspaceId &&
+    segment.level === job.level &&
+    segment.firstSourceSequence === job.firstSourceSequence &&
+    segment.lastSourceSequence === job.lastSourceSequence &&
+    segment.orderedSourceDigest === job.orderedSourceDigest &&
+    same(segment.childSegmentIds, job.childSegmentIds) &&
+    segment.policyVersion === job.policyVersion;
+}
+
 function nonnegativeInteger(value: unknown, label: string): number {
   if (value === undefined) return 0;
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
@@ -399,6 +410,9 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
             fence.claimGeneration !== ownerJob.claimGeneration ||
             (!existing.exists && activeJobId !== ownerJob.id)) {
           throw new Error("Compaction attempt fencing conflict.");
+        }
+        if (!matchesJobEnvelope(ownerJob, segment)) {
+          throw new Error("Compaction segment does not match its owning job envelope.");
         }
       } else if (typeof activeJobId === "string") {
         throw new Error("Compaction attempt fencing token is required.");

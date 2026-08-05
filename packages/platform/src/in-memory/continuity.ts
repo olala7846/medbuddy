@@ -35,6 +35,17 @@ function sameJobIdentity(left: CompactionJob, right: CompactionJob): boolean {
     left.policyVersion === right.policyVersion;
 }
 
+function matchesJobEnvelope(job: CompactionJob, segment: CompactionSegment): boolean {
+  return segment.id === `compaction-segment:${job.id.slice("compaction-job:".length)}` &&
+    segment.workspaceId === job.workspaceId &&
+    segment.level === job.level &&
+    segment.firstSourceSequence === job.firstSourceSequence &&
+    segment.lastSourceSequence === job.lastSourceSequence &&
+    segment.orderedSourceDigest === job.orderedSourceDigest &&
+    same(segment.childSegmentIds, job.childSegmentIds) &&
+    segment.policyVersion === job.policyVersion;
+}
+
 class WorkspaceQueue {
   private readonly tails = new Map<string, Promise<void>>();
 
@@ -281,6 +292,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
         if (owner?.status !== "RUNNING" || owner.claimGeneration !== fence.claimGeneration ||
             (existing === undefined && active?.id !== owner.id)) {
           throw new Error("Compaction attempt fencing conflict.");
+        }
+        if (!matchesJobEnvelope(owner, segment)) {
+          throw new Error("Compaction segment does not match its owning job envelope.");
         }
       } else if (active !== undefined) {
         throw new Error("Compaction attempt fencing token is required.");
