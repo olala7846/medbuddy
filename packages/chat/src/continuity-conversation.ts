@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import {
+  AssembledContextSchema,
   AcceptContinuityResponseInputSchema,
   CompactionJobSchema,
   CONTINUITY_POLICIES,
@@ -105,6 +106,16 @@ export class ContinuityThreadConversationService implements ContinuityConversati
       compactionPending: activeJob !== null,
       policy: this.dependencies.policy ?? CONTINUITY_POLICIES.production,
     });
+    const assembledContext = AssembledContextSchema.parse({
+      workspaceId: assembled.workspaceId,
+      focalSourceEventId: assembled.focalSourceEventId,
+      system: assembled.system,
+      familyMap: assembled.familyMap,
+      agentActions: assembled.agentActions,
+      history: assembled.history,
+      recentConversation: assembled.recentConversation,
+      omittedSourceEventCount: assembled.omittedSourceEventCount,
+    });
     const focalMessage = MessageSchema.parse({
       id: input.providerMessageId,
       workspaceId: input.workspaceId,
@@ -127,7 +138,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
           content: familyMap.content,
           revision: familyMap.revision,
         },
-        assembledContext: assembled,
+        assembledContext,
       },
     }, {
       updateWorkspaceFamilyMap: {
