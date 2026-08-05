@@ -59,7 +59,8 @@
   worker cannot overwrite or clear its transactional takeover successor.
 - [x] Reload the source ledger after Gemini and enforce its validated watermark
   atomically at level-1 publication.
-- [x] Deny interrogative family-map authorization independently of punctuation.
+- [x] Replace family-map authority heuristics with a structural allowlist that
+  denies interrogatives, uncertainty, and negation independently of punctuation.
 - [x] Stabilize attachment emulator contention and correct deployment/audit docs.
 - [x] Rerun final-verifier remediation gates.
 

@@ -163,6 +163,12 @@ third-person pronoun while multiple observed participants are possible. This kee
 the clarification/no-write invariant even when the model would otherwise
 invent a member mapping.
 
+The write capability is also gated by a conservative deterministic structural
+allowlist over the current attributed turn. Only complete explicit identity,
+direct-relationship, correction, and forget/clear forms qualify. Questions,
+uncertainty (for example, “I wonder if”), and negation do not qualify even when
+they contain the same names and relationship words or omit question punctuation.
+
 ## 6. Module and seam design
 
 The family map is a deep capability whose public boundary is owned by the

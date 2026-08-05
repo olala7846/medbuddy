@@ -112,28 +112,37 @@ function needsRelationshipTargetClarification(
 }
 
 const FAMILY_RELATION_TERM = "mother|mom|father|dad|parent|sister|brother|daughter|son|child|grandmother|grandma|grandfather|grandpa|aunt|uncle|wife|husband|spouse|caregiver";
+const FAMILY_PERSON_NAME = "[\\p{L}\\p{M}][\\p{L}\\p{M}'’.-]*(?:\\s+[\\p{L}\\p{M}][\\p{L}\\p{M}'’.-]*){0,3}";
 
 /** Only the current attributed turn can grant the family-map write capability. */
 export function focalAuthorizesFamilyMapUpdate(body: string): boolean {
   const normalized = body.normalize("NFKC").replace(/^\s*@\S+\s*/u, "").trim();
-  const interrogative = /[?¿]/u.test(normalized) ||
+  const unsafeAuthority = /[?¿]/u.test(normalized) ||
     /\b(?:who|whom|whose|what|which|whether)\b/iu.test(normalized) ||
     /^(?:please\s+)?(?:tell|show|explain)\b/iu.test(normalized) ||
     /^(?:is|are|am|do|does|did|can|could|would|should|will|have|has)\b/iu.test(normalized) ||
-    /(?:誰|谁|什麼|什么|哪(?:個|个|位)?|是否|是不是|嗎|吗|呢|だれ|誰|ですか|ますか|누구|인가요|나요)/u.test(normalized);
-  if (interrogative) return false;
-  if (/\b(?:remember|forget|remove|delete|clear|correct|update)\b.{0,120}\b(?:family|map|name|relationship|relative|member|person|people)\b/iu.test(normalized) ||
-      /\b(?:forget|remove|delete|clear)\b.{0,120}\b(?:mother|mom|father|dad|parent|sister|brother|daughter|son|child|grandmother|grandfather|aunt|uncle|wife|husband|spouse|caregiver)\b/iu.test(normalized) ||
-      /(?:請記住|記住|忘記|清除|刪除|更正).{0,80}(?:家人|家庭|關係|名字|成員)/u.test(normalized)) {
+    /\b(?:not|no|never|don['’]?t|do\s+not|doesn['’]?t|does\s+not|unknown|unsure|uncertain|wonder|if|maybe|perhaps|possibly)\b/iu.test(normalized) ||
+    /\b(?:not\s+sure|don['’]?t\s+know|do\s+not\s+know)\b/iu.test(normalized) ||
+    /(?:誰|谁|什麼|什么|哪(?:個|个|位)?|是否|是不是|嗎|吗|呢|不確定|不知道|だれ|誰|ですか|ますか|누구|인가요|나요)/u.test(normalized);
+  if (unsafeAuthority) return false;
+
+  const statement = normalized.replace(/[.!。！]+$/u, "").trim();
+  if (/^(?:please\s+)?(?:remember|forget|remove|delete|clear|correct|update)\s+(?:(?:the|my|our|this\s+chat['’]s)\s+)?(?:family\s+map|family\s+(?:name|relationship|member)|direct\s+relationship|relationship|relative|member|person)$/iu.test(statement) ||
+      new RegExp(`^(?:please\\s+)?remember\\s+(?:the\\s+)?family\\s+name\\s+${FAMILY_PERSON_NAME}$`, "iu").test(statement) ||
+      new RegExp(`^(?:please\\s+)?(?:forget|remove|delete|clear|correct|update)\\s+(?:(?:the|my|our)\\s+)?(?:${FAMILY_RELATION_TERM})$`, "iu").test(statement) ||
+      /^(?:請)?(?:記住|忘記|清除|刪除|更正)(?:這個|我的|我們的)?(?:家人|家庭地圖|家庭關係|關係|名字|成員)$/u.test(statement)) {
     return true;
   }
-  if (/\b(?:i am|i['’]m|my name is|call me)\s+[\p{L}\p{M}][\p{L}\p{M}'’.-]*/iu.test(normalized) ||
-      /^我是[\p{L}\p{M}]{1,40}[。.!]?$/u.test(normalized)) {
-    return true;
-  }
-  return new RegExp(`\\b(?:is|are|am)\\b.{0,120}\\b(?:${FAMILY_RELATION_TERM})\\b`, "iu").test(normalized) ||
-    new RegExp(`\\bmy\\s+(?:${FAMILY_RELATION_TERM})s?\\s+(?:is|are)\\b`, "iu").test(normalized) ||
-    /[\p{L}\p{M}]{1,40}是[\p{L}\p{M}]{1,40}的(?:媽媽|母親|爸爸|父親|姊姊|姐姐|妹妹|哥哥|弟弟|女兒|兒子|祖母|祖父|阿姨|叔叔|照顧者)/u.test(normalized);
+
+  return statement.split(/[.!。！]+/u).some((rawClause) => {
+    const clause = rawClause.trim();
+    const englishClause = clause.replace(/^(?:actually|correction)\s*[:,]?\s*/iu, "");
+    return new RegExp(`^(?:i am|i['’]m|my name is|call me)\\s+${FAMILY_PERSON_NAME}$`, "iu").test(englishClause) ||
+      new RegExp(`^${FAMILY_PERSON_NAME}\\s+(?:is|are)\\s+(?:(?:${FAMILY_PERSON_NAME})(?:['’]s)|my|our)\\s+(?:${FAMILY_RELATION_TERM})$`, "iu").test(englishClause) ||
+      new RegExp(`^(?:my|our)\\s+(?:${FAMILY_RELATION_TERM})\\s+(?:is|are)\\s+${FAMILY_PERSON_NAME}$`, "iu").test(englishClause) ||
+      /^我是[\p{L}\p{M}]{1,40}$/u.test(clause) ||
+      /^[\p{L}\p{M}]{1,40}是[\p{L}\p{M}]{1,40}的(?:媽媽|母親|爸爸|父親|姊姊|姐姐|妹妹|哥哥|弟弟|女兒|兒子|祖母|祖父|阿姨|叔叔|照顧者)$/u.test(clause);
+  });
 }
 
 function renderLookup(result: MedicationLookupRenderResult): string {

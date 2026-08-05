@@ -225,8 +225,11 @@ target as `gemini-3.6-flash`.
 - Historical summaries never authorize family-map mutation. Deterministic
   focal-turn classification grants the capability only for an explicit current
   identity, relationship, correction, or forget/clear statement.
-- Interrogatives never grant the capability, including punctuation-free,
-  fullwidth-punctuation, indirect English, and common CJK question forms.
+- A conservative structural allowlist grants the capability only to complete
+  explicit identity, relationship, correction, or forget/clear forms.
+  Interrogatives, uncertainty, and negation never grant it, including
+  punctuation-free, fullwidth-punctuation, indirect English, and common CJK
+  question forms.
 
 **Likely files:**
 
