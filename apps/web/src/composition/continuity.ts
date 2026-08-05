@@ -23,6 +23,8 @@ import {
 import { verifyTaskCallback, type TaskTokenVerifier } from "@medbuddy/platform";
 import { createContinuityDispatcher, createConversationPlatform, GoogleTaskTokenVerifier } from "@medbuddy/platform";
 import {
+  COMPACTION_PROMPT_VERSION,
+  CompactionSummaryContractError,
   CompactionSummaryGenerator,
   type GeneratedCompactionSummary,
   loadVertexConfiguration,
@@ -42,7 +44,7 @@ export const ContinuityWorkerLogEntrySchema = z.object({
     "continuity_job_reused",
     "continuity_publication_conflict",
   ]),
-  code: z.enum(["UNAUTHORIZED", "INVALID_BODY", "RETRYABLE", "EXHAUSTED"]).optional(),
+  code: z.enum(["UNAUTHORIZED", "INVALID_BODY", "RETRYABLE", "EXHAUSTED", "SCHEMA_INVALID"]).optional(),
   level: z.number().int().positive().max(32).optional(),
   attempt: z.number().int().min(0).max(COMPACTION_MAX_ATTEMPTS).optional(),
   inputCharacters: z.number().int().nonnegative().max(30_000).optional(),
@@ -53,7 +55,7 @@ export const ContinuityWorkerLogEntrySchema = z.object({
   backlogClass: z.enum(["AT_MOST_10K", "AT_MOST_20K", "AT_MOST_30K", "OVER_30K"]).optional(),
   omissionCount: z.number().int().nonnegative().optional(),
   modelId: z.literal("gemini-3.6-flash").optional(),
-  promptVersion: z.literal("continuity-summary-v1").optional(),
+  promptVersion: z.literal(COMPACTION_PROMPT_VERSION).optional(),
   policyVersion: z.enum(["continuity-v1", "continuity-v1-verification-small"]).optional(),
 }).strict();
 
@@ -111,7 +113,7 @@ export class ContinuityCompactionWorker {
     now: () => string;
     clock?: () => number;
     modelId: "gemini-3.6-flash";
-    promptVersion: "continuity-summary-v1";
+    promptVersion: typeof COMPACTION_PROMPT_VERSION;
     policy?: ContinuityPolicy;
     logger: ContinuityWorkerLogger;
     dispatcher?: ContinuityTaskDispatcher;
@@ -286,7 +288,8 @@ export class ContinuityCompactionWorker {
       return "PUBLISHED";
     } catch (error) {
       const stale = error instanceof StaleCompactionPlanError;
-      const exhausted = stale || attempt >= COMPACTION_MAX_ATTEMPTS;
+      const schemaInvalid = error instanceof CompactionSummaryContractError;
+      const exhausted = stale || schemaInvalid || attempt >= COMPACTION_MAX_ATTEMPTS;
       await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({
         ...releaseCompactionLease(claimedJob),
         attempts: attempt,
@@ -294,7 +297,7 @@ export class ContinuityCompactionWorker {
       }), attemptFence);
       this.dependencies.logger.write({
         event: "continuity_job_failed",
-        code: exhausted ? "EXHAUSTED" : "RETRYABLE",
+        code: schemaInvalid ? "SCHEMA_INVALID" : exhausted ? "EXHAUSTED" : "RETRYABLE",
         level: claimedJob.level,
         attempt,
         durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
@@ -422,7 +425,7 @@ export function createContinuityTaskComposition(
       generator: new CompactionSummaryGenerator(compactionClient),
       now: () => new Date().toISOString(),
       modelId: vertex.model,
-      promptVersion: "continuity-summary-v1",
+      promptVersion: COMPACTION_PROMPT_VERSION,
       policy: continuityConfig.continuityPolicy,
       logger,
       dispatcher,

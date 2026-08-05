@@ -18,6 +18,7 @@ import type {
   WorkspaceFamilyMapRepository,
 } from "@medbuddy/contracts";
 import { CONTINUITY_POLICIES } from "@medbuddy/contracts";
+import { COMPACTION_PROMPT_VERSION } from "@medbuddy/intelligence";
 import { expect } from "vitest";
 
 import {
@@ -191,7 +192,7 @@ export async function runSyntheticContinuityVerification(
     now: () => "2026-08-05T12:11:00.000Z",
     clock: () => 1_000,
     modelId: "gemini-3.6-flash",
-    promptVersion: "continuity-summary-v1",
+    promptVersion: COMPACTION_PROMPT_VERSION,
     logger: { write(entry) { workerLogs.push(structuredClone(entry)); } },
     dispatcher: queue,
     policy: CONTINUITY_POLICIES["verification-small"],

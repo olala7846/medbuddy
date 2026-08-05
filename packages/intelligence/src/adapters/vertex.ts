@@ -68,6 +68,12 @@ export type VertexGenerationRequest = {
   generationConfig?: {
     maxOutputTokens?: number;
     responseMimeType?: string;
+    responseFormat?: readonly {
+      text: {
+        mimeType: "APPLICATION_JSON" | "TEXT_PLAIN";
+        schema?: Record<string, unknown>;
+      };
+    }[];
   };
 };
 
@@ -87,7 +93,7 @@ export function buildVertexGenerateContentBody(input: VertexGenerationRequest): 
         : {
             generationConfig: {
               ...input.generationConfig,
-              ...(input.tools === undefined
+              ...(input.tools === undefined && input.generationConfig?.responseFormat === undefined
                 ? { responseMimeType: input.generationConfig?.responseMimeType ?? "application/json" }
                 : {}),
             },
