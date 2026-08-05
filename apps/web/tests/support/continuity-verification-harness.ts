@@ -56,9 +56,10 @@ type HarnessDependencies = {
 };
 
 export type SyntheticContinuityCleanupManifest = {
-  version: number;
+  version: 2;
   runNonce: string;
   workspaceIds: readonly string[];
+  providerEventIds: readonly string[];
   receiptKeys: readonly string[];
 };
 
@@ -108,8 +109,15 @@ function countOccurrences(value: string, expected: string): number {
   return value.split(expected).length - 1;
 }
 
-export function syntheticContinuityCleanupManifest(runNonce = "local"): SyntheticContinuityCleanupManifest {
-  return deriveSyntheticContinuityManifest(runNonce);
+export async function syntheticContinuityCleanupManifest(
+  runNonce = "local",
+  fixtureUrl = SYNTHETIC_CONTINUITY_FIXTURE_URL,
+): Promise<SyntheticContinuityCleanupManifest> {
+  const steps = await loadSyntheticContinuityFixture(fixtureUrl, runNonce);
+  return deriveSyntheticContinuityManifest(
+    runNonce,
+    steps.filter((step) => step.action === "SEND").map((step) => step.event.webhookEventId),
+  );
 }
 
 /**
@@ -129,6 +137,10 @@ export async function runSyntheticContinuityVerification(
       summaryMarker: string;
     };
     expectedRecentContent?: readonly string[];
+    expectedCorrection?: {
+      originalSourceText: string;
+      correctedSourceText: string;
+    };
   } = {},
 ): Promise<SyntheticContinuityCleanupManifest> {
   const queue = new DeterministicContinuityTaskQueue();
@@ -149,6 +161,10 @@ export async function runSyntheticContinuityVerification(
     sensitiveValues.add(options.expectedCompactedContent.summaryMarker);
   }
   for (const value of options.expectedRecentContent ?? []) sensitiveValues.add(value);
+  if (options.expectedCorrection !== undefined) {
+    sensitiveValues.add(options.expectedCorrection.originalSourceText);
+    sensitiveValues.add(options.expectedCorrection.correctedSourceText);
+  }
   const generatedInputs: Array<{ allowedSourceSequences: readonly number[]; renderedInput: string }> = [];
   const fixedResponder: ConversationResponder = {
     async respond() {
@@ -227,7 +243,10 @@ export async function runSyntheticContinuityVerification(
     options.fixtureUrl ?? SYNTHETIC_CONTINUITY_FIXTURE_URL,
     runNonce,
   );
-  const manifest = syntheticContinuityCleanupManifest(runNonce);
+  const manifest = deriveSyntheticContinuityManifest(
+    runNonce,
+    steps.filter((step) => step.action === "SEND").map((step) => step.event.webhookEventId),
+  );
   const primaryWorkspace = manifest.workspaceIds[0]! as Parameters<ContinuityRepository["listSourceEvents"]>[0];
   const decoyWorkspace = manifest.workspaceIds[1]! as Parameters<ContinuityRepository["listSourceEvents"]>[0];
   const signedByStep = new Map<string, ReturnType<typeof signedRequest>>();
@@ -470,6 +489,17 @@ export async function runSyntheticContinuityVerification(
   const sourceSequences = (await dependencies.continuity.listSourceEvents(primaryWorkspace))
     .map((event) => event.sourceSequence);
   expect(sourceSequences).toEqual(Array.from({ length: sourceSequences.length }, (_, index) => index + 1));
+  if (options.expectedCorrection !== undefined) {
+    const persistedSources = await dependencies.continuity.listSourceEvents(primaryWorkspace);
+    const original = persistedSources.find((event) =>
+      event.payload.kind === "TEXT" && event.payload.body.includes(options.expectedCorrection!.originalSourceText));
+    const correction = persistedSources.find((event) =>
+      event.payload.kind === "TEXT" && event.payload.body.includes(options.expectedCorrection!.correctedSourceText));
+    expect(original?.id).toBeDefined();
+    expect(correction?.id).toBeDefined();
+    expect(original!.id).not.toBe(correction!.id);
+    expect(original!.sourceSequence).toBeLessThan(correction!.sourceSequence);
+  }
   for (const entry of lineLogs) LineOperationalLogEntrySchema.parse(entry);
   for (const entry of workerLogs) ContinuityWorkerLogEntrySchema.parse(entry);
   for (const event of [
@@ -507,5 +537,5 @@ export async function runSyntheticContinuityVerification(
     event: "continuity_job_completed",
     policyVersion: "continuity-v1-verification-small",
   }));
-  return syntheticContinuityCleanupManifest(runNonce);
+  return manifest;
 }

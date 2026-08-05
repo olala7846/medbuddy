@@ -7,7 +7,10 @@ describe("continuity verification cleanup command", () => {
   it.each(["workspaceIds", "receiptKeys"] as const)(
     "rejects a substituted %s entry before constructing Firestore",
     async (field) => {
-      const canonical = deriveSyntheticContinuityManifest("fictional-cleanup-test");
+      const canonical = deriveSyntheticContinuityManifest("fictional-cleanup-test", [
+        "fictional-event-fictional-decoy-fictional-cleanup-test-90",
+        "fictional-event-fictional-primary-fictional-cleanup-test-1",
+      ]);
       const manifest = {
         projectId: "fictional-project",
         ...canonical,

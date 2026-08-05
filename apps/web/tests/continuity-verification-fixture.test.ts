@@ -71,6 +71,17 @@ describe("synthetic continuity JSONL fixture", () => {
     expect(conversation).toContain("昨晚睡得不好");
     expect(conversation).toContain("剛才那筆血壓我輸入錯了");
     expect(conversation).toContain("更正後是 125/78");
+    const wrongReading = primary.find((step) => step.step === "day-five-wrong-reading");
+    const correction = primary.find((step) => step.step === "newer-correction");
+    expect(wrongReading?.event.message.text).toContain("血壓是 152/88");
+    expect(wrongReading?.event.message.text).not.toContain("不採用");
+    expect(correction?.event.message.text).toContain("更正後是 125/78");
+    expect(correction?.event.message.text).toContain("前面的 152/88 不採用");
+    expect(primary.indexOf(wrongReading!)).toBeLessThan(primary.indexOf(correction!));
+    expect(primary.indexOf(correction!)).toBeLessThan(
+      primary.findIndex((step) => step.step === "mentioned-focal"),
+    );
+    expect(conversation).not.toContain("小新是我的哥哥");
 
     expect(steps.filter((step) => step.action === "REPLAY_CONCURRENT")).toHaveLength(1);
     expect(steps.filter((step) => step.action === "DRAIN")).toHaveLength(2);
