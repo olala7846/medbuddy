@@ -122,7 +122,7 @@ async function harness(options: {
     },
     now: () => now,
     modelId: "gemini-3.6-flash",
-    promptVersion: "continuity-summary-v1",
+    promptVersion: "continuity-summary-v2",
     ...(options.policy === undefined ? {} : { policy: options.policy }),
     logger: { write: (entry) => logs.push(entry) },
     dispatcher: { async dispatch(input) { dispatched.push(input); } },
@@ -155,7 +155,7 @@ describe("private continuity task", () => {
       inputTokens: 120,
       outputTokens: 40,
       modelId: "gemini-3.6-flash",
-      promptVersion: "continuity-summary-v1",
+      promptVersion: "continuity-summary-v2",
       policyVersion: "continuity-v1",
     }));
   });
@@ -431,7 +431,7 @@ describe("private continuity task", () => {
       backlogClass: "AT_MOST_20K",
       omissionCount: 0,
       modelId: "gemini-3.6-flash",
-      promptVersion: "continuity-summary-v1",
+      promptVersion: "continuity-summary-v2",
       policyVersion: "continuity-v1",
     })).toMatchObject({ event: "continuity_job_completed", level: 1 });
     for (const field of ["workspaceId", "jobId", "body", "prompt", "summary", "attachmentId", "objectPath"]) {

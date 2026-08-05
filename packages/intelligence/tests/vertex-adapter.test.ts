@@ -4,6 +4,7 @@ import { AttachmentSchema, ConversationRequestSchema, MessageSchema } from "@med
 
 import {
   CommittedSourceCardGrounding,
+  buildVertexGenerateContentBody,
   CONVERSATION_MAX_OUTPUT_TOKENS,
   CONVERSATION_PROVIDER_REQUEST_MAX_UTF16,
   ConversationResponder,
@@ -61,6 +62,24 @@ const attachment = AttachmentSchema.parse({
 });
 
 describe("Vertex adapters", () => {
+  it("serializes the current JSON response format without adding deprecated MIME configuration", () => {
+    const responseFormat = [{
+      text: {
+        mimeType: "APPLICATION_JSON",
+        schema: { type: "object", required: ["overview"] },
+      },
+    }];
+
+    const body = buildVertexGenerateContentBody({
+      systemInstruction: "Return fictional JSON.",
+      contents: [{ role: "user", parts: [{ text: "Fictional input." }] }],
+      generationConfig: { responseFormat } as never,
+    });
+
+    expect(body).toMatchObject({ generationConfig: { responseFormat } });
+    expect(body).not.toHaveProperty("generationConfig.responseMimeType");
+  });
+
   it("uses the global endpoint for the default global-only model and regional endpoints otherwise", async () => {
     const urls: string[] = [];
     const fetchStub: typeof fetch = async (input) => {

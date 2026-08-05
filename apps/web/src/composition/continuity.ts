@@ -23,6 +23,7 @@ import {
 import { verifyTaskCallback, type TaskTokenVerifier } from "@medbuddy/platform";
 import { createContinuityDispatcher, createConversationPlatform, GoogleTaskTokenVerifier } from "@medbuddy/platform";
 import {
+  COMPACTION_PROMPT_VERSION,
   CompactionSummaryGenerator,
   type GeneratedCompactionSummary,
   loadVertexConfiguration,
@@ -53,7 +54,7 @@ export const ContinuityWorkerLogEntrySchema = z.object({
   backlogClass: z.enum(["AT_MOST_10K", "AT_MOST_20K", "AT_MOST_30K", "OVER_30K"]).optional(),
   omissionCount: z.number().int().nonnegative().optional(),
   modelId: z.literal("gemini-3.6-flash").optional(),
-  promptVersion: z.literal("continuity-summary-v1").optional(),
+  promptVersion: z.literal(COMPACTION_PROMPT_VERSION).optional(),
   policyVersion: z.enum(["continuity-v1", "continuity-v1-verification-small"]).optional(),
 }).strict();
 
@@ -111,7 +112,7 @@ export class ContinuityCompactionWorker {
     now: () => string;
     clock?: () => number;
     modelId: "gemini-3.6-flash";
-    promptVersion: "continuity-summary-v1";
+    promptVersion: typeof COMPACTION_PROMPT_VERSION;
     policy?: ContinuityPolicy;
     logger: ContinuityWorkerLogger;
     dispatcher?: ContinuityTaskDispatcher;
@@ -422,7 +423,7 @@ export function createContinuityTaskComposition(
       generator: new CompactionSummaryGenerator(compactionClient),
       now: () => new Date().toISOString(),
       modelId: vertex.model,
-      promptVersion: "continuity-summary-v1",
+      promptVersion: COMPACTION_PROMPT_VERSION,
       policy: continuityConfig.continuityPolicy,
       logger,
       dispatcher,
