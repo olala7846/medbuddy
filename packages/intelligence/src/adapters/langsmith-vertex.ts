@@ -37,7 +37,7 @@ export interface VertexTraceLogger {
   write(entry: VertexTraceLogEntry): void;
 }
 
-type LangSmithRuntimeConfiguration = {
+export type LangSmithRuntimeConfiguration = {
   serviceKey: string;
   project: string;
   workspaceId: string;
