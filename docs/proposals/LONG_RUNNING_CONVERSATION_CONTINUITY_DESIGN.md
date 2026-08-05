@@ -521,12 +521,13 @@ After those and privacy review pass, a separately authorized fictional deployed 
 
 ## 19. Model decision
 
-The user selected `gemini-3.6-flash` as the Effort 2 target and confirmed that it
-is the current model to use. The existing direct Vertex boundary remains
-configuration-driven rather than embedding model selection in continuity
-policy. Contract tests use deterministic fakes; a configuration-gated smoke
-must verify `gemini-3.6-flash` in the target project and region before the
-fictional deployed continuity smoke.
+Conversation and tool use remain on `gemini-3.6-flash`. The bounded,
+single-purpose, one-call compaction summary uses `gemini-3.5-flash-lite`; its
+minimal default thinking, structured output support, and lower latency/cost fit
+this narrower workload. The direct Vertex boundary remains configuration-driven
+rather than embedding model selection in continuity policy. Contract tests use
+deterministic fakes; configuration-gated smokes must verify both models in the
+target project and region before the fictional deployed continuity smoke.
 
 ## 20. References
 

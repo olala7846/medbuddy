@@ -30,11 +30,13 @@ Effort 2 selects these Vertex settings:
 MEDBUDDY_VERTEX_ENABLED=true
 MEDBUDDY_VERTEX_LOCATION=global
 MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash
+MEDBUDDY_COMPACTION_VERTEX_MODEL=gemini-3.5-flash-lite
 ```
 
-`gemini-3.6-flash` is the user-selected Effort 2 target. It has not yet passed
-the configuration-gated fictional smoke in the target project and region. Do
-not deploy Effort 2 or claim live-model verification until that smoke succeeds.
+`gemini-3.6-flash` remains the conversation and tool-use model.
+`gemini-3.5-flash-lite` handles only the bounded, one-call, structured
+compaction summary. Both must pass configuration-gated fictional smoke tests in
+the target project and region before live-model verification is claimed.
 
 The private continuity runtime also requires:
 
@@ -70,7 +72,8 @@ when performing an explicitly planned key rotation.
 
 The adapter-private provider locator and attachment callback are covered by
 synthetic tests. Deployment remains deferred until the configuration-gated
-`gemini-3.6-flash` smoke succeeds in the target project and region.
+conversation and compaction model smokes succeed in the target project and
+region.
 
 ## Optional Effort 2 exact tracing (default off)
 
@@ -195,8 +198,8 @@ done
 ```
 
 From the repository root, deploy the source with a scale-to-zero, low-cost
-prototype ceiling only after the configuration-gated `gemini-3.6-flash` smoke
-passes. Secret versions are pinned rather than resolved from `latest` at
+prototype ceiling only after the configuration-gated conversation and
+compaction model smokes pass. Secret versions are pinned rather than resolved from `latest` at
 runtime. Fill in the non-secret queue, callback, service-account, and private
 bucket values; set the two version variables to the enabled Secret Manager
 versions. The locator key itself remains a secret mapping and never appears in
@@ -219,7 +222,7 @@ gcloud run deploy medbuddy-line \
   --min-instances=0 \
   --max-instances=2 \
   --timeout=30s \
-  --set-env-vars=MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802,MEDBUDDY_VERTEX_ENABLED=true,MEDBUDDY_VERTEX_PROJECT=med-buddy-503802,MEDBUDDY_VERTEX_LOCATION=global,MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash,MEDBUDDY_TASKS_LOCATION=${TASKS_LOCATION},MEDBUDDY_TASKS_QUEUE=${TASKS_QUEUE},MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL=${TASK_CALLER_SERVICE_ACCOUNT},MEDBUDDY_CONTINUITY_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/continuity,MEDBUDDY_ATTACHMENT_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/attachment,MEDBUDDY_ATTACHMENT_BUCKET=${ATTACHMENT_BUCKET},MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1 \
+  --set-env-vars=MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802,MEDBUDDY_VERTEX_ENABLED=true,MEDBUDDY_VERTEX_PROJECT=med-buddy-503802,MEDBUDDY_VERTEX_LOCATION=global,MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash,MEDBUDDY_COMPACTION_VERTEX_MODEL=gemini-3.5-flash-lite,MEDBUDDY_TASKS_LOCATION=${TASKS_LOCATION},MEDBUDDY_TASKS_QUEUE=${TASKS_QUEUE},MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL=${TASK_CALLER_SERVICE_ACCOUNT},MEDBUDDY_CONTINUITY_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/continuity,MEDBUDDY_ATTACHMENT_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/attachment,MEDBUDDY_ATTACHMENT_BUCKET=${ATTACHMENT_BUCKET},MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1 \
   --set-secrets=MEDBUDDY_LINE_CHANNEL_SECRET=medbuddy-line-channel-secret:${LINE_SECRET_VERSION},MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN=medbuddy-line-channel-access-token:${LINE_SECRET_VERSION},MEDBUDDY_ATTACHMENT_LOCATOR_KEY=medbuddy-attachment-locator-key:${LOCATOR_SECRET_VERSION}
 ```
 

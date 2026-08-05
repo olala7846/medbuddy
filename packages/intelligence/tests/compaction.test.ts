@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  COMPACTION_MODEL_ID,
   CompactionSummaryGenerator,
   type VertexGenerationRequest,
   type VertexInvocationContext,
@@ -44,6 +45,10 @@ const request = {
 } as const;
 
 describe("compaction summary generation", () => {
+  it("uses the dedicated Flash-Lite model", () => {
+    expect(COMPACTION_MODEL_ID).toBe("gemini-3.5-flash-lite");
+  });
+
   it("makes exactly one bounded provider call and returns the four-field summary", async () => {
     const client = new RecordingClient(response(validSummary));
     const generator = new CompactionSummaryGenerator(client);

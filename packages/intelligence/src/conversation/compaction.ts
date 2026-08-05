@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { VertexGenerationRequest, VertexModelClient } from "../adapters/vertex.js";
 
-export const COMPACTION_MODEL_ID = "gemini-3.6-flash";
+export const COMPACTION_MODEL_ID = "gemini-3.5-flash-lite";
 export const COMPACTION_PROMPT_VERSION = "continuity-summary-v1";
 
 export type CompactionSummaryRequest = {

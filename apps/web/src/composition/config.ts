@@ -4,6 +4,7 @@ import {
   ContinuityProfileSchema,
   type ContinuityPolicy,
 } from "@medbuddy/contracts";
+import { COMPACTION_MODEL_ID } from "@medbuddy/intelligence";
 
 const LocatorKeySchema = z.string().refine((value) => {
   const decoded = Buffer.from(value, "base64");
@@ -33,6 +34,7 @@ const RequiredContinuityConfigSchema = z.object({
   MEDBUDDY_VERTEX_PROJECT: z.string().trim().min(1),
   MEDBUDDY_VERTEX_LOCATION: z.string().trim().min(1),
   MEDBUDDY_VERTEX_MODEL: z.literal("gemini-3.6-flash"),
+  MEDBUDDY_COMPACTION_VERTEX_MODEL: z.literal(COMPACTION_MODEL_ID).default(COMPACTION_MODEL_ID),
   MEDBUDDY_CONTINUITY_PROFILE: ContinuityProfileSchema.default("production"),
 });
 
@@ -58,6 +60,7 @@ export type ContinuityConfiguration = {
   vertexProjectId: string;
   vertexLocation: string;
   vertexModel: "gemini-3.6-flash";
+  compactionVertexModel: typeof COMPACTION_MODEL_ID;
   continuityPolicy: ContinuityPolicy;
 };
 
@@ -186,6 +189,7 @@ export function loadContinuityConfiguration(
     vertexProjectId: value.MEDBUDDY_VERTEX_PROJECT,
     vertexLocation: value.MEDBUDDY_VERTEX_LOCATION,
     vertexModel: value.MEDBUDDY_VERTEX_MODEL,
+    compactionVertexModel: value.MEDBUDDY_COMPACTION_VERTEX_MODEL,
     continuityPolicy: CONTINUITY_POLICIES[value.MEDBUDDY_CONTINUITY_PROFILE],
   };
 }
