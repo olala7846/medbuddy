@@ -152,10 +152,18 @@ export function describeContinuityRepositoryContract(
       await expect(continuity.claimCompactionJob({ ...job, id: "compaction-job:fictional-2" } as never))
         .resolves.toEqual(claimed);
 
+      const attempt = await continuity.claimCompactionAttempt(job.workspaceId as never, job.id as never, acceptedAt);
+      if (attempt.kind !== "CLAIMED") throw new Error("Expected publication attempt ownership.");
+      const fence = {
+        jobId: attempt.job.id,
+        attempts: attempt.job.attempts,
+        attemptClaimedAt: attempt.job.attemptClaimedAt!,
+      };
+
       const segment = readySegment();
-      await expect(continuity.publishSegment(segment)).resolves.toEqual(segment);
-      await expect(continuity.publishSegment(segment)).resolves.toEqual(segment);
-      await expect(continuity.publishSegment(readySegment({ modelId: "different-model" }))).rejects.toThrow(/immutable/i);
+      await expect(continuity.publishSegment(segment, undefined, fence)).resolves.toEqual(segment);
+      await expect(continuity.publishSegment(segment, undefined, fence)).resolves.toEqual(segment);
+      await expect(continuity.publishSegment(readySegment({ modelId: "different-model" }), undefined, fence)).rejects.toThrow(/immutable/i);
       await expect(continuity.listReadySegments("workspace:meadow" as never)).resolves.toEqual([]);
     });
 
@@ -199,7 +207,11 @@ export function describeContinuityRepositoryContract(
       const { attemptClaimedAt: _claimedAt, attemptLeaseExpiresAt: _leaseExpiresAt, ...released } = running;
       void _claimedAt;
       void _leaseExpiresAt;
-      await continuity.updateCompactionJob({ ...released, status: "FAILED", attempts: 3 });
+      await continuity.updateCompactionJob({ ...released, status: "FAILED", attempts: 3 }, {
+        jobId: running.id,
+        attempts: running.attempts,
+        attemptClaimedAt: running.attemptClaimedAt!,
+      });
       await expect(continuity.claimCompactionJob(job as never)).resolves.toMatchObject({
         status: "PENDING",
         attempts: 0,
@@ -252,6 +264,82 @@ export function describeContinuityRepositoryContract(
         job.workspaceId as never,
         job.id as never,
         "2026-08-04T12:03:01.000Z",
+      )).resolves.toMatchObject({ kind: "TERMINAL", job: { attempts: 3 } });
+    });
+
+    it("fences a late compaction owner after an expired lease is taken over", async () => {
+      const { continuity } = createHarness();
+      const job = {
+        id: "compaction-job:fictional-fencing",
+        workspaceId: "workspace:orchard",
+        level: 1,
+        firstSourceSequence: 1,
+        lastSourceSequence: 1,
+        orderedSourceDigest: "a".repeat(64),
+        childSegmentIds: [],
+        policyVersion: "continuity-v1",
+        status: "PENDING",
+        attempts: 0,
+        createdAt: acceptedAt,
+      } as const;
+      await continuity.claimCompactionJob(job as never);
+      const first = await continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:00:01.000Z",
+      );
+      const successor = await continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:01:01.000Z",
+      );
+      if (first.kind !== "CLAIMED" || successor.kind !== "CLAIMED") throw new Error("Expected two fenced claims.");
+      const firstFence = {
+        jobId: first.job.id,
+        attempts: first.job.attempts,
+        attemptClaimedAt: first.job.attemptClaimedAt!,
+      };
+      const successorFence = {
+        jobId: successor.job.id,
+        attempts: successor.job.attempts,
+        attemptClaimedAt: successor.job.attemptClaimedAt!,
+      };
+      const { attemptClaimedAt: _firstClaimedAt, attemptLeaseExpiresAt: _firstLease, ...firstReleased } = first.job;
+      void _firstClaimedAt;
+      void _firstLease;
+
+      await expect(continuity.updateCompactionJob(
+        { ...firstReleased, status: "PENDING" },
+        firstFence,
+      )).rejects.toThrow(/fenc/i);
+      await expect(continuity.updateCompactionJob(
+        { ...firstReleased, status: "FAILED" },
+        firstFence,
+      )).rejects.toThrow(/fenc/i);
+      await expect(continuity.publishSegment(readySegment(), undefined, firstFence)).rejects.toThrow(/fenc/i);
+      await expect(continuity.getActiveCompactionJob(job.workspaceId as never)).resolves.toMatchObject({
+        status: "RUNNING",
+        attempts: 2,
+        attemptClaimedAt: successorFence.attemptClaimedAt,
+      });
+      await expect(continuity.listReadySegments(job.workspaceId as never)).resolves.toEqual([]);
+
+      const { attemptClaimedAt: _successorClaimedAt, attemptLeaseExpiresAt: _successorLease, ...successorReleased } = successor.job;
+      void _successorClaimedAt;
+      void _successorLease;
+      await expect(continuity.updateCompactionJob(
+        { ...successorReleased, status: "PENDING" },
+        successorFence,
+      )).resolves.toMatchObject({ status: "PENDING", attempts: 2 });
+      await expect(continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:01:02.000Z",
+      )).resolves.toMatchObject({ kind: "CLAIMED", job: { attempts: 3 } });
+      await expect(continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:02:02.000Z",
       )).resolves.toMatchObject({ kind: "TERMINAL", job: { attempts: 3 } });
     });
   });

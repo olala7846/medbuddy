@@ -214,6 +214,51 @@ describe("private continuity task", () => {
     await expect(continuity.listReadySegments(workspaceId as never)).resolves.toHaveLength(1);
   });
 
+  it("does not let a late failed owner overwrite its lease successor", async () => {
+    const { continuity, generateStarted, handler, releaseGenerate } = await harness({ blockGenerate: true, fail: true });
+    const first = handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    });
+    await generateStarted;
+    await expect(continuity.claimCompactionAttempt(
+      workspaceId as never,
+      jobId as never,
+      "2026-08-04T12:11:00.000Z",
+    )).resolves.toMatchObject({ kind: "CLAIMED", job: { attempts: 2 } });
+
+    releaseGenerate();
+    await expect(first).resolves.toEqual({ status: 500 });
+    await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toMatchObject({
+      status: "RUNNING",
+      attempts: 2,
+      attemptClaimedAt: "2026-08-04T12:11:00.000Z",
+    });
+  });
+
+  it("does not let a late successful owner publish or clear its lease successor", async () => {
+    const { continuity, generateStarted, handler, releaseGenerate } = await harness({ blockGenerate: true });
+    const first = handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    });
+    await generateStarted;
+    await expect(continuity.claimCompactionAttempt(
+      workspaceId as never,
+      jobId as never,
+      "2026-08-04T12:11:00.000Z",
+    )).resolves.toMatchObject({ kind: "CLAIMED", job: { attempts: 2 } });
+
+    releaseGenerate();
+    await expect(first).resolves.toEqual({ status: 500 });
+    await expect(continuity.listReadySegments(workspaceId as never)).resolves.toEqual([]);
+    await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toMatchObject({
+      status: "RUNNING",
+      attempts: 2,
+      attemptClaimedAt: "2026-08-04T12:11:00.000Z",
+    });
+  });
+
   it("claims and dispatches the next backlog job after READY publication", async () => {
     const { continuity, dispatched, handler } = await harness({ lateSources: 5 });
     await expect(handler.handle({

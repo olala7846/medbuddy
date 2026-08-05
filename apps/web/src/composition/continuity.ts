@@ -11,6 +11,7 @@ import {
 } from "@medbuddy/chat";
 import {
   COMPACTION_MAX_ATTEMPTS,
+  CompactionAttemptFenceSchema,
   CompactionJobSchema,
   ContinuityTaskInputSchema,
   type ContinuityTaskDispatcher,
@@ -79,6 +80,14 @@ function releaseCompactionLease(job: Parameters<ContinuityRepository["updateComp
   return released;
 }
 
+function compactionAttemptFence(job: Parameters<ContinuityRepository["updateCompactionJob"]>[0]) {
+  return CompactionAttemptFenceSchema.parse({
+    jobId: job.id,
+    attempts: job.attempts,
+    attemptClaimedAt: job.attemptClaimedAt,
+  });
+}
+
 function durationClass(milliseconds: number): ContinuityWorkerLogEntry["durationClass"] {
   if (milliseconds < 1_000) return "UNDER_1S";
   if (milliseconds < 5_000) return "UNDER_5S";
@@ -110,17 +119,6 @@ export class ContinuityCompactionWorker {
     if (active === null || active.id !== input.jobId) {
       throw new Error("Continuity task does not match the active workspace job.");
     }
-    const existing = (await this.dependencies.continuity.listReadySegments(input.workspaceId)).find((segment) =>
-      segment.level === active.level &&
-      segment.firstSourceSequence === active.firstSourceSequence &&
-      segment.lastSourceSequence === active.lastSourceSequence &&
-      segment.orderedSourceDigest === active.orderedSourceDigest);
-    if (existing !== undefined) {
-      await this.dependencies.continuity.publishSegment(existing);
-      this.dependencies.logger.write({ event: "continuity_job_reused", level: active.level, attempt: active.attempts });
-      await this.scheduleNext(input.workspaceId);
-      return "REUSED";
-    }
     const attemptClaim = await this.dependencies.continuity.claimCompactionAttempt(
       input.workspaceId,
       input.jobId,
@@ -134,13 +132,25 @@ export class ContinuityCompactionWorker {
       await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({
         ...releaseCompactionLease(attemptClaim.job),
         status: "FAILED",
-      }));
+      }), attemptClaim.job.status === "RUNNING" ? compactionAttemptFence(attemptClaim.job) : undefined);
       this.dependencies.logger.write({ event: "continuity_job_failed", code: "EXHAUSTED", level: active.level, attempt: attemptClaim.job.attempts });
       return "EXHAUSTED";
     }
 
     const claimedJob = attemptClaim.job;
+    const attemptFence = compactionAttemptFence(claimedJob);
     const attempt = claimedJob.attempts;
+    const existing = (await this.dependencies.continuity.listReadySegments(input.workspaceId)).find((segment) =>
+      segment.level === claimedJob.level &&
+      segment.firstSourceSequence === claimedJob.firstSourceSequence &&
+      segment.lastSourceSequence === claimedJob.lastSourceSequence &&
+      segment.orderedSourceDigest === claimedJob.orderedSourceDigest);
+    if (existing !== undefined) {
+      await this.dependencies.continuity.publishSegment(existing, undefined, attemptFence);
+      this.dependencies.logger.write({ event: "continuity_job_reused", level: claimedJob.level, attempt });
+      await this.scheduleNext(input.workspaceId);
+      return "REUSED";
+    }
     const startedAt = this.dependencies.clock?.() ?? Date.now();
     try {
       const sources = await this.dependencies.continuity.listSourceEvents(input.workspaceId);
@@ -228,6 +238,7 @@ export class ContinuityCompactionWorker {
         await this.dependencies.continuity.publishSegment(
           segment,
           claimedJob.level === 1 ? freshSources.at(-1)?.sourceSequence ?? 0 : undefined,
+          attemptFence,
         );
       } catch (error) {
         this.dependencies.logger.write({
@@ -258,7 +269,7 @@ export class ContinuityCompactionWorker {
         ...releaseCompactionLease(claimedJob),
         attempts: attempt,
         status: exhausted ? "FAILED" : "PENDING",
-      }));
+      }), attemptFence);
       this.dependencies.logger.write({
         event: "continuity_job_failed",
         code: exhausted ? "EXHAUSTED" : "RETRYABLE",

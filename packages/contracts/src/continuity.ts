@@ -190,6 +190,12 @@ export const CompactionAttemptClaimSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("TERMINAL"), job: CompactionJobSchema }).strict(),
 ]);
 
+export const CompactionAttemptFenceSchema = z.object({
+  jobId: CompactionJobIdSchema,
+  attempts: z.number().int().positive().max(COMPACTION_MAX_ATTEMPTS),
+  attemptClaimedAt: TimestampSchema,
+}).strict();
+
 export const CompactionSegmentSchema = z.object({
   id: CompactionSegmentIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -252,6 +258,7 @@ export type AgentActionContext = z.infer<typeof AgentActionContextSchema>;
 export type SegmentSummary = z.infer<typeof SegmentSummarySchema>;
 export type CompactionJob = z.infer<typeof CompactionJobSchema>;
 export type CompactionAttemptClaim = z.infer<typeof CompactionAttemptClaimSchema>;
+export type CompactionAttemptFence = z.infer<typeof CompactionAttemptFenceSchema>;
 export type CompactionSegment = z.infer<typeof CompactionSegmentSchema>;
 export type AssembledContext = z.infer<typeof AssembledContextSchema>;
 export type ContinuityTaskInput = z.infer<typeof ContinuityTaskInputSchema>;
@@ -269,8 +276,8 @@ export interface ContinuityRepository {
   claimCompactionJob(job: CompactionJob): Promise<CompactionJob>;
   claimCompactionAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof CompactionJobIdSchema>, claimedAt: string): Promise<CompactionAttemptClaim>;
   getActiveCompactionJob(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<CompactionJob | null>;
-  updateCompactionJob(job: CompactionJob): Promise<CompactionJob>;
-  publishSegment(segment: CompactionSegment, expectedSourceSequenceWatermark?: number): Promise<CompactionSegment>;
+  updateCompactionJob(job: CompactionJob, expectedAttempt?: CompactionAttemptFence): Promise<CompactionJob>;
+  publishSegment(segment: CompactionSegment, expectedSourceSequenceWatermark?: number, expectedAttempt?: CompactionAttemptFence): Promise<CompactionSegment>;
   listReadySegments(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<readonly CompactionSegment[]>;
 }
 

@@ -55,6 +55,8 @@
 - [x] Rerun all verification gates.
 - [x] Add crash-safe expiring compaction attempt leases with transactional
   takeover in memory and Firestore.
+- [x] Fence every attempt-owned state transition and publication so an expired
+  worker cannot overwrite or clear its transactional takeover successor.
 - [x] Reload the source ledger after Gemini and enforce its validated watermark
   atomically at level-1 publication.
 - [x] Deny interrogative family-map authorization independently of punctuation.

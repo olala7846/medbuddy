@@ -299,6 +299,9 @@ existing Cloud Run application.
   under the bounded-attempt policy.
 - A running attempt holds a 60-second lease. One delivery can transactionally
   take over an expired lease, while unexpired duplicates remain model-free.
+- Every attempt-owned release, failure, publication, and active-job clear uses
+  the exact claim timestamp plus attempt number as a transactional fence; late
+  owners cannot mutate a lease successor.
 - Level-1 publication reloads and revalidates its mutation digest after Gemini,
   then atomically requires the observed source-sequence watermark.
 

@@ -2,6 +2,7 @@ import {
   AcceptSourceEventInputSchema,
   type AcceptSourceEventResult,
   COMPACTION_ATTEMPT_LEASE_MS,
+  CompactionAttemptFenceSchema,
   CompactionJobSchema,
   CompactionSegmentSchema,
   type CompactionJob,
@@ -231,11 +232,24 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
     return clone(this.activeJobs.get(workspaceId) ?? null);
   }
 
-  async updateCompactionJob(value: CompactionJob): Promise<CompactionJob> {
+  async updateCompactionJob(
+    value: CompactionJob,
+    expectedAttempt?: Parameters<ContinuityRepository["updateCompactionJob"]>[1],
+  ): Promise<CompactionJob> {
     const job = CompactionJobSchema.parse(value);
+    const fence = expectedAttempt === undefined ? undefined : CompactionAttemptFenceSchema.parse(expectedAttempt);
     return this.queue.run(job.workspaceId, () => {
       const key = this.key(job.workspaceId, job.id);
-      if (!this.jobs.has(key)) throw new Error("Compaction job does not exist.");
+      const existing = this.jobs.get(key);
+      if (existing === undefined) throw new Error("Compaction job does not exist.");
+      if (existing.status === "RUNNING") {
+        const active = this.activeJobs.get(job.workspaceId);
+        if (fence === undefined || active?.id !== existing.id ||
+            fence.jobId !== existing.id || fence.attempts !== existing.attempts ||
+            fence.attemptClaimedAt !== existing.attemptClaimedAt) {
+          throw new Error("Compaction attempt fencing conflict.");
+        }
+      }
       this.jobs.set(key, clone(job));
       if (job.status === "FAILED") this.activeJobs.delete(job.workspaceId);
       else this.activeJobs.set(job.workspaceId, clone(job));
@@ -246,14 +260,21 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
   async publishSegment(
     value: CompactionSegment,
     expectedSourceSequenceWatermark?: number,
+    expectedAttempt?: Parameters<ContinuityRepository["publishSegment"]>[2],
   ): Promise<CompactionSegment> {
     const segment = CompactionSegmentSchema.parse(value);
+    const fence = expectedAttempt === undefined ? undefined : CompactionAttemptFenceSchema.parse(expectedAttempt);
     return this.queue.run(segment.workspaceId, () => {
+      const active = this.activeJobs.get(segment.workspaceId);
+      if (active !== undefined &&
+          (active.status !== "RUNNING" || fence === undefined || fence.jobId !== active.id ||
+           fence.attempts !== active.attempts || fence.attemptClaimedAt !== active.attemptClaimedAt)) {
+        throw new Error("Compaction attempt fencing conflict.");
+      }
       const key = this.key(segment.workspaceId, segment.id);
       const existing = this.segments.get(key);
       if (existing !== undefined) {
         if (!same(existing, segment)) throw new Error("An immutable ready segment already exists with a different value.");
-        const active = this.activeJobs.get(segment.workspaceId);
         if (active?.firstSourceSequence === segment.firstSourceSequence && active.lastSourceSequence === segment.lastSourceSequence) {
           this.activeJobs.delete(segment.workspaceId);
         }
@@ -270,7 +291,6 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
         throw new Error("Ready segment ranges at one level must be disjoint.");
       }
       this.segments.set(key, clone(segment));
-      const active = this.activeJobs.get(segment.workspaceId);
       if (active?.id === `compaction-job:${segment.id.slice("compaction-segment:".length)}` ||
           (active?.firstSourceSequence === segment.firstSourceSequence && active.lastSourceSequence === segment.lastSourceSequence)) {
         this.activeJobs.delete(segment.workspaceId);

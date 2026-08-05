@@ -3,6 +3,7 @@ import {
   AcceptSourceEventInputSchema,
   type AcceptSourceEventResult,
   COMPACTION_ATTEMPT_LEASE_MS,
+  CompactionAttemptFenceSchema,
   CompactionJobSchema,
   CompactionSegmentSchema,
   type CompactionJob,
@@ -335,13 +336,23 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     return CompactionJobSchema.parse(record(job.data()));
   }
 
-  async updateCompactionJob(value: CompactionJob): Promise<CompactionJob> {
+  async updateCompactionJob(
+    value: CompactionJob,
+    expectedAttempt?: Parameters<ContinuityRepository["updateCompactionJob"]>[1],
+  ): Promise<CompactionJob> {
     const job = CompactionJobSchema.parse(value);
+    const fence = expectedAttempt === undefined ? undefined : CompactionAttemptFenceSchema.parse(expectedAttempt);
     return this.firestore.runTransaction(async (transaction) => {
       const jobRef = this.jobRef(job.workspaceId, job.id);
       const stateRef = this.compactionStateRef(job.workspaceId);
       const [existing, state] = await Promise.all([transaction.get(jobRef), transaction.get(stateRef)]);
       if (!existing.exists) throw new Error("Compaction job does not exist.");
+      const stored = CompactionJobSchema.parse(record(existing.data()));
+      if (stored.status === "RUNNING" &&
+          (fence === undefined || state.data()?.activeJobId !== stored.id || fence.jobId !== stored.id ||
+           fence.attempts !== stored.attempts || fence.attemptClaimedAt !== stored.attemptClaimedAt)) {
+        throw new Error("Compaction attempt fencing conflict.");
+      }
       transaction.set(jobRef, job);
       if (job.status === "FAILED" && state.data()?.activeJobId === job.id) {
         transaction.set(stateRef, { activeJobId: null });
@@ -353,8 +364,10 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
   async publishSegment(
     value: CompactionSegment,
     expectedSourceSequenceWatermark?: number,
+    expectedAttempt?: Parameters<ContinuityRepository["publishSegment"]>[2],
   ): Promise<CompactionSegment> {
     const segment = CompactionSegmentSchema.parse(value);
+    const fence = expectedAttempt === undefined ? undefined : CompactionAttemptFenceSchema.parse(expectedAttempt);
     return this.firestore.runTransaction(async (transaction) => {
       const segmentRef = this.segmentRef(segment.workspaceId, segment.id);
       const stateRef = this.compactionStateRef(segment.workspaceId);
@@ -368,6 +381,13 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
           : Promise.resolve(undefined),
         transaction.get(this.sourceCounterRef(segment.workspaceId)),
       ]);
+      if (active?.exists) {
+        const activeJob = CompactionJobSchema.parse(record(active.data()));
+        if (activeJob.status !== "RUNNING" || fence === undefined || fence.jobId !== activeJob.id ||
+            fence.attempts !== activeJob.attempts || fence.attemptClaimedAt !== activeJob.attemptClaimedAt) {
+          throw new Error("Compaction attempt fencing conflict.");
+        }
+      }
       if (existing.exists) {
         const stored = CompactionSegmentSchema.parse(record(existing.data()));
         if (!same(stored, segment)) throw new Error("An immutable ready segment already exists with a different value.");
