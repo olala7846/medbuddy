@@ -225,6 +225,8 @@ target as `gemini-3.6-flash`.
 - Historical summaries never authorize family-map mutation. Deterministic
   focal-turn classification grants the capability only for an explicit current
   identity, relationship, correction, or forget/clear statement.
+- Interrogatives never grant the capability, including punctuation-free,
+  fullwidth-punctuation, indirect English, and common CJK question forms.
 
 **Likely files:**
 

@@ -14,6 +14,7 @@ import {
   FAMILY_MAP_UPDATE_FAILURE_TEXT,
   FixedConversationProvider,
   createFixtureMedicationGrounding,
+  focalAuthorizesFamilyMapUpdate,
 } from "../src/index.js";
 
 const focalMessage = MessageSchema.parse({
@@ -51,6 +52,29 @@ const familyMapRequest = ConversationRequestSchema.parse({
 });
 
 describe("conversation responder", () => {
+  it.each([
+    "Who is my mother",
+    "Tell me who is my mother",
+    "Who is my mother？",
+    "Is Mei my mother.",
+    "誰是我的媽媽。",
+    "梅是我的媽媽嗎。",
+  ])("does not authorize an interrogative family-map turn: %s", (body) => {
+    expect(focalAuthorizesFamilyMapUpdate(body)).toBe(false);
+  });
+
+  it.each([
+    "I am Mei.",
+    "Mei is Kai's mother.",
+    "Actually, Mei is Kai's aunt.",
+    "Forget the direct relationship.",
+    "Clear the family map.",
+    "梅是凱的媽媽。",
+    "請更正家庭關係。",
+  ])("authorizes an explicit focal declaration or mutation: %s", (body) => {
+    expect(focalAuthorizesFamilyMapUpdate(body)).toBe(true);
+  });
+
   it("executes one validated family-map replacement and only then returns the acknowledgment", async () => {
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
       {
