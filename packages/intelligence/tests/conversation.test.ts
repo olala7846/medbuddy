@@ -77,6 +77,8 @@ describe("conversation responder", () => {
     "Clear the family map.",
     "Remember family name Mei.",
     "梅是凱的媽媽。",
+    "我的兒子是孩子甲和孩子乙。",
+    "我是家長乙，是家長甲的妻子，也是孩子甲和孩子乙的媽媽。",
     "請更正家庭關係。",
     "Correction: Mei is Kai's mother, not his sister.",
     "Forget that Mei is Kai's mother.",
@@ -423,6 +425,39 @@ describe("conversation responder", () => {
           revision: 1,
         },
         messages: [{ ...focalMessage, body }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: "RESPONDED",
+      toolCalls: 0,
+      responseText: AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT,
+    });
+    expect(provider.requests).toEqual([]);
+  });
+
+  it("asks for clarification before linking an identity shared by two named relatives", async () => {
+    const provider = new FixedConversationProvider(new Map());
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+    const result = await responder.respond({
+      ...request,
+      context: {
+        ...request.context,
+        familyMap: {
+          workspaceId: focalMessage.workspaceId,
+          revision: 1,
+          content: [
+            "Participants",
+            "- Mei (member:fictional-owner)",
+            "",
+            "Named relatives",
+            "- Kai (Mei's son)",
+            "- Kai (Lin's son)",
+            "",
+            "Direct relationships",
+          ].join("\n"),
+        },
+        messages: [{ ...focalMessage, body: "I am Kai." }],
       },
     });
 

@@ -221,7 +221,7 @@ describe("Vertex adapters", () => {
       .rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
   });
 
-  it("accepts bounded plain final text when a tool-enabled model does not return JSON", async () => {
+  it("accepts bounded plain final text when family-map updates are disabled", async () => {
     const plainTextClient: VertexModelClient = {
       async generate() {
         return { candidates: [{ content: { role: "model", parts: [{ text: "Lin is Kai’s grandmother." }] } }] };
@@ -231,7 +231,7 @@ describe("Vertex adapters", () => {
     await expect(new VertexConversationProvider(plainTextClient).respond({
       focalMessage,
       context: conversationInput.context,
-      familyMapUpdatesAllowed: true,
+      familyMapUpdatesAllowed: false,
     })).resolves.toEqual({ kind: "REPLY", text: "Lin is Kai’s grandmother." });
   });
 
@@ -369,6 +369,7 @@ describe("Vertex adapters", () => {
       focalMessage,
       context: conversationInput.context,
       familyMapUpdatesAllowed: true,
+      familyMapUpdateRequired: true,
     })).resolves.toEqual({
       kind: "UPDATE_WORKSPACE_FAMILY_MAP",
       input: { expectedRevision: 0, content: "Members\n- member:vertex: Mei" },
@@ -386,6 +387,7 @@ describe("Vertex adapters", () => {
 
     expect(requests).toEqual([expect.objectContaining({
       tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
+      toolConfig: { functionCallingConfig: { mode: "ANY" } },
     })]);
 
     const continuation = {
@@ -517,6 +519,11 @@ describe("Vertex adapters", () => {
         role: "user",
         parts: [{ functionResponse: { name: "update_workspace_family_map", response: expect.objectContaining({ kind: "UPDATED" }) } }],
       },
+    ]);
+    expect(requests.map((request) => request.toolConfig)).toEqual([
+      { functionCallingConfig: { mode: "AUTO" } },
+      { functionCallingConfig: { mode: "ANY" } },
+      { functionCallingConfig: { mode: "NONE" } },
     ]);
   });
 });
