@@ -3,16 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
   CompactionSummaryGenerator,
   type VertexGenerationRequest,
+  type VertexInvocationContext,
   type VertexModelClient,
 } from "../src/index.js";
 
 class RecordingClient implements VertexModelClient {
   readonly requests: VertexGenerationRequest[] = [];
+  readonly contexts: Array<VertexInvocationContext | undefined> = [];
 
   constructor(private readonly output: unknown) {}
 
-  async generate(input: VertexGenerationRequest): Promise<unknown> {
+  async generate(input: VertexGenerationRequest, context?: VertexInvocationContext): Promise<unknown> {
     this.requests.push(input);
+    this.contexts.push(context);
     return this.output;
   }
 }
@@ -49,6 +52,7 @@ describe("compaction summary generation", () => {
       usage: { inputTokens: 120, outputTokens: 40 },
     });
     expect(client.requests).toHaveLength(1);
+    expect(client.contexts).toEqual([{ workspaceId: "workspace:orchard" }]);
     expect(client.requests[0]).not.toHaveProperty("tools");
     expect(JSON.stringify(client.requests[0])).not.toMatch(/familyMap|careRecord|repository|storage/i);
     expect(client.requests[0]!.systemInstruction).toContain("attributed reports");

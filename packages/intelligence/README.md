@@ -10,6 +10,7 @@ Probabilistic and bounded-model surfaces: bounded model/tool/model conversation 
 
 - `@medbuddy/contracts`
 - `google-auth-library` (Vertex adapter)
+- `langsmith` (default-off exact-content verification tracing)
 
 ## Must not
 
@@ -30,6 +31,13 @@ npm test --workspace @medbuddy/intelligence
 
 Vertex live smoke and family-map behavior evaluations are opt-in at the repo root
 (`npm run test:vertex-smoke`) and use fictional inputs only.
+
+The optional LangSmith adapter wraps only explicitly composed conversation and
+compaction `VertexModelClient` instances. It requires an exact allowlisted
+fictional workspace match, refuses inline image data, flushes before the
+serverless request finishes, and never changes or retries the underlying Vertex
+result when trace export fails. Text capture, image extraction, and attachment
+ingestion remain untraced.
 
 The family-map prompt keeps one readable raw-text document with `Participants`,
 `Named relatives`, and `Direct relationships` sections. Explicitly named
