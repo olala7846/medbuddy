@@ -423,6 +423,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       }
       for (const document of sameLevel.docs) {
         const stored = CompactionSegmentSchema.parse(record(document.data()));
+        if (stored.policyVersion !== segment.policyVersion) continue;
         if (stored.firstSourceSequence <= segment.lastSourceSequence && segment.firstSourceSequence <= stored.lastSourceSequence) {
           throw new Error("Ready segment ranges at one level must be disjoint.");
         }

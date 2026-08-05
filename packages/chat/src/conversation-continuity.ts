@@ -1,11 +1,12 @@
 import {
   AGENT_ACTION_MAX_UTF16,
   ASSEMBLED_CONTEXT_MAX_UTF16,
+  CONTINUITY_POLICIES,
   AgentActionContextSchema,
   AssembledContextSchema,
   type CompactionSegment,
   type ContinuityAttachment,
-  RECENT_HARD_CEILING_UTF16,
+  type ContinuityPolicy,
   type SourceEvent,
   type SourceEventId,
   type WorkspaceId,
@@ -133,11 +134,13 @@ function validateAndSelectFrontier(
   workspaceId: WorkspaceId,
   segments: readonly CompactionSegment[],
   beforeSequence: number,
+  policyVersion: string,
 ): CompactionSegment[] {
   for (const segment of segments) {
     if (segment.workspaceId !== workspaceId) throw new Error("Historical segments cannot cross a workspace boundary.");
   }
-  const ordered = [...segments].sort((left, right) =>
+  const policySegments = segments.filter((segment) => segment.policyVersion === policyVersion);
+  const ordered = [...policySegments].sort((left, right) =>
     left.level - right.level || left.firstSourceSequence - right.firstSourceSequence);
   for (let index = 0; index < ordered.length; index += 1) {
     const left = ordered[index]!;
@@ -154,7 +157,7 @@ function validateAndSelectFrontier(
     }
   }
 
-  const eligible = segments.filter((segment) => segment.lastSourceSequence < beforeSequence);
+  const eligible = policySegments.filter((segment) => segment.lastSourceSequence < beforeSequence);
   const childIds = new Set(eligible.flatMap((segment) => segment.childSegmentIds));
   const roots = eligible.filter((segment) => !childIds.has(segment.id));
   const selected: CompactionSegment[] = [];
@@ -198,6 +201,7 @@ export type AssembleConversationContextInput = {
   agentActions?: unknown;
   system: string;
   compactionPending: boolean;
+  policy?: ContinuityPolicy;
 };
 
 export function assembleConversationContext(input: AssembleConversationContextInput) {
@@ -219,9 +223,10 @@ export function assembleConversationContext(input: AssembleConversationContextIn
   if (focal === undefined) throw new Error("The focal source event is not available in the effective projection.");
   const familyMap = input.familyMap?.content;
   const agentActions = renderActions(actions);
+  const policy = input.policy ?? CONTINUITY_POLICIES.production;
   const protectedPrefix = joinBlocks([input.system, familyMap, agentActions]);
   const recentLimit = Math.min(
-    input.compactionPending ? RECENT_HARD_CEILING_UTF16 : 20_000,
+    input.compactionPending ? policy.recentHardCeilingUtf16 : policy.compactionTriggerUtf16,
     ASSEMBLED_CONTEXT_MAX_UTF16 - protectedPrefix.length - (protectedPrefix.length === 0 ? 0 : 2),
   );
   if (recentLimit <= 0) throw new Error("Protected context blocks leave no room for the focal conversation turn.");
@@ -268,7 +273,12 @@ export function assembleConversationContext(input: AssembleConversationContextIn
   if (recentConversation.length > recentLimit) throw new Error("Recent conversation exceeded its hard character ceiling.");
 
   const firstRecentSequence = Math.min(...selectedNewestFirst.map((entry) => entry.turn.sourceSequence));
-  const frontier = validateAndSelectFrontier(input.workspaceId, input.readySegments, firstRecentSequence);
+  const frontier = validateAndSelectFrontier(
+    input.workspaceId,
+    input.readySegments,
+    firstRecentSequence,
+    policy.policyVersion,
+  );
   const selectedSegments: CompactionSegment[] = [];
   let history = "";
   const fixedWithoutHistory = [input.system, familyMap, agentActions, recentConversation];

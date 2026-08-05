@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CONTINUITY_POLICIES,
+  ContinuityPolicySchema,
   AgentActionContextSchema,
   CompactionJobSchema,
   CompactionSegmentSchema,
@@ -20,6 +22,26 @@ const baseEvent = {
 } as const;
 
 describe("continuity contracts", () => {
+  it("defines validated production and verification-small continuity policies", () => {
+    expect(ContinuityPolicySchema.parse(CONTINUITY_POLICIES.production)).toEqual({
+      profile: "production",
+      policyVersion: "continuity-v1",
+      protectedRecentMaxUtf16: 10_000,
+      compactionTriggerUtf16: 20_000,
+      recentHardCeilingUtf16: 30_000,
+    });
+    expect(ContinuityPolicySchema.parse(CONTINUITY_POLICIES["verification-small"])).toEqual({
+      profile: "verification-small",
+      policyVersion: "continuity-v1-verification-small",
+      protectedRecentMaxUtf16: 600,
+      compactionTriggerUtf16: 1_200,
+      recentHardCeilingUtf16: 1_800,
+    });
+    expect(() => ContinuityPolicySchema.parse({
+      ...CONTINUITY_POLICIES.production,
+      policyVersion: "continuity-v1-verification-small",
+    })).toThrow();
+  });
   it("admits exactly 100,000 UTF-16 code units and rejects one more", () => {
     expect(SourceEventSchema.safeParse({
       ...baseEvent,

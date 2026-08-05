@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  CONTINUITY_POLICIES,
+  ContinuityProfileSchema,
+  type ContinuityPolicy,
+} from "@medbuddy/contracts";
 
 const LocatorKeySchema = z.string().refine((value) => {
   const decoded = Buffer.from(value, "base64");
@@ -28,6 +33,7 @@ const RequiredContinuityConfigSchema = z.object({
   MEDBUDDY_VERTEX_PROJECT: z.string().trim().min(1),
   MEDBUDDY_VERTEX_LOCATION: z.string().trim().min(1),
   MEDBUDDY_VERTEX_MODEL: z.literal("gemini-3.6-flash"),
+  MEDBUDDY_CONTINUITY_PROFILE: ContinuityProfileSchema.default("production"),
 });
 
 export type ProductionConfig = {
@@ -52,6 +58,7 @@ export type ContinuityConfiguration = {
   vertexProjectId: string;
   vertexLocation: string;
   vertexModel: "gemini-3.6-flash";
+  continuityPolicy: ContinuityPolicy;
 };
 
 const RequiredLineConfigSchema = z.object({
@@ -134,5 +141,6 @@ export function loadContinuityConfiguration(
     vertexProjectId: value.MEDBUDDY_VERTEX_PROJECT,
     vertexLocation: value.MEDBUDDY_VERTEX_LOCATION,
     vertexModel: value.MEDBUDDY_VERTEX_MODEL,
+    continuityPolicy: CONTINUITY_POLICIES[value.MEDBUDDY_CONTINUITY_PROFILE],
   };
 }
