@@ -5,11 +5,12 @@ import {
   AssembledContextSchema,
   type CompactionSegment,
   type ContinuityAttachment,
-  RECENT_HARD_CEILING_UTF16,
   type SourceEvent,
   type SourceEventId,
   type WorkspaceId,
 } from "@medbuddy/contracts";
+
+import { DEFAULT_CONTINUITY_POLICY, type ContinuityPolicy } from "./continuity-policy.js";
 
 const PENDING_HISTORY_MARKER = "[OLDER HISTORY IS PENDING COMPACTION — OMITTED CONTENT REMAINS STORED]";
 const FOCAL_EXCERPT_LABEL = "BEGIN BOUNDED EXCERPT — NOT VERBATIM MESSAGE";
@@ -198,6 +199,7 @@ export type AssembleConversationContextInput = {
   agentActions?: unknown;
   system: string;
   compactionPending: boolean;
+  policy?: ContinuityPolicy;
 };
 
 export function assembleConversationContext(input: AssembleConversationContextInput) {
@@ -221,7 +223,9 @@ export function assembleConversationContext(input: AssembleConversationContextIn
   const agentActions = renderActions(actions);
   const protectedPrefix = joinBlocks([input.system, familyMap, agentActions]);
   const recentLimit = Math.min(
-    input.compactionPending ? RECENT_HARD_CEILING_UTF16 : 20_000,
+    input.compactionPending
+      ? (input.policy ?? DEFAULT_CONTINUITY_POLICY).recentHardCeilingUtf16
+      : (input.policy ?? DEFAULT_CONTINUITY_POLICY).compactionTriggerUtf16,
     ASSEMBLED_CONTEXT_MAX_UTF16 - protectedPrefix.length - (protectedPrefix.length === 0 ? 0 : 2),
   );
   if (recentLimit <= 0) throw new Error("Protected context blocks leave no room for the focal conversation turn.");

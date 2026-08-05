@@ -3,11 +3,9 @@ import { createHash } from "node:crypto";
 import {
   COMPACTION_MERGE_FAN_IN,
   COMPACTION_INPUT_MAX_UTF16,
-  COMPACTION_TRIGGER_UTF16,
   CompactionJobIdSchema,
   CompactionSegmentSchema,
   type CompactionSegment,
-  PROTECTED_RECENT_MAX_UTF16,
   SegmentSummarySchema,
   type SegmentSummary,
   type SourceEvent,
@@ -19,8 +17,14 @@ import {
   renderProjectedTurn,
   type ProjectedTurn,
 } from "./conversation-continuity.js";
+import {
+  DEFAULT_CONTINUITY_POLICY,
+  type ContinuityPolicy,
+} from "./continuity-policy.js";
 
-export const COMPACTION_POLICY_VERSION = "continuity-v1";
+export { VERIFICATION_SMALL_CONTINUITY_POLICY } from "./continuity-policy.js";
+
+export const COMPACTION_POLICY_VERSION = DEFAULT_CONTINUITY_POLICY.policyVersion;
 export const COMPACTION_PROMPT_VERSION = "continuity-summary-v1";
 const COMPACTION_OMISSION_LABEL = "UTF-16 CODE UNITS OMITTED FROM COMPACTION INPUT";
 
@@ -143,8 +147,9 @@ export function planLevelOneCompaction(
   workspaceId: WorkspaceId,
   sourceEvents: readonly SourceEvent[],
   readySegments: readonly CompactionSegment[],
-  policyVersion = COMPACTION_POLICY_VERSION,
+  policy: ContinuityPolicy = DEFAULT_CONTINUITY_POLICY,
 ): CompactionPlan | null {
+  const policyVersion = policy.policyVersion;
   for (const event of sourceEvents) {
     if (event.workspaceId !== workspaceId) throw new Error("Compaction planning cannot cross a workspace boundary.");
   }
@@ -158,12 +163,12 @@ export function planLevelOneCompaction(
     .filter((event) => event.sourceSequence > coverage)
     .sort((left, right) => left.sourceSequence - right.sourceSequence);
   const projected = projectEffectiveConversation(workspaceId, eligibleSources);
-  if (renderedLength(projected) <= COMPACTION_TRIGGER_UTF16) return null;
+  if (renderedLength(projected) <= policy.compactionTriggerUtf16) return null;
 
   const retained: ProjectedTurn[] = [];
   for (const turn of [...projected].reverse()) {
     const candidate = [turn, ...retained];
-    if (renderedLength(candidate) > PROTECTED_RECENT_MAX_UTF16) break;
+    if (renderedLength(candidate) > policy.protectedRecentMaxUtf16) break;
     retained.unshift(turn);
   }
   const earliestRetained = retained[0]?.sourceSequence;
@@ -201,8 +206,9 @@ export function planLevelOneCompaction(
 export function planHigherLevelCompaction(
   workspaceId: WorkspaceId,
   readySegments: readonly CompactionSegment[],
-  policyVersion = COMPACTION_POLICY_VERSION,
+  policy: ContinuityPolicy = DEFAULT_CONTINUITY_POLICY,
 ): CompactionPlan | null {
+  const policyVersion = policy.policyVersion;
   for (const segment of readySegments) {
     if (segment.workspaceId !== workspaceId) throw new Error("Higher-level planning cannot cross a workspace boundary.");
   }

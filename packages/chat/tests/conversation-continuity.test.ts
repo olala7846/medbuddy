@@ -14,6 +14,7 @@ import {
   projectEffectiveConversation,
   renderProjectedTurn,
 } from "../src/conversation-continuity.js";
+import { VERIFICATION_SMALL_CONTINUITY_POLICY } from "../src/compaction.js";
 
 function event(sequence: number, body: string, overrides: Record<string, unknown> = {}): SourceEvent {
   return SourceEventSchema.parse({
@@ -92,6 +93,21 @@ describe("effective conversation projection", () => {
 });
 
 describe("deterministic conversation context", () => {
+  it("uses the verification-small pending ceiling only when explicitly selected", () => {
+    const sources = [event(1, "a".repeat(900)), event(2, "b".repeat(900)), event(3, "focal")];
+    const assembled = assembleConversationContext({
+      workspaceId: "workspace:orchard" as never,
+      focalSourceEventId: sources[2]!.id,
+      sourceEvents: sources,
+      readySegments: [],
+      system: "SYSTEM SAFETY",
+      compactionPending: true,
+      policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+    });
+    expect(assembled.recentConversation.length).toBeLessThanOrEqual(1_800);
+    expect(assembled.recentConversation).toContain("OLDER HISTORY IS PENDING COMPACTION");
+  });
+
   it("counts attribution and surrogate pairs in protected whole-turn selection", () => {
     const sources = [event(1, "x".repeat(9_900)), event(2, "😀".repeat(40))];
     const projected = projectEffectiveConversation("workspace:orchard" as never, sources);

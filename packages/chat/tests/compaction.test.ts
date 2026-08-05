@@ -14,6 +14,7 @@ import {
   planHigherLevelCompaction,
   planLevelOneCompaction,
   renderBoundedCompactionInput,
+  VERIFICATION_SMALL_CONTINUITY_POLICY,
   validateSummaryAgainstProjection,
 } from "../src/compaction.js";
 import { projectEffectiveConversation, renderProjectedTurn } from "../src/conversation-continuity.js";
@@ -54,6 +55,29 @@ function ready(first: number, last: number, suffix: string): CompactionSegment {
 }
 
 describe("level-one compaction planning", () => {
+  it("provides a distinct small verification profile without changing production defaults", () => {
+    expect(planLevelOneCompaction(
+      "workspace:orchard" as never,
+      [source(1, "x".repeat(1_100))],
+      [],
+      VERIFICATION_SMALL_CONTINUITY_POLICY,
+    )).toBeNull();
+
+    const sources = [source(1, "x".repeat(700)), source(2, "y".repeat(450))];
+    const plan = planLevelOneCompaction(
+      "workspace:orchard" as never,
+      sources,
+      [],
+      VERIFICATION_SMALL_CONTINUITY_POLICY,
+    );
+    expect(plan).toMatchObject({
+      firstSourceSequence: 1,
+      lastSourceSequence: 1,
+      policyVersion: "continuity-v1-verification-small",
+    });
+    expect(planLevelOneCompaction("workspace:orchard" as never, sources, [])).toBeNull();
+  });
+
   it("does not plan at or below 20,000 rendered units", () => {
     expect(planLevelOneCompaction("workspace:orchard" as never, [source(1, "x".repeat(19_000))], [])).toBeNull();
   });
