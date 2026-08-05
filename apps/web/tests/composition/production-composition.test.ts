@@ -131,6 +131,7 @@ describe("production composition configuration", () => {
       vertexProjectId: "fictional-project",
       vertexLocation: "global",
       vertexModel: "gemini-3.6-flash",
+      compactionVertexModel: "gemini-3.5-flash-lite",
       continuityPolicy: {
         profile: "production",
         policyVersion: "continuity-v1",
@@ -157,6 +158,13 @@ describe("production composition configuration", () => {
     expect(() => loadContinuityConfiguration(wrongModel)).toThrow(ProductionConfigurationError);
     expect(() => loadContinuityConfiguration(wrongModel)).toThrow("MEDBUDDY_VERTEX_MODEL");
     expect(() => loadContinuityConfiguration(wrongModel)).not.toThrow("fictional-wrong-model");
+    const wrongCompactionModel = {
+      ...productionEnvironment,
+      MEDBUDDY_COMPACTION_VERTEX_MODEL: "fictional-wrong-model",
+    };
+    expect(() => loadContinuityConfiguration(wrongCompactionModel)).toThrow(ProductionConfigurationError);
+    expect(() => loadContinuityConfiguration(wrongCompactionModel)).toThrow("MEDBUDDY_COMPACTION_VERTEX_MODEL");
+    expect(() => loadContinuityConfiguration(wrongCompactionModel)).not.toThrow("fictional-wrong-model");
     const invalidKey = { ...productionEnvironment, MEDBUDDY_ATTACHMENT_LOCATOR_KEY: "fictional-invalid-secret" };
     expect(() => createLineWebhookComposition({
       ...invalidKey,

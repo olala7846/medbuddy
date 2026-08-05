@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  COMPACTION_MODEL_ID,
   CommittedSourceCardGrounding,
   CompactionSummaryGenerator,
   ConversationResponder,
@@ -37,6 +38,10 @@ describeTarget("synthetic continuity verification (target Firestore + Vertex)", 
     if (vertex === null || vertex.projectId !== projectId || vertex.model !== "gemini-3.6-flash") {
       throw new Error("Target verification requires explicitly enabled gemini-3.6-flash Vertex in the target project.");
     }
+    const compactionModel = process.env.MEDBUDDY_COMPACTION_VERTEX_MODEL?.trim();
+    if (compactionModel !== COMPACTION_MODEL_ID) {
+      throw new Error(`Target verification requires MEDBUDDY_COMPACTION_VERTEX_MODEL=${COMPACTION_MODEL_ID}.`);
+    }
 
     const firestore = new Firestore({ projectId });
     const persistence = new FirestorePersistence(firestore);
@@ -68,7 +73,11 @@ describeTarget("synthetic continuity verification (target Firestore + Vertex)", 
           25_000,
           { write(entry) { telemetry.push(structuredClone(entry)); } },
         ),
-        generator: new CompactionSummaryGenerator(client),
+        generator: new CompactionSummaryGenerator(new VertexRestClient({
+          projectId: vertex.projectId,
+          location: vertex.location,
+          model: compactionModel,
+        })),
       });
       expect(JSON.stringify(telemetry)).not.toContain("FICTIONAL_");
     } finally {

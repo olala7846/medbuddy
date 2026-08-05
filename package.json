@@ -27,6 +27,7 @@
     "verify:continuity:target": "vitest run --run --testTimeout=120000 continuity-verification-target",
     "verify:continuity:cleanup": "node scripts/cleanup-continuity-verification.mjs",
     "test:e2e": "playwright test",
+    "eval:compaction": "MEDBUDDY_RUN_COMPACTION_EVAL=true vitest run --run --testTimeout=60000 compaction-eval",
     "test:vertex-smoke": "MEDBUDDY_RUN_VERTEX_SMOKE=true vitest run --run --testTimeout=60000 vertex-smoke"
   },
   "devDependencies": {

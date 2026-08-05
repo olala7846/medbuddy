@@ -7,7 +7,8 @@
 - [x] Read the binding repository and prototype instructions.
 - [x] Reconcile Effort 2 with the implemented Effort 1 family map.
 - [x] Obtain explicit user approval of the Effort 2 design.
-- [x] Record `gemini-3.6-flash` as the user-selected model.
+- [x] Record `gemini-3.6-flash` for conversation/tool use and
+  `gemini-3.5-flash-lite` for compaction.
 - [x] Obtain explicit user approval of this implementation plan and checklist.
 - [x] Re-fetch and verify the exact `origin/main` implementation base (`ee3b63b5ddb84d70dbba91b72ecef8bd8ef8daf1`).
 - [x] Create the dedicated clean implementation worktree and `codex/` branch.
@@ -20,7 +21,7 @@
 - [x] Checkpoint A: Contracts, adapter tests, and `npm run check` pass.
 - [x] Task 4: Implement projection and deterministic context assembly.
 - [x] Task 5: Implement compaction planning, validation, and publication policy.
-- [x] Task 6: Add bounded four-field summary generation for `gemini-3.6-flash`.
+- [x] Task 6: Add bounded four-field summary generation, now assigned to `gemini-3.5-flash-lite`.
 - [x] Checkpoint B: Chat and Intelligence continuity suites pass.
 - [x] Task 7: Implement and emulator-test the Firestore adapter.
 - [x] Task 8: Add durable compaction dispatch and private task execution.
@@ -66,8 +67,9 @@
   punctuation while retaining explicit corrections and specific/global forget.
 - [x] Stabilize attachment emulator contention and correct deployment/audit docs.
 - [x] Update the executable LINE deployment template to `gemini-3.6-flash`
-  with the private continuity callbacks, task identity, bucket, and encrypted
-  locator secret mapping.
+  for conversation/tool use and `gemini-3.5-flash-lite` for compaction, with
+  the private continuity callbacks, task identity, bucket, and encrypted locator
+  secret mapping.
 - [x] Rerun final-verifier remediation gates.
 
 ## Final gates
@@ -116,5 +118,5 @@
   remediation is an unsafe major downgrade, while the safe Next/Sharp update is
   intentionally deferred to a focused dependency change. Real-family-data
   release gates remain closed.
-- The configuration-gated live `gemini-3.6-flash` smoke remains skipped and
-  must pass in the target project/region before deployment.
+- The configuration-gated live conversation and compaction model smokes remain
+  required in the target project/region before deployment.

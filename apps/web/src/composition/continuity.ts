@@ -23,11 +23,11 @@ import {
 import { verifyTaskCallback, type TaskTokenVerifier } from "@medbuddy/platform";
 import { createContinuityDispatcher, createConversationPlatform, GoogleTaskTokenVerifier } from "@medbuddy/platform";
 import {
+  COMPACTION_MODEL_ID,
   COMPACTION_PROMPT_VERSION,
   CompactionSummaryContractError,
   CompactionSummaryGenerator,
   type GeneratedCompactionSummary,
-  loadVertexConfiguration,
   VertexRestClient,
 } from "@medbuddy/intelligence";
 import { z } from "zod";
@@ -54,7 +54,7 @@ export const ContinuityWorkerLogEntrySchema = z.object({
   durationClass: z.enum(["UNDER_1S", "UNDER_5S", "UNDER_15S", "AT_LEAST_15S"]).optional(),
   backlogClass: z.enum(["AT_MOST_10K", "AT_MOST_20K", "AT_MOST_30K", "OVER_30K"]).optional(),
   omissionCount: z.number().int().nonnegative().optional(),
-  modelId: z.literal("gemini-3.6-flash").optional(),
+  modelId: z.literal(COMPACTION_MODEL_ID).optional(),
   promptVersion: z.literal(COMPACTION_PROMPT_VERSION).optional(),
   policyVersion: z.enum(["continuity-v1", "continuity-v1-verification-small"]).optional(),
 }).strict();
@@ -112,7 +112,7 @@ export class ContinuityCompactionWorker {
     generator: CompactionSummaryPort;
     now: () => string;
     clock?: () => number;
-    modelId: "gemini-3.6-flash";
+    modelId: typeof COMPACTION_MODEL_ID;
     promptVersion: typeof COMPACTION_PROMPT_VERSION;
     policy?: ContinuityPolicy;
     logger: ContinuityWorkerLogger;
@@ -398,12 +398,13 @@ export function createContinuityTaskComposition(
   const projectId = requiredEnvironmentValue(environment, "MEDBUDDY_GCP_PROJECT_ID");
   const audience = requiredEnvironmentValue(environment, "MEDBUDDY_CONTINUITY_CALLBACK_URL");
   const serviceAccountEmail = requiredEnvironmentValue(environment, "MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL");
-  const vertex = loadVertexConfiguration(environment);
-  if (vertex === null || vertex.model !== "gemini-3.6-flash") {
-    throw new Error("Continuity requires MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash.");
-  }
-  const platform = createConversationPlatform(projectId);
   const continuityConfig = loadContinuityConfiguration(environment);
+  const vertex = {
+    projectId: continuityConfig.vertexProjectId,
+    location: continuityConfig.vertexLocation,
+    model: continuityConfig.compactionVertexModel,
+  };
+  const platform = createConversationPlatform(projectId);
   const dispatcher = createContinuityDispatcher({
     projectId: continuityConfig.projectId,
     location: continuityConfig.tasksLocation,

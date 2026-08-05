@@ -481,6 +481,9 @@ All automated fixtures are fictional and synthetic. Implementation starts with f
 - content-free logs and low-cardinality metric labels;
 - strict cross-workspace isolation at ledger, job, segment, attachment, family-map, action, and assembled-context seams;
 - unchanged deterministic medical refusal before model invocation.
+- a configuration-gated, fictional-only live-provider evaluation checks that
+  compaction preserves corrections, attribution, unresolved loops, and safety
+  caveats, and that higher-level summaries omit unverifiable source references.
 
 Required project gates remain:
 
@@ -517,16 +520,19 @@ After those and privacy review pass, a separately authorized fictional deployed 
 - Keyword, tag, participant, subject, time, and trust-class retrieval.
 - Vector embeddings, semantic similarity, hybrid ranking, and cross-thread identity.
 - Reviewed-care retrieval and a generalized multi-tool runtime.
-- Model-graded or live-content continuity evaluation.
+- Model-graded or live-content continuity evaluation. The deterministic-rubric,
+  fictional-only provider evaluation is intentionally narrower and remains in
+  scope as a model-selection gate.
 
 ## 19. Model decision
 
-The user selected `gemini-3.6-flash` as the Effort 2 target and confirmed that it
-is the current model to use. The existing direct Vertex boundary remains
-configuration-driven rather than embedding model selection in continuity
-policy. Contract tests use deterministic fakes; a configuration-gated smoke
-must verify `gemini-3.6-flash` in the target project and region before the
-fictional deployed continuity smoke.
+Conversation and tool use remain on `gemini-3.6-flash`. The bounded,
+single-purpose, one-call compaction summary uses `gemini-3.5-flash-lite`; its
+minimal default thinking, structured output support, and lower latency/cost fit
+this narrower workload. The direct Vertex boundary remains configuration-driven
+rather than embedding model selection in continuity policy. Contract tests use
+deterministic fakes; configuration-gated smokes must verify both models in the
+target project and region before the fictional deployed continuity smoke.
 
 ## 20. References
 

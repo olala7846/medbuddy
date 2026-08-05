@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  COMPACTION_MODEL_ID,
   CompactionSummaryContractError,
   CompactionSummaryGenerator,
   type VertexGenerationRequest,
@@ -50,6 +51,10 @@ const request = {
 } as const;
 
 describe("compaction summary generation", () => {
+  it("uses the dedicated Flash-Lite model", () => {
+    expect(COMPACTION_MODEL_ID).toBe("gemini-3.5-flash-lite");
+  });
+
   it("makes exactly one bounded provider call and returns the four-field summary", async () => {
     const client = new RecordingClient(response(validSummary));
     const generator = new CompactionSummaryGenerator(client);
@@ -107,6 +112,24 @@ describe("compaction summary generation", () => {
       openLoops: [{ description: "A fictional follow-up.", sourceSequence: 1 }],
       caveats: [{ description: "Synthetic data only.", sourceSequence: 1 }],
     }))).generate(request)).rejects.toBeInstanceOf(CompactionSummaryContractError);
+  });
+
+  it("forbids source references when compacting derived child summaries", async () => {
+    const client = new RecordingClient(response({
+      ...validSummary,
+      keyEvents: [{ text: "A derived fictional event.", attribution: "member:fictional-a" }],
+    }));
+    await new CompactionSummaryGenerator(client).generate({
+      ...request,
+      level: 2,
+      allowedSourceSequences: [],
+    });
+
+    const schema = client.requests[0]?.generationConfig?.responseFormat?.[0]?.text.schema as {
+      properties?: { keyEvents?: { items?: { properties?: Record<string, unknown> } } };
+    };
+    expect(schema.properties?.keyEvents?.items?.properties).not.toHaveProperty("sourceSequence");
+    expect(schema.properties?.keyEvents?.items?.properties).not.toHaveProperty("verbatimExcerpt");
   });
 
   it("rejects extra fields, unbounded output, and out-of-range source references", async () => {

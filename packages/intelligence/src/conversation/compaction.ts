@@ -1,9 +1,13 @@
-import { SegmentSummarySchema, type SegmentSummary, WorkspaceIdSchema } from "@medbuddy/contracts";
+import {
+  SegmentSummarySchema,
+  type SegmentSummary,
+  WorkspaceIdSchema,
+} from "@medbuddy/contracts";
 import { z } from "zod";
 
 import type { VertexGenerationRequest, VertexModelClient } from "../adapters/vertex.js";
 
-export const COMPACTION_MODEL_ID = "gemini-3.6-flash";
+export const COMPACTION_MODEL_ID = "gemini-3.5-flash-lite";
 export const COMPACTION_PROMPT_VERSION = "continuity-summary-v2";
 
 export type CompactionSummaryRequest = {
@@ -70,6 +74,19 @@ const { $schema: _schemaDialect, ...COMPACTION_RESPONSE_JSON_SCHEMA } = z.toJSON
 ) as Record<string, unknown>;
 void _schemaDialect;
 
+function compactionResponseJsonSchema(level: number): Record<string, unknown> {
+  if (level === 1) return COMPACTION_RESPONSE_JSON_SCHEMA;
+
+  const schema = structuredClone(COMPACTION_RESPONSE_JSON_SCHEMA);
+  const rootProperties = schema.properties as Record<string, unknown>;
+  const keyEvents = rootProperties.keyEvents as Record<string, unknown>;
+  const keyEvent = keyEvents.items as Record<string, unknown>;
+  const keyEventProperties = keyEvent.properties as Record<string, unknown>;
+  delete keyEventProperties.sourceSequence;
+  delete keyEventProperties.verbatimExcerpt;
+  return schema;
+}
+
 export class CompactionSummaryGenerator {
   constructor(private readonly client: VertexModelClient) {}
 
@@ -84,7 +101,7 @@ export class CompactionSummaryGenerator {
         responseFormat: [{
           text: {
             mimeType: "APPLICATION_JSON",
-            schema: COMPACTION_RESPONSE_JSON_SCHEMA,
+            schema: compactionResponseJsonSchema(input.level),
           },
         }],
       },

@@ -75,10 +75,11 @@ test path. The live Vertex REST adapter is opt-in: set
 `MEDBUDDY_VERTEX_ENABLED=true`, `MEDBUDDY_VERTEX_PROJECT`, and (optionally)
 `MEDBUDDY_VERTEX_LOCATION` / `MEDBUDDY_VERTEX_MODEL`, then provide Application
 Default Credentials. Do not put credentials in environment files committed to
-the repository. `gemini-3.6-flash` is the selected continuity model and uses
-Vertex's `global` location by default. Each conversational request has bounded
-context, reserved output, and a bounded timeout, and returns a typed
-provider-timeout outcome when it expires.
+the repository. Conversation and tool use stay on `gemini-3.6-flash`;
+single-purpose compaction uses `MEDBUDDY_COMPACTION_VERTEX_MODEL`, validated as
+`gemini-3.5-flash-lite`. Both use Vertex's `global` location. Each model request
+has bounded input and a bounded timeout, and returns a typed provider-timeout
+outcome when it expires.
 
 Run the live, fictional-only smoke tests with:
 

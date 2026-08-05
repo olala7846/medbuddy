@@ -4,7 +4,7 @@
 
 **Requirements:** [`../docs/proposals/LONG_RUNNING_CONVERSATION_CONTINUITY_DESIGN.md`](../docs/proposals/LONG_RUNNING_CONVERSATION_CONTINUITY_DESIGN.md)
 
-**Target model:** `gemini-3.6-flash`
+**Target models:** conversation/tool use `gemini-3.6-flash`; compaction `gemini-3.5-flash-lite`
 
 ## Outcome
 
@@ -31,7 +31,8 @@ or generalized retrieval/tool runtime.
 - `@medbuddy/chat` owns source projection, recent-window selection, context
   assembly, compaction policy, and turn orchestration.
 - `@medbuddy/intelligence` owns the four-field summary request/response and the
-  existing Vertex transport, configured for `gemini-3.6-flash`.
+  existing Vertex transport, configured for `gemini-3.5-flash-lite` for
+  compaction while conversation/tool use remains on `gemini-3.6-flash`.
 - `@medbuddy/platform` owns in-memory and Firestore repository mechanics,
   Cloud Tasks dispatch, and private Cloud Storage mechanics.
 - `@medbuddy/web` owns strict LINE shapes, reply acceptance, private task
@@ -213,7 +214,7 @@ npm test --workspace @medbuddy/chat -- --run compaction conversation-continuity
 **Description:** Add the versioned four-field compaction prompt, strict output
 parser, bounded fixed adapter, and direct Vertex generation path. Keep summary
 generation separate from conversation/tool orchestration and configure the
-target as `gemini-3.6-flash`.
+compaction target as `gemini-3.5-flash-lite`.
 
 **Acceptance criteria:**
 
@@ -421,7 +422,8 @@ Update setup documentation without credentials or real content.
 
 **Acceptance criteria:**
 
-- Startup validates `gemini-3.6-flash` configuration and all required private
+- Startup validates the `gemini-3.6-flash` conversation and
+  `gemini-3.5-flash-lite` compaction configuration and all required private
   task/storage settings without echoing values.
 - Logs cover job/attempt/level/character/token/latency/backlog/omission/conflict
   metadata and reject prohibited or high-cardinality fields.
@@ -493,7 +495,7 @@ git diff --check origin/main...HEAD
 | Attachment lifecycle and privacy | Web/Platform task and storage tests |
 | Content-free observability | Allowlisted logger/metric tests and staged diff review |
 | Unchanged family map and medical refusal | Existing regression suites plus focused integration tests |
-| `gemini-3.6-flash` boundary | Vertex request unit test and configuration-gated fictional smoke |
+| Gemini conversation and compaction boundaries | Vertex request unit tests and configuration-gated fictional smokes for `gemini-3.6-flash` and `gemini-3.5-flash-lite` |
 
 ## Risks and mitigations
 
