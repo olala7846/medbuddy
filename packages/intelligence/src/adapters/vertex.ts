@@ -288,6 +288,14 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
     : prior.success
       ? [prior.data]
       : [];
+  const lastToolResult = z.object({ kind: z.string() }).safeParse(exchanges.at(-1)?.result);
+  const retryRequiresFamilyMapTool = lastToolResult.success
+    && lastToolResult.data.kind === "REVISION_CONFLICT";
+  const familyMapToolMode = input.familyMapUpdatesAllowed !== true
+    ? "NONE"
+    : input.familyMapUpdateRequired === true || retryRequiresFamilyMapTool
+      ? "ANY"
+      : "AUTO";
   for (const exchange of exchanges) {
     const continuation = exchange.continuation === undefined
       ? {
@@ -332,7 +340,7 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
     contents,
     tools: [{ functionDeclarations: [familyMapFunctionDeclaration] }],
     toolConfig: {
-      functionCallingConfig: { mode: input.familyMapUpdatesAllowed ? "AUTO" : "NONE" },
+      functionCallingConfig: { mode: familyMapToolMode },
     },
     generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
   };

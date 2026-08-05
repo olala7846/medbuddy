@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import sharp from "sharp";
 
 import { AttachmentSchema, MemberIdSchema, MessageSchema, WorkspaceIdSchema, type MemberId, type Message } from "@medbuddy/contracts";
 
@@ -130,7 +131,7 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
   it("does not write an inferred relationship", async () => {
     const { updates } = await runFamilyMapTurn("inferred", "Mei brought Kai some tea today.");
     expect(updates).toEqual([]);
-  });
+  }, 60_000);
 
   it("corrects one direct relationship while preserving unrelated lines", async () => {
     const map = "Members\n- member:vertex-fictional-mei: Mei\n- member:vertex-fictional-kai: Kai\n- member:vertex-fictional-lin: Lin\nDirect relationships\n- Mei is Kai's sister.\n- Lin is Mei's mother.";
@@ -140,7 +141,7 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
     expect(updates[0]?.content).toMatch(/^(?=.*Mei)(?=.*Kai)(?=.*mother).*$/im);
     expect(updates[0]?.content).toMatch(/^(?=.*Lin)(?=.*Mei)(?=.*mother).*$/im);
     expect(updates[0]?.content).not.toMatch(/^(?=.*Mei)(?=.*Kai)(?=.*sister).*$/im);
-  });
+  }, 60_000);
 
   it("inspects the supplied map without writing", async () => {
     const { result, updates } = await runFamilyMapTurn("inspect", "What do you remember about our family?", { content: "Direct relationships\n- Mei is Kai's mother.", revision: 1 });
@@ -155,7 +156,7 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]?.content).not.toContain("Mei is Kai's mother");
     expect(updates[0]?.content).toContain("Lin is Mei's mother");
-  });
+  }, 60_000);
 
   it("clears the complete map with empty replacement content", async () => {
     const { updates } = await runFamilyMapTurn("clear", "Forget everything in our family map.", { content: "Direct relationships\n- Mei is Kai's mother.", revision: 1 });
@@ -390,16 +391,21 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
       workspaceId: focalMessage.workspaceId,
       messageId: focalMessage.id,
       mimeType: "image/png",
-      byteSize: 68,
+      byteSize: 1_916,
       checksum: "c".repeat(64),
       objectPath: `workspaces/${focalMessage.workspaceId}/messages/${focalMessage.id}/attachment:vertex-fictional`,
     });
     const extractor = new VertexReadableLabelExtractor(createConfiguredClient(), {
       async load() {
-        // A 1×1 transparent PNG: it contains no person, medication, or health data.
+        const syntheticImage = await sharp(Buffer.from([
+          '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="64">',
+          '<rect width="100%" height="100%" fill="white"/>',
+          '<text x="12" y="38" font-size="20" fill="black">TEST LABEL</text>',
+          "</svg>",
+        ].join(""))).png().toBuffer();
         return {
           mimeType: "image/png",
-          base64Data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9J4qQAAAAASUVORK5CYII=",
+          base64Data: syntheticImage.toString("base64"),
         };
       },
     });
@@ -407,5 +413,5 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
     const result = await extractor.extract({ focalMessage, attachments: [attachment] }, attachment);
 
     expect(result).toMatchObject({ kind: expect.any(String) });
-  });
+  }, 60_000);
 });
