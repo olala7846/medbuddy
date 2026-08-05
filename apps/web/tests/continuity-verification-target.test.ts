@@ -46,7 +46,7 @@ describeTarget("synthetic continuity verification (target Firestore + Vertex)", 
     const firestore = new Firestore({ projectId });
     const persistence = new FirestorePersistence(firestore);
     const runNonce = randomUUID();
-    const cleanup = syntheticContinuityCleanupManifest(runNonce);
+    const cleanup = await syntheticContinuityCleanupManifest(runNonce);
     const manifestPath = join(tmpdir(), `medbuddy-continuity-verification-${runNonce}.json`);
     try {
       await preflightSyntheticContinuityTarget(firestore, cleanup);

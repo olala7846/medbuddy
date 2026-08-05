@@ -515,3 +515,19 @@ The user approved this plan and checklist. The coordinator must fetch `origin`,
 verify its exact commit and required seams again, create a new clean
 implementation worktree and `codex/` branch, and delegate the approved tasks to
 one implementer subagent.
+
+## Addendum: realistic Traditional Chinese continuity fixture
+
+Replace the repetitive `zh-TW` synthetic continuity sequence with the approved
+six-person, nine-day family-health scenario specified in
+`apps/web/tests/fixtures/continuity-verification-zh-TW.spec.md`.
+
+Implementation order follows the verification dependency graph:
+
+1. Lock the narrative contract with fixture-loader tests.
+2. Replace the provider-shaped JSONL and tune the memory harness naturally.
+3. Expand strict nonce-scoped cleanup coverage for the added webhook events.
+4. Run fresh Firestore-emulator verification and all repository gates.
+
+The LINE webhook handler remains the public test seam. Production policies,
+schemas, external LINE state, target Firestore, and real Vertex remain unchanged.

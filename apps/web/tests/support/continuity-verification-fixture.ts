@@ -58,8 +58,24 @@ export const SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL = new URL(
 );
 
 export const TRADITIONAL_CHINESE_COMPACTED_CONTENT = {
-  sourceText: "這是完全虛構的繁體中文連續性驗證",
-  summaryMarker: "虛構繁體中文壓縮摘要標記",
+  sourceText: "第一次回診，今天由我陪爸爸看診",
+  summaryMarker: "第一次回診已納入虛構壓縮摘要",
+} as const;
+
+export const TRADITIONAL_CHINESE_RECENT_CONTENT = [
+  "更正後是 125/78",
+  "第二次回診，今天由我陪公公看診",
+  "再量一週早晚血壓",
+  "如果睡不好持續兩週",
+  "下一次例行追蹤是四週後",
+  "9 月 8 日早上 7:10",
+  "下午散步也沒有",
+  "昨晚大約十點半睡著",
+] as const;
+
+export const TRADITIONAL_CHINESE_CORRECTION = {
+  originalSourceText: "我照著紙本先登記：9 月 5 日早上 7:30 的血壓是 152/88",
+  correctedSourceText: "更正後是 125/78，脈搏 71；前面的 152/88 不採用",
 } as const;
 
 export function parseSyntheticContinuityJsonl(raw: string, runNonce: string): SyntheticContinuityStep[] {

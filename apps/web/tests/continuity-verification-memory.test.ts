@@ -6,6 +6,8 @@ import {
   SYNTHETIC_CONTINUITY_FIXTURE_URL,
   SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
   TRADITIONAL_CHINESE_COMPACTED_CONTENT,
+  TRADITIONAL_CHINESE_CORRECTION,
+  TRADITIONAL_CHINESE_RECENT_CONTENT,
 } from "./support/continuity-verification-fixture.js";
 
 describe("synthetic continuity verification (in-memory)", () => {
@@ -30,6 +32,8 @@ describe("synthetic continuity verification (in-memory)", () => {
       fixtureUrl: SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
       runNonce: "traditional-chinese-memory",
       expectedCompactedContent: TRADITIONAL_CHINESE_COMPACTED_CONTENT,
+      expectedCorrection: TRADITIONAL_CHINESE_CORRECTION,
+      expectedRecentContent: TRADITIONAL_CHINESE_RECENT_CONTENT,
     });
   });
 

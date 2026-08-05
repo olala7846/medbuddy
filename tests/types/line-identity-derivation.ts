@@ -15,16 +15,19 @@ const ids = deriveCanonicalLineIds({
 const workspaceId: string = ids.workspaceId;
 void workspaceId;
 
-const derived = deriveSyntheticContinuityManifest("fictional-run");
-const version: 1 = derived.version;
+const derived = deriveSyntheticContinuityManifest("fictional-run", [
+  "fictional-event-fictional-decoy-fictional-run-90",
+  "fictional-event-fictional-primary-fictional-run-1",
+]);
+const version: 2 = derived.version;
 const workspaces: readonly [string, string] = derived.workspaceIds;
-const receipts: readonly [string, string, string, string, string, string, string, string] = derived.receiptKeys;
+const receipts: readonly string[] = derived.receiptKeys;
 void version;
 void workspaces;
 void receipts;
 
 const validated = validateSyntheticContinuityManifest(derived);
-const validatedVersion: 1 = validated.version;
+const validatedVersion: 2 = validated.version;
 void validatedVersion;
 
 // @ts-expect-error The public derivation boundary accepts only canonical LINE conversation types.
