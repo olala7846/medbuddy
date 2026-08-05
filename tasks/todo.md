@@ -53,6 +53,13 @@
 - [x] Reject attachment media-class/MIME mismatches.
 - [x] Reconcile stale app/web Storage and continuity documentation.
 - [x] Rerun all verification gates.
+- [x] Add crash-safe expiring compaction attempt leases with transactional
+  takeover in memory and Firestore.
+- [x] Reload the source ledger after Gemini and enforce its validated watermark
+  atomically at level-1 publication.
+- [ ] Deny interrogative family-map authorization independently of punctuation.
+- [ ] Stabilize attachment emulator contention and correct deployment/audit docs.
+- [ ] Rerun final-verifier remediation gates.
 
 ## Final gates
 

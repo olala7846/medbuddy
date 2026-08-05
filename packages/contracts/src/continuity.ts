@@ -22,6 +22,7 @@ export const SUMMARY_MAX_UTF16 = 4_000;
 export const AGENT_ACTION_MAX_UTF16 = 4_000;
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const COMPACTION_MAX_ATTEMPTS = 3;
+export const COMPACTION_ATTEMPT_LEASE_MS = 60_000;
 export const COMPACTION_MERGE_FAN_IN = 4;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
@@ -170,8 +171,18 @@ export const CompactionJobSchema = z.object({
   policyVersion: PolicyVersionSchema,
   status: z.enum(["PENDING", "RUNNING", "FAILED"]),
   attempts: z.number().int().min(0).max(COMPACTION_MAX_ATTEMPTS),
+  attemptClaimedAt: TimestampSchema.optional(),
+  attemptLeaseExpiresAt: TimestampSchema.optional(),
   createdAt: TimestampSchema,
-}).strict().and(SourceRangeSchema);
+}).strict().and(SourceRangeSchema).superRefine((job, context) => {
+  const hasLease = job.attemptClaimedAt !== undefined && job.attemptLeaseExpiresAt !== undefined;
+  if ((job.status === "RUNNING") !== hasLease) {
+    context.addIssue({ code: "custom", message: "Only a running compaction job may hold a complete attempt lease." });
+  }
+  if (hasLease && Date.parse(job.attemptLeaseExpiresAt!) <= Date.parse(job.attemptClaimedAt!)) {
+    context.addIssue({ code: "custom", message: "Compaction attempt lease expiry must follow its claim timestamp." });
+  }
+});
 
 export const CompactionAttemptClaimSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("CLAIMED"), job: CompactionJobSchema }).strict(),
@@ -256,10 +267,10 @@ export interface ContinuityRepository {
   getAttachment(workspaceId: z.infer<typeof WorkspaceIdSchema>, attachmentId: z.infer<typeof AttachmentIdSchema>): Promise<ContinuityAttachment | null>;
   claimAttachmentAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, attachmentId: z.infer<typeof AttachmentIdSchema>): Promise<AttachmentAttemptClaim>;
   claimCompactionJob(job: CompactionJob): Promise<CompactionJob>;
-  claimCompactionAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof CompactionJobIdSchema>): Promise<CompactionAttemptClaim>;
+  claimCompactionAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof CompactionJobIdSchema>, claimedAt: string): Promise<CompactionAttemptClaim>;
   getActiveCompactionJob(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<CompactionJob | null>;
   updateCompactionJob(job: CompactionJob): Promise<CompactionJob>;
-  publishSegment(segment: CompactionSegment): Promise<CompactionSegment>;
+  publishSegment(segment: CompactionSegment, expectedSourceSequenceWatermark?: number): Promise<CompactionSegment>;
   listReadySegments(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<readonly CompactionSegment[]>;
 }
 

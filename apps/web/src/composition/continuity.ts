@@ -72,6 +72,13 @@ export interface CompactionSummaryPort {
 
 class StaleCompactionPlanError extends Error {}
 
+function releaseCompactionLease(job: Parameters<ContinuityRepository["updateCompactionJob"]>[0]) {
+  const { attemptClaimedAt: _claimedAt, attemptLeaseExpiresAt: _leaseExpiresAt, ...released } = job;
+  void _claimedAt;
+  void _leaseExpiresAt;
+  return released;
+}
+
 function durationClass(milliseconds: number): ContinuityWorkerLogEntry["durationClass"] {
   if (milliseconds < 1_000) return "UNDER_1S";
   if (milliseconds < 5_000) return "UNDER_5S";
@@ -114,13 +121,20 @@ export class ContinuityCompactionWorker {
       await this.scheduleNext(input.workspaceId);
       return "REUSED";
     }
-    const attemptClaim = await this.dependencies.continuity.claimCompactionAttempt(input.workspaceId, input.jobId);
+    const attemptClaim = await this.dependencies.continuity.claimCompactionAttempt(
+      input.workspaceId,
+      input.jobId,
+      this.dependencies.now(),
+    );
     if (attemptClaim.kind === "BUSY") {
       this.dependencies.logger.write({ event: "continuity_job_reused", level: active.level, attempt: attemptClaim.job.attempts });
       return "REUSED";
     }
     if (attemptClaim.kind === "TERMINAL") {
-      await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({ ...attemptClaim.job, status: "FAILED" }));
+      await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({
+        ...releaseCompactionLease(attemptClaim.job),
+        status: "FAILED",
+      }));
       this.dependencies.logger.write({ event: "continuity_job_failed", code: "EXHAUSTED", level: active.level, attempt: attemptClaim.job.attempts });
       return "EXHAUSTED";
     }
@@ -189,16 +203,32 @@ export class ContinuityCompactionWorker {
         allowedSourceSequences: projection.map((turn) => turn.sourceSequence),
         renderedInput,
       });
+      const freshSources = claimedJob.level === 1
+        ? await this.dependencies.continuity.listSourceEvents(input.workspaceId)
+        : sources;
+      if (claimedJob.level === 1) {
+        const freshRangeSources = sourceEventsForCompactionRange(
+          freshSources,
+          claimedJob.firstSourceSequence,
+          claimedJob.lastSourceSequence,
+        );
+        if (orderedSourceDigest(claimedJob.policyVersion, freshRangeSources) !== claimedJob.orderedSourceDigest) {
+          throw new StaleCompactionPlanError("Compaction projection changed during summary generation.");
+        }
+      }
       const segment = createReadySegment({
         plan,
-        currentSources: sources,
+        currentSources: freshSources,
         summary: generated.summary,
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
         createdAt: this.dependencies.now(),
       });
       try {
-        await this.dependencies.continuity.publishSegment(segment);
+        await this.dependencies.continuity.publishSegment(
+          segment,
+          claimedJob.level === 1 ? freshSources.at(-1)?.sourceSequence ?? 0 : undefined,
+        );
       } catch (error) {
         this.dependencies.logger.write({
           event: "continuity_publication_conflict",
@@ -225,7 +255,7 @@ export class ContinuityCompactionWorker {
       const stale = error instanceof StaleCompactionPlanError;
       const exhausted = stale || attempt >= COMPACTION_MAX_ATTEMPTS;
       await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({
-        ...claimedJob,
+        ...releaseCompactionLease(claimedJob),
         attempts: attempt,
         status: exhausted ? "FAILED" : "PENDING",
       }));

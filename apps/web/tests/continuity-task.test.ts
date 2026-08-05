@@ -25,6 +25,7 @@ async function harness(options: {
   blockGenerate?: boolean;
   lateSources?: number;
   lateEdit?: boolean;
+  abandonedRunning?: boolean;
 } = {}) {
   const continuity = new InMemoryContinuityRepository();
   const source = SourceEventSchema.parse({
@@ -57,6 +58,13 @@ async function harness(options: {
     createdAt: now,
   });
   await continuity.claimCompactionJob(job);
+  if (options.abandonedRunning) {
+    await continuity.claimCompactionAttempt(
+      job.workspaceId,
+      job.id,
+      "2026-08-04T12:08:00.000Z",
+    );
+  }
   if (options.lateEdit) {
     await continuity.acceptSourceEvent({
       receiptKey: "event:fictional-late-edit",
@@ -195,6 +203,17 @@ describe("private continuity task", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("takes over an abandoned expired RUNNING attempt and completes the job", async () => {
+    const { calls, continuity, handler } = await harness({ abandonedRunning: true });
+    await expect(handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    })).resolves.toEqual({ status: 200 });
+
+    expect(calls).toHaveLength(1);
+    await expect(continuity.listReadySegments(workspaceId as never)).resolves.toHaveLength(1);
+  });
+
   it("claims and dispatches the next backlog job after READY publication", async () => {
     const { continuity, dispatched, handler } = await harness({ lateSources: 5 });
     await expect(handler.handle({
@@ -218,6 +237,40 @@ describe("private continuity task", () => {
     })).resolves.toEqual({ status: 200 });
 
     expect(calls).toEqual([]);
+    const refreshed = await continuity.getActiveCompactionJob(workspaceId as never);
+    expect(refreshed?.id).not.toBe(jobId);
+    expect(dispatched).toEqual([{ workspaceId, jobId: refreshed!.id }]);
+  });
+
+  it("rejects an in-range edit accepted while Gemini is generating", async () => {
+    const { calls, continuity, dispatched, generateStarted, handler, releaseGenerate } = await harness({
+      body: "x".repeat(21_000),
+      blockGenerate: true,
+    });
+    const running = handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    });
+    await generateStarted;
+    await continuity.acceptSourceEvent({
+      receiptKey: "event:fictional-during-generation-edit",
+      id: "source-event:fictional-during-generation-edit",
+      workspaceId,
+      occurredAt: "2026-08-04T12:09:00.000Z",
+      acceptedAt: "2026-08-04T12:09:00.500Z",
+      providerMessageId: "message:fictional-during-generation-edit",
+      authorMemberId: "member:fictional-a",
+      payload: {
+        kind: "TEXT_EDIT",
+        targetMessageId: "message:fictional-1",
+        body: "Corrected during generation. ".repeat(1_000),
+      },
+    } as never);
+    releaseGenerate();
+    await expect(running).resolves.toEqual({ status: 200 });
+
+    expect(calls).toHaveLength(1);
+    await expect(continuity.listReadySegments(workspaceId as never)).resolves.toEqual([]);
     const refreshed = await continuity.getActiveCompactionJob(workspaceId as never);
     expect(refreshed?.id).not.toBe(jobId);
     expect(dispatched).toEqual([{ workspaceId, jobId: refreshed!.id }]);

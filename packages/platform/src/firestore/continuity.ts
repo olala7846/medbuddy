@@ -2,6 +2,7 @@ import { Firestore } from "@google-cloud/firestore";
 import {
   AcceptSourceEventInputSchema,
   type AcceptSourceEventResult,
+  COMPACTION_ATTEMPT_LEASE_MS,
   CompactionJobSchema,
   CompactionSegmentSchema,
   type CompactionJob,
@@ -293,6 +294,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
   async claimCompactionAttempt(
     workspaceId: Parameters<ContinuityRepository["claimCompactionAttempt"]>[0],
     jobId: Parameters<ContinuityRepository["claimCompactionAttempt"]>[1],
+    claimedAt: Parameters<ContinuityRepository["claimCompactionAttempt"]>[2],
   ): ReturnType<ContinuityRepository["claimCompactionAttempt"]> {
     return this.firestore.runTransaction(async (transaction) => {
       const stateRef = this.compactionStateRef(workspaceId);
@@ -308,9 +310,17 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       if (job.workspaceId !== workspaceId || job.id !== jobId) {
         throw new Error("Stored compaction job does not match its workspace path.");
       }
-      if (job.status === "RUNNING") return { kind: "BUSY" as const, job };
+      if (job.status === "RUNNING" && Date.parse(claimedAt) < Date.parse(job.attemptLeaseExpiresAt!)) {
+        return { kind: "BUSY" as const, job };
+      }
       if (job.status === "FAILED" || job.attempts >= 3) return { kind: "TERMINAL" as const, job };
-      const claimed = CompactionJobSchema.parse({ ...job, status: "RUNNING", attempts: job.attempts + 1 });
+      const claimed = CompactionJobSchema.parse({
+        ...job,
+        status: "RUNNING",
+        attempts: job.attempts + 1,
+        attemptClaimedAt: claimedAt,
+        attemptLeaseExpiresAt: new Date(Date.parse(claimedAt) + COMPACTION_ATTEMPT_LEASE_MS).toISOString(),
+      });
       transaction.set(jobRef, claimed);
       return { kind: "CLAIMED" as const, job: claimed };
     });
@@ -340,19 +350,23 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     });
   }
 
-  async publishSegment(value: CompactionSegment): Promise<CompactionSegment> {
+  async publishSegment(
+    value: CompactionSegment,
+    expectedSourceSequenceWatermark?: number,
+  ): Promise<CompactionSegment> {
     const segment = CompactionSegmentSchema.parse(value);
     return this.firestore.runTransaction(async (transaction) => {
       const segmentRef = this.segmentRef(segment.workspaceId, segment.id);
       const stateRef = this.compactionStateRef(segment.workspaceId);
       const state = await transaction.get(stateRef);
       const activeJobId = state.data()?.activeJobId;
-      const [existing, sameLevel, active] = await Promise.all([
+      const [existing, sameLevel, active, sourceCounter] = await Promise.all([
         transaction.get(segmentRef),
         transaction.get(this.workspaceRef(segment.workspaceId).collection("compactionSegments").where("level", "==", segment.level)),
         typeof activeJobId === "string"
           ? transaction.get(this.jobRef(segment.workspaceId, activeJobId))
           : Promise.resolve(undefined),
+        transaction.get(this.sourceCounterRef(segment.workspaceId)),
       ]);
       if (existing.exists) {
         const stored = CompactionSegmentSchema.parse(record(existing.data()));
@@ -364,6 +378,13 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
           }
         }
         return stored;
+      }
+      const currentSourceSequence = nonnegativeInteger(
+        sourceCounter.data()?.nextSourceSequence,
+        "Source sequence watermark",
+      );
+      if (expectedSourceSequenceWatermark !== undefined && currentSourceSequence !== expectedSourceSequenceWatermark) {
+        throw new Error("Source sequence watermark advanced before ready segment publication.");
       }
       for (const document of sameLevel.docs) {
         const stored = CompactionSegmentSchema.parse(record(document.data()));

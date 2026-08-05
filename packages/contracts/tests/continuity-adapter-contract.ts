@@ -159,6 +159,19 @@ export function describeContinuityRepositoryContract(
       await expect(continuity.listReadySegments("workspace:meadow" as never)).resolves.toEqual([]);
     });
 
+    it("rejects ready publication after the source ledger advances past its validated watermark", async () => {
+      const { continuity } = createHarness();
+      await continuity.acceptSourceEvent(inbound());
+      await continuity.acceptSourceEvent(inbound({
+        receiptKey: "event:fictional-watermark-2",
+        id: "source-event:fictional-watermark-2",
+        providerMessageId: "message:fictional-watermark-2",
+      }));
+
+      await expect(continuity.publishSegment(readySegment(), 1)).rejects.toThrow(/watermark/i);
+      await expect(continuity.listReadySegments("workspace:orchard" as never)).resolves.toEqual([]);
+    });
+
     it("claims one compaction model attempt atomically and can reclaim a failed job", async () => {
       const { continuity } = createHarness();
       const job = {
@@ -177,17 +190,69 @@ export function describeContinuityRepositoryContract(
       await continuity.claimCompactionJob(job as never);
 
       const concurrent = await Promise.all(Array.from({ length: 4 }, () =>
-        continuity.claimCompactionAttempt(job.workspaceId as never, job.id as never)));
+        continuity.claimCompactionAttempt(job.workspaceId as never, job.id as never, acceptedAt)));
       expect(concurrent.filter((claim) => claim.kind === "CLAIMED")).toHaveLength(1);
       expect(concurrent.filter((claim) => claim.kind === "BUSY")).toHaveLength(3);
       const running = concurrent.find((claim) => claim.kind === "CLAIMED")!.job;
       expect(running).toMatchObject({ status: "RUNNING", attempts: 1 });
 
-      await continuity.updateCompactionJob({ ...running, status: "FAILED", attempts: 3 });
+      const { attemptClaimedAt: _claimedAt, attemptLeaseExpiresAt: _leaseExpiresAt, ...released } = running;
+      void _claimedAt;
+      void _leaseExpiresAt;
+      await continuity.updateCompactionJob({ ...released, status: "FAILED", attempts: 3 });
       await expect(continuity.claimCompactionJob(job as never)).resolves.toMatchObject({
         status: "PENDING",
         attempts: 0,
       });
+    });
+
+    it("takes over an expired compaction lease once without exceeding the attempt bound", async () => {
+      const { continuity } = createHarness();
+      const job = {
+        id: "compaction-job:fictional-lease",
+        workspaceId: "workspace:orchard",
+        level: 1,
+        firstSourceSequence: 1,
+        lastSourceSequence: 1,
+        orderedSourceDigest: "c".repeat(64),
+        childSegmentIds: [],
+        policyVersion: "continuity-v1",
+        status: "PENDING",
+        attempts: 0,
+        createdAt: acceptedAt,
+      } as const;
+      await continuity.claimCompactionJob(job as never);
+      await expect(continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:00:01.000Z",
+      )).resolves.toMatchObject({ kind: "CLAIMED", job: { attempts: 1 } });
+
+      const takeover = await Promise.all(Array.from({ length: 4 }, () =>
+        continuity.claimCompactionAttempt(
+          job.workspaceId as never,
+          job.id as never,
+          "2026-08-04T12:01:01.000Z",
+        )));
+      expect(takeover.filter((claim) => claim.kind === "CLAIMED")).toHaveLength(1);
+      expect(takeover.filter((claim) => claim.kind === "BUSY")).toHaveLength(3);
+      expect(takeover.find((claim) => claim.kind === "CLAIMED")?.job).toMatchObject({
+        status: "RUNNING",
+        attempts: 2,
+        attemptClaimedAt: "2026-08-04T12:01:01.000Z",
+        attemptLeaseExpiresAt: "2026-08-04T12:02:01.000Z",
+      });
+
+      await expect(continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:02:01.000Z",
+      )).resolves.toMatchObject({ kind: "CLAIMED", job: { attempts: 3 } });
+      await expect(continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:03:01.000Z",
+      )).resolves.toMatchObject({ kind: "TERMINAL", job: { attempts: 3 } });
     });
   });
 }

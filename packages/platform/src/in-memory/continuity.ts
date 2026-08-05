@@ -1,6 +1,7 @@
 import {
   AcceptSourceEventInputSchema,
   type AcceptSourceEventResult,
+  COMPACTION_ATTEMPT_LEASE_MS,
   CompactionJobSchema,
   CompactionSegmentSchema,
   type CompactionJob,
@@ -202,15 +203,24 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
   async claimCompactionAttempt(
     workspaceId: Parameters<ContinuityRepository["claimCompactionAttempt"]>[0],
     jobId: Parameters<ContinuityRepository["claimCompactionAttempt"]>[1],
+    claimedAt: Parameters<ContinuityRepository["claimCompactionAttempt"]>[2],
   ): ReturnType<ContinuityRepository["claimCompactionAttempt"]> {
     return this.queue.run(workspaceId, () => {
       const active = this.activeJobs.get(workspaceId);
       if (active === undefined || active.id !== jobId) {
         throw new Error("Compaction attempt does not match the active workspace job.");
       }
-      if (active.status === "RUNNING") return { kind: "BUSY", job: clone(active) };
+      if (active.status === "RUNNING" && Date.parse(claimedAt) < Date.parse(active.attemptLeaseExpiresAt!)) {
+        return { kind: "BUSY", job: clone(active) };
+      }
       if (active.status === "FAILED" || active.attempts >= 3) return { kind: "TERMINAL", job: clone(active) };
-      const claimed = CompactionJobSchema.parse({ ...active, status: "RUNNING", attempts: active.attempts + 1 });
+      const claimed = CompactionJobSchema.parse({
+        ...active,
+        status: "RUNNING",
+        attempts: active.attempts + 1,
+        attemptClaimedAt: claimedAt,
+        attemptLeaseExpiresAt: new Date(Date.parse(claimedAt) + COMPACTION_ATTEMPT_LEASE_MS).toISOString(),
+      });
       this.jobs.set(this.key(workspaceId, jobId), clone(claimed));
       this.activeJobs.set(workspaceId, clone(claimed));
       return { kind: "CLAIMED", job: claimed };
@@ -233,7 +243,10 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
     });
   }
 
-  async publishSegment(value: CompactionSegment): Promise<CompactionSegment> {
+  async publishSegment(
+    value: CompactionSegment,
+    expectedSourceSequenceWatermark?: number,
+  ): Promise<CompactionSegment> {
     const segment = CompactionSegmentSchema.parse(value);
     return this.queue.run(segment.workspaceId, () => {
       const key = this.key(segment.workspaceId, segment.id);
@@ -245,6 +258,10 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
           this.activeJobs.delete(segment.workspaceId);
         }
         return clone(existing);
+      }
+      const currentSourceSequence = this.events.get(segment.workspaceId)?.at(-1)?.sourceSequence ?? 0;
+      if (expectedSourceSequenceWatermark !== undefined && currentSourceSequence !== expectedSourceSequenceWatermark) {
+        throw new Error("Source sequence watermark advanced before ready segment publication.");
       }
       const levelSegments = [...this.segments.values()].filter((entry) =>
         entry.workspaceId === segment.workspaceId && entry.level === segment.level);

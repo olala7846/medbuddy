@@ -327,8 +327,10 @@ workspaces/{workspaceId}/attachments/{attachmentId}
 - One transaction claims a provider event, allocates the next source sequence, and creates the inbound source event. A duplicate returns the prior result.
 - `continuityState/compaction` contains only scheduler state and the one active job reference, never summary content.
 - A transaction changes one `PENDING` job to `RUNNING` and increments its
-  attempt before Gemini is called. Concurrent task deliveries observe `RUNNING`
-  and perform no model work. A failed job may be explicitly reclaimed as a new
+  attempt before Gemini is called. The claim records a 60-second claimed-at and
+  expiry lease. Concurrent deliveries before expiry perform no model work; one
+  delivery may transactionally take over an expired lease, incrementing the
+  same three-attempt bound. A failed job may be explicitly reclaimed as a new
   bounded attempt cycle when no job is active.
 - Segment IDs and job IDs derive from workspace, level, inclusive range,
   compaction-policy version, and the level-1 projection digest.
@@ -389,7 +391,8 @@ Firestore may rerun transaction callbacks after contention, so callbacks perform
 | Compaction delayed or queue unavailable | Reply from bounded recent context and existing ready segments; retry durable scheduling later. |
 | Recent uncompacted history reaches 30,000 | Omit oldest complete turns, keep them in storage, and render one pending-history marker. |
 | Gemini timeout/error/malformed summary | Publish nothing, retain prior ready segments, increment safe attempt metadata, and retry the same range within bounds. Failed work may be explicitly reclaimed under a fresh bounded attempt cycle. |
-| Projection changes before publication | Reject the stale candidate before model work and dispatch a digest-scoped replacement from the current edit/tombstone-aware projection. |
+| Projection changes before publication | Check once before model work and reload/recheck immediately after generation. Atomic publication also requires the source-sequence watermark observed by that reload, closing the final read/write race. Reject stale candidates and dispatch a digest-scoped replacement. |
+| Worker crashes while `RUNNING` | The attempt lease expires after 60 seconds; exactly one later delivery transactionally takes over, increments the bounded attempt count, and continues. |
 | Duplicate task/worker | Atomically grant one `PENDING`-to-`RUNNING` attempt; concurrent deliveries perform no Gemini call, then reuse ready output or converge through immutable publication. |
 | Ready publication leaves eligible backlog | Atomically claim and dispatch the next level-1 or higher-level job; at most one workspace job remains active. |
 | LINE rejects or times out | Do not publish the outbound candidate as a source event. Committed family-map updates remain canonical. |

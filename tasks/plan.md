@@ -295,6 +295,10 @@ existing Cloud Run application.
   invoking Gemini, and claims/dispatches remaining backlog after publication.
 - Concurrent deliveries cannot both call Gemini; failed jobs are reclaimable
   under the bounded-attempt policy.
+- A running attempt holds a 60-second lease. One delivery can transactionally
+  take over an expired lease, while unexpired duplicates remain model-free.
+- Level-1 publication reloads and revalidates its mutation digest after Gemini,
+  then atomically requires the observed source-sequence watermark.
 
 **Likely files:**
 
