@@ -41,6 +41,17 @@ function sameJobIdentity(left: CompactionJob, right: CompactionJob): boolean {
     left.policyVersion === right.policyVersion;
 }
 
+function matchesJobEnvelope(job: CompactionJob, segment: CompactionSegment): boolean {
+  return segment.id === `compaction-segment:${job.id.slice("compaction-job:".length)}` &&
+    segment.workspaceId === job.workspaceId &&
+    segment.level === job.level &&
+    segment.firstSourceSequence === job.firstSourceSequence &&
+    segment.lastSourceSequence === job.lastSourceSequence &&
+    segment.orderedSourceDigest === job.orderedSourceDigest &&
+    same(segment.childSegmentIds, job.childSegmentIds) &&
+    segment.policyVersion === job.policyVersion;
+}
+
 function nonnegativeInteger(value: unknown, label: string): number {
   if (value === undefined) return 0;
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
@@ -342,6 +353,19 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     return CompactionJobSchema.parse(record(job.data()));
   }
 
+  async getCompactionJob(
+    workspaceId: Parameters<ContinuityRepository["getCompactionJob"]>[0],
+    jobId: Parameters<ContinuityRepository["getCompactionJob"]>[1],
+  ): Promise<CompactionJob | null> {
+    const snapshot = await this.jobRef(workspaceId, jobId).get();
+    if (!snapshot.exists) return null;
+    const job = CompactionJobSchema.parse(record(snapshot.data()));
+    if (job.workspaceId !== workspaceId || job.id !== jobId) {
+      throw new Error("Stored compaction job does not match its workspace path.");
+    }
+    return job;
+  }
+
   async updateCompactionJob(
     value: CompactionJob,
     expectedAttempt?: Parameters<ContinuityRepository["updateCompactionJob"]>[1],
@@ -364,7 +388,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
         throw new Error("Compaction attempt fencing token is required.");
       }
       transaction.set(jobRef, job);
-      if (job.status === "FAILED" && state.data()?.activeJobId === job.id) {
+      if ((job.status === "FAILED" || job.status === "COMPLETED") && state.data()?.activeJobId === job.id) {
         transaction.set(stateRef, { activeJobId: null });
       }
       return job;
@@ -395,9 +419,19 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       if (fence !== undefined) {
         if (!owner?.exists) throw new Error("Compaction attempt fencing conflict.");
         const ownerJob = CompactionJobSchema.parse(record(owner.data()));
-        if (ownerJob.status !== "RUNNING" || fence.jobId !== ownerJob.id ||
-            fence.claimGeneration !== ownerJob.claimGeneration ||
-            (!existing.exists && activeJobId !== ownerJob.id)) {
+        if (fence.jobId !== ownerJob.id || fence.claimGeneration !== ownerJob.claimGeneration) {
+          throw new Error("Compaction attempt fencing conflict.");
+        }
+        if (!matchesJobEnvelope(ownerJob, segment)) {
+          throw new Error("Compaction segment does not match its owning job envelope.");
+        }
+        if (ownerJob.status === "COMPLETED") {
+          if (!existing.exists) throw new Error("Completed compaction job is missing its ready segment.");
+          const stored = CompactionSegmentSchema.parse(record(existing.data()));
+          if (!same(stored, segment)) throw new Error("An immutable ready segment already exists with a different value.");
+          return stored;
+        }
+        if (ownerJob.status !== "RUNNING" || (!existing.exists && activeJobId !== ownerJob.id)) {
           throw new Error("Compaction attempt fencing conflict.");
         }
       } else if (typeof activeJobId === "string") {
@@ -429,13 +463,16 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
         }
       }
       transaction.create(segmentRef, segment);
-      if (owner !== undefined) {
-        if (owner.exists) {
-          const job = CompactionJobSchema.parse(record(owner.data()));
-          if (job.firstSourceSequence === segment.firstSourceSequence && job.lastSourceSequence === segment.lastSourceSequence) {
-            transaction.set(stateRef, { activeJobId: null });
-          }
-        }
+      if (fence !== undefined && owner?.exists) {
+        const job = CompactionJobSchema.parse(record(owner.data()));
+        const { attemptClaimedAt: _claimedAt, attemptLeaseExpiresAt: _leaseExpiresAt, ...released } = job;
+        void _claimedAt;
+        void _leaseExpiresAt;
+        transaction.set(this.jobRef(segment.workspaceId, job.id), CompactionJobSchema.parse({
+          ...released,
+          status: "COMPLETED",
+        }));
+        transaction.set(stateRef, { activeJobId: null });
       }
       return segment;
     });

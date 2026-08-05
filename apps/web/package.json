@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./internal/line-identity-derivation": "./src/line/identity-derivation.mjs",
     "./server": "./src/server.ts"
   },
   "scripts": {
