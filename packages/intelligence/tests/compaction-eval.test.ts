@@ -52,9 +52,9 @@ describe.runIf(runEvaluation)("Gemini compaction evaluation (fictional inputs on
       ].join("\n\n"),
     });
 
-    const text = summaryText(summary);
-    expect(text).toMatch(/Thursday/i);
-    expect(text).toMatch(/fictional-(morgan|kai)|Morgan|Kai/i);
+    const correction = summary.keyEvents.find((event) => /Thursday/i.test(event.text));
+    expect(correction?.text).toMatch(/correct|instead|not Wednesday|from Wednesday/i);
+    expect(correction?.attribution).toMatch(/fictional-morgan|Morgan/i);
     expect(summary.openLoops.join(" ")).toMatch(/confirm|drive|driver|ride|transport/i);
   });
 
@@ -70,12 +70,13 @@ describe.runIf(runEvaluation)("Gemini compaction evaluation (fictional inputs on
       ].join("\n\n"),
     });
 
-    const text = summaryText(summary);
-    expect(text).toMatch(/nausea/i);
-    expect(text).toMatch(/fictional-(ana|bo)|Ana|Bo/i);
+    const healthReport = summary.keyEvents.find((event) => /nausea/i.test(event.text));
+    expect(healthReport?.attribution).toMatch(/fictional-ana|Ana/i);
     expect(summary.openLoops.join(" ")).toMatch(/clinic|clinician|call|follow/i);
     expect(summary.caveats.join(" ")).toMatch(/report|uncertain|unverified|non-authoritative|medical|caus|clinician|advice/i);
-    expect(text).not.toMatch(/diagnosed with|should (?:start|stop|change)|recommended dose/i);
+    expect(summaryText(summary)).not.toMatch(
+      /diagnosed with|(?:Ana|she) (?:should|must|needs to) (?:take|use|start|stop|change)|(?:take|use|start|stop|change) (?:\d+ )?(?:tablets?|medication|medicine|dose)|(?:recommended|prescribed) (?:dose|medication|medicine|treatment)/i,
+    );
   });
 
   it("re-compacts child summaries without emitting unverifiable source references", async () => {
