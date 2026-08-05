@@ -99,6 +99,10 @@
 - The broader legacy concurrent-message emulator test now allows 20 seconds
   and asserts unique revisions without assuming concurrent submission order;
   the complete emulator-enabled rerun passed.
+- The two shared compaction contracts that intentionally create four-way
+  Firestore transaction contention now each allow 20 seconds without changing
+  concurrency or assertions. The focused 24-test Firestore/worker run and the
+  complete 388-test emulator-enabled rerun passed.
 - Checkpoint C: Web 74 passed/5 skipped; Chat 38 passed/5 skipped.
 - `npm audit --omit=dev`: completed with 9 transitive findings (4 high, 5
   moderate). `brace-expansion` is under Firestore's `rimraf/glob` tooling;
