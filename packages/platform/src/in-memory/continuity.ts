@@ -297,7 +297,8 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
         throw new Error("Source sequence watermark advanced before ready segment publication.");
       }
       const levelSegments = [...this.segments.values()].filter((entry) =>
-        entry.workspaceId === segment.workspaceId && entry.level === segment.level);
+        entry.workspaceId === segment.workspaceId && entry.level === segment.level &&
+        entry.policyVersion === segment.policyVersion);
       if (levelSegments.some((entry) =>
         entry.firstSourceSequence <= segment.lastSourceSequence && segment.firstSourceSequence <= entry.lastSourceSequence)) {
         throw new Error("Ready segment ranges at one level must be disjoint.");

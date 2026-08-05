@@ -47,7 +47,15 @@ MEDBUDDY_ATTACHMENT_CALLBACK_URL=https://<cloud-run-host>/api/internal/attachmen
 MEDBUDDY_ATTACHMENT_BUCKET=<private-bucket>
 MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1
 MEDBUDDY_ATTACHMENT_LOCATOR_KEY=<Secret Manager mapping; canonical base64 for 32 bytes>
+MEDBUDDY_CONTINUITY_PROFILE=production
 ```
+
+`MEDBUDDY_CONTINUITY_PROFILE` defaults to `production`. For a fictional-only,
+temporary compaction exercise, set it to `verification-small`; this uses a
+600-unit protected recent window, a 1,200-unit compaction trigger, and a
+1,800-unit pending hard ceiling. The verification profile has a distinct
+policy version, so its jobs and segments are not reused as production history.
+Restore `production` after the exercise.
 
 The callback service must verify the task OIDC audience and service-account
 identity. The bucket must remain private. Bucket/object names, provider IDs,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   COMPACTION_INPUT_MAX_UTF16,
+  CONTINUITY_POLICIES,
   CompactionSegmentSchema,
   SourceEventSchema,
   type CompactionSegment,
@@ -54,6 +55,22 @@ function ready(first: number, last: number, suffix: string): CompactionSegment {
 }
 
 describe("level-one compaction planning", () => {
+  it("uses the verification-small trigger, protected window, and policy-scoped coverage", () => {
+    const sources = [source(1, "a".repeat(500)), source(2, "b".repeat(500)), source(3, "c".repeat(500))];
+    const productionSegment = ready(1, 2, "production-coverage");
+    const plan = planLevelOneCompaction(
+      "workspace:orchard" as never,
+      sources,
+      [productionSegment],
+      CONTINUITY_POLICIES["verification-small"],
+    );
+
+    expect(plan).toMatchObject({
+      firstSourceSequence: 1,
+      lastSourceSequence: 2,
+      policyVersion: "continuity-v1-verification-small",
+    });
+  });
   it("does not plan at or below 20,000 rendered units", () => {
     expect(planLevelOneCompaction("workspace:orchard" as never, [source(1, "x".repeat(19_000))], [])).toBeNull();
   });
@@ -102,6 +119,14 @@ describe("level-one compaction planning", () => {
 });
 
 describe("hierarchical compaction and publication validation", () => {
+  it("does not merge segments created under another continuity policy", () => {
+    const productionChildren = [ready(1, 2, "a"), ready(3, 4, "b"), ready(5, 6, "c"), ready(7, 8, "d")];
+    expect(planHigherLevelCompaction(
+      "workspace:orchard" as never,
+      productionChildren,
+      CONTINUITY_POLICIES["verification-small"],
+    )).toBeNull();
+  });
   it("merges exactly four adjacent complete children through a generic next-level plan", () => {
     const children = [ready(1, 2, "a"), ready(3, 4, "b"), ready(5, 6, "c"), ready(7, 8, "d")];
     expect(planHigherLevelCompaction("workspace:orchard" as never, children)).toMatchObject({

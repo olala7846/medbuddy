@@ -11,12 +11,14 @@ import {
 } from "@medbuddy/chat";
 import {
   COMPACTION_MAX_ATTEMPTS,
+  CONTINUITY_POLICIES,
   CompactionAttemptFenceSchema,
   CompactionJobSchema,
   ContinuityTaskInputSchema,
   type ContinuityTaskDispatcher,
   type ContinuityRepository,
   type ContinuityTaskInput,
+  type ContinuityPolicy,
 } from "@medbuddy/contracts";
 import { verifyTaskCallback, type TaskTokenVerifier } from "@medbuddy/platform";
 import { createContinuityDispatcher, createConversationPlatform, GoogleTaskTokenVerifier } from "@medbuddy/platform";
@@ -52,7 +54,7 @@ export const ContinuityWorkerLogEntrySchema = z.object({
   omissionCount: z.number().int().nonnegative().optional(),
   modelId: z.literal("gemini-3.6-flash").optional(),
   promptVersion: z.literal("continuity-summary-v1").optional(),
-  policyVersion: z.literal("continuity-v1").optional(),
+  policyVersion: z.enum(["continuity-v1", "continuity-v1-verification-small"]).optional(),
 }).strict();
 
 export type ContinuityWorkerLogEntry = z.infer<typeof ContinuityWorkerLogEntrySchema>;
@@ -110,6 +112,7 @@ export class ContinuityCompactionWorker {
     clock?: () => number;
     modelId: "gemini-3.6-flash";
     promptVersion: "continuity-summary-v1";
+    policy?: ContinuityPolicy;
     logger: ContinuityWorkerLogger;
     dispatcher?: ContinuityTaskDispatcher;
   }) {}
@@ -140,11 +143,27 @@ export class ContinuityCompactionWorker {
     const claimedJob = attemptClaim.job;
     const attemptFence = compactionAttemptFence(claimedJob);
     const attempt = claimedJob.attempts;
+    const selectedPolicy = this.dependencies.policy ?? CONTINUITY_POLICIES.production;
+    if (claimedJob.policyVersion !== selectedPolicy.policyVersion) {
+      await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({
+        ...releaseCompactionLease(claimedJob),
+        status: "FAILED",
+      }), attemptFence);
+      this.dependencies.logger.write({
+        event: "continuity_job_failed",
+        code: "EXHAUSTED",
+        level: claimedJob.level,
+        attempt,
+      });
+      await this.scheduleNext(input.workspaceId);
+      return "EXHAUSTED";
+    }
     const existing = (await this.dependencies.continuity.listReadySegments(input.workspaceId)).find((segment) =>
       segment.level === claimedJob.level &&
       segment.firstSourceSequence === claimedJob.firstSourceSequence &&
       segment.lastSourceSequence === claimedJob.lastSourceSequence &&
-      segment.orderedSourceDigest === claimedJob.orderedSourceDigest);
+      segment.orderedSourceDigest === claimedJob.orderedSourceDigest &&
+      segment.policyVersion === claimedJob.policyVersion);
     if (existing !== undefined) {
       await this.dependencies.continuity.publishSegment(existing, undefined, attemptFence);
       this.dependencies.logger.write({ event: "continuity_job_reused", level: claimedJob.level, attempt });
@@ -167,6 +186,9 @@ export class ContinuityCompactionWorker {
       const children = claimedJob.childSegmentIds.map((childId) => {
         const child = ready.find((segment) => segment.id === childId);
         if (child === undefined) throw new Error("Higher-level compaction child is unavailable.");
+        if (child.policyVersion !== claimedJob.policyVersion) {
+          throw new Error("Higher-level compaction cannot mix policy versions.");
+        }
         return child;
       });
       const projection = claimedJob.level === 1
@@ -203,7 +225,7 @@ export class ContinuityCompactionWorker {
         backlogClass: backlogClass(renderedInput.length),
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
-        ...(claimedJob.policyVersion === "continuity-v1" ? { policyVersion: claimedJob.policyVersion } : {}),
+        policyVersion: selectedPolicy.policyVersion,
       });
       const generated = await this.dependencies.generator.generate({
         workspaceId: input.workspaceId,
@@ -258,7 +280,7 @@ export class ContinuityCompactionWorker {
         durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
-        ...(claimedJob.policyVersion === "continuity-v1" ? { policyVersion: claimedJob.policyVersion } : {}),
+        policyVersion: selectedPolicy.policyVersion,
       });
       await this.scheduleNext(input.workspaceId);
       return "PUBLISHED";
@@ -290,8 +312,9 @@ export class ContinuityCompactionWorker {
         this.dependencies.continuity.listSourceEvents(workspaceId),
         this.dependencies.continuity.listReadySegments(workspaceId),
       ]);
-      const plan = planLevelOneCompaction(workspaceId, sources, ready)
-        ?? planHigherLevelCompaction(workspaceId, ready);
+      const policy = this.dependencies.policy ?? CONTINUITY_POLICIES.production;
+      const plan = planLevelOneCompaction(workspaceId, sources, ready, policy)
+        ?? planHigherLevelCompaction(workspaceId, ready, policy);
       if (plan === null) return;
       const job = await this.dependencies.continuity.claimCompactionJob(CompactionJobSchema.parse({
         id: plan.id,
@@ -400,6 +423,7 @@ export function createContinuityTaskComposition(
       now: () => new Date().toISOString(),
       modelId: vertex.model,
       promptVersion: "continuity-summary-v1",
+      policy: continuityConfig.continuityPolicy,
       logger,
       dispatcher,
     }),

@@ -25,6 +25,44 @@ export const COMPACTION_MAX_ATTEMPTS = 3;
 export const COMPACTION_ATTEMPT_LEASE_MS = 60_000;
 export const COMPACTION_MERGE_FAN_IN = 4;
 
+export const ContinuityProfileSchema = z.enum(["production", "verification-small"]);
+export const ContinuityPolicySchema = z.discriminatedUnion("profile", [
+  z.object({
+    profile: z.literal("production"),
+    policyVersion: z.literal("continuity-v1"),
+    protectedRecentMaxUtf16: z.literal(PROTECTED_RECENT_MAX_UTF16),
+    compactionTriggerUtf16: z.literal(COMPACTION_TRIGGER_UTF16),
+    recentHardCeilingUtf16: z.literal(RECENT_HARD_CEILING_UTF16),
+  }).strict(),
+  z.object({
+    profile: z.literal("verification-small"),
+    policyVersion: z.literal("continuity-v1-verification-small"),
+    protectedRecentMaxUtf16: z.literal(600),
+    compactionTriggerUtf16: z.literal(1_200),
+    recentHardCeilingUtf16: z.literal(1_800),
+  }).strict(),
+]);
+
+export type ContinuityProfile = z.infer<typeof ContinuityProfileSchema>;
+export type ContinuityPolicy = z.infer<typeof ContinuityPolicySchema>;
+
+export const CONTINUITY_POLICIES = {
+  production: ContinuityPolicySchema.parse({
+    profile: "production",
+    policyVersion: "continuity-v1",
+    protectedRecentMaxUtf16: PROTECTED_RECENT_MAX_UTF16,
+    compactionTriggerUtf16: COMPACTION_TRIGGER_UTF16,
+    recentHardCeilingUtf16: RECENT_HARD_CEILING_UTF16,
+  }),
+  "verification-small": ContinuityPolicySchema.parse({
+    profile: "verification-small",
+    policyVersion: "continuity-v1-verification-small",
+    protectedRecentMaxUtf16: 600,
+    compactionTriggerUtf16: 1_200,
+    recentHardCeilingUtf16: 1_800,
+  }),
+} as const satisfies Record<ContinuityProfile, ContinuityPolicy>;
+
 const TimestampSchema = z.iso.datetime({ offset: true });
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const PolicyVersionSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/);

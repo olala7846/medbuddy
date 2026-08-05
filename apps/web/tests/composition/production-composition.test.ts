@@ -131,7 +131,28 @@ describe("production composition configuration", () => {
       vertexProjectId: "fictional-project",
       vertexLocation: "global",
       vertexModel: "gemini-3.6-flash",
+      continuityPolicy: {
+        profile: "production",
+        policyVersion: "continuity-v1",
+        protectedRecentMaxUtf16: 10_000,
+        compactionTriggerUtf16: 20_000,
+        recentHardCeilingUtf16: 30_000,
+      },
     });
+    expect(loadContinuityConfiguration({
+      ...productionEnvironment,
+      MEDBUDDY_CONTINUITY_PROFILE: "verification-small",
+    }).continuityPolicy).toEqual({
+      profile: "verification-small",
+      policyVersion: "continuity-v1-verification-small",
+      protectedRecentMaxUtf16: 600,
+      compactionTriggerUtf16: 1_200,
+      recentHardCeilingUtf16: 1_800,
+    });
+    expect(() => loadContinuityConfiguration({
+      ...productionEnvironment,
+      MEDBUDDY_CONTINUITY_PROFILE: "fictional-unapproved",
+    })).toThrow("MEDBUDDY_CONTINUITY_PROFILE");
     const wrongModel = { ...productionEnvironment, MEDBUDDY_VERTEX_MODEL: "fictional-wrong-model" };
     expect(() => loadContinuityConfiguration(wrongModel)).toThrow(ProductionConfigurationError);
     expect(() => loadContinuityConfiguration(wrongModel)).toThrow("MEDBUDDY_VERTEX_MODEL");
