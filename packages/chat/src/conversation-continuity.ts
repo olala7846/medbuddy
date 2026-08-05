@@ -1,16 +1,16 @@
 import {
   AGENT_ACTION_MAX_UTF16,
   ASSEMBLED_CONTEXT_MAX_UTF16,
+  CONTINUITY_POLICIES,
   AgentActionContextSchema,
   AssembledContextSchema,
   type CompactionSegment,
   type ContinuityAttachment,
+  type ContinuityPolicy,
   type SourceEvent,
   type SourceEventId,
   type WorkspaceId,
 } from "@medbuddy/contracts";
-
-import { DEFAULT_CONTINUITY_POLICY, type ContinuityPolicy } from "./continuity-policy.js";
 
 const PENDING_HISTORY_MARKER = "[OLDER HISTORY IS PENDING COMPACTION — OMITTED CONTENT REMAINS STORED]";
 const FOCAL_EXCERPT_LABEL = "BEGIN BOUNDED EXCERPT — NOT VERBATIM MESSAGE";
@@ -223,11 +223,10 @@ export function assembleConversationContext(input: AssembleConversationContextIn
   if (focal === undefined) throw new Error("The focal source event is not available in the effective projection.");
   const familyMap = input.familyMap?.content;
   const agentActions = renderActions(actions);
+  const policy = input.policy ?? CONTINUITY_POLICIES.production;
   const protectedPrefix = joinBlocks([input.system, familyMap, agentActions]);
   const recentLimit = Math.min(
-    input.compactionPending
-      ? (input.policy ?? DEFAULT_CONTINUITY_POLICY).recentHardCeilingUtf16
-      : (input.policy ?? DEFAULT_CONTINUITY_POLICY).compactionTriggerUtf16,
+    input.compactionPending ? policy.recentHardCeilingUtf16 : policy.compactionTriggerUtf16,
     ASSEMBLED_CONTEXT_MAX_UTF16 - protectedPrefix.length - (protectedPrefix.length === 0 ? 0 : 2),
   );
   if (recentLimit <= 0) throw new Error("Protected context blocks leave no room for the focal conversation turn.");
@@ -278,7 +277,7 @@ export function assembleConversationContext(input: AssembleConversationContextIn
     input.workspaceId,
     input.readySegments,
     firstRecentSequence,
-    (input.policy ?? DEFAULT_CONTINUITY_POLICY).policyVersion,
+    policy.policyVersion,
   );
   const selectedSegments: CompactionSegment[] = [];
   let history = "";

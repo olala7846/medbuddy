@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   COMPACTION_INPUT_MAX_UTF16,
+  CONTINUITY_POLICIES,
   CompactionSegmentSchema,
   SourceEventSchema,
   type CompactionSegment,
@@ -14,7 +15,6 @@ import {
   planHigherLevelCompaction,
   planLevelOneCompaction,
   renderBoundedCompactionInput,
-  VERIFICATION_SMALL_CONTINUITY_POLICY,
   validateSummaryAgainstProjection,
 } from "../src/compaction.js";
 import { projectEffectiveConversation, renderProjectedTurn } from "../src/conversation-continuity.js";
@@ -32,12 +32,7 @@ function source(sequence: number, body = "x".repeat(5_000)): SourceEvent {
   });
 }
 
-function ready(
-  first: number,
-  last: number,
-  suffix: string,
-  policyVersion = "continuity-v1",
-): CompactionSegment {
+function ready(first: number, last: number, suffix: string): CompactionSegment {
   const summary = { overview: `Fictional ${suffix}.`, keyEvents: [], openLoops: [], caveats: [] };
   return CompactionSegmentSchema.parse({
     id: `compaction-segment:${suffix}`,
@@ -50,7 +45,7 @@ function ready(
     childSegmentIds: [],
     modelId: "gemini-3.6-flash",
     promptVersion: "continuity-summary-v1",
-    policyVersion,
+    policyVersion: "continuity-v1",
     createdAt: "2026-08-04T12:10:00.000Z",
     inputCharacters: 10,
     outputCharacters: JSON.stringify(summary).length,
@@ -60,36 +55,22 @@ function ready(
 }
 
 describe("level-one compaction planning", () => {
-  it("provides a distinct small verification profile without changing production defaults", () => {
-    expect(planLevelOneCompaction(
-      "workspace:orchard" as never,
-      [source(1, "x".repeat(1_100))],
-      [],
-      VERIFICATION_SMALL_CONTINUITY_POLICY,
-    )).toBeNull();
-
-    const sources = [source(1, "x".repeat(700)), source(2, "y".repeat(450))];
+  it("uses the verification-small trigger, protected window, and policy-scoped coverage", () => {
+    const sources = [source(1, "a".repeat(500)), source(2, "b".repeat(500)), source(3, "c".repeat(500))];
+    const productionSegment = ready(1, 2, "production-coverage");
     const plan = planLevelOneCompaction(
       "workspace:orchard" as never,
       sources,
-      [],
-      VERIFICATION_SMALL_CONTINUITY_POLICY,
+      [productionSegment],
+      CONTINUITY_POLICIES["verification-small"],
     );
+
     expect(plan).toMatchObject({
       firstSourceSequence: 1,
-      lastSourceSequence: 1,
+      lastSourceSequence: 2,
       policyVersion: "continuity-v1-verification-small",
     });
-    expect(planLevelOneCompaction("workspace:orchard" as never, sources, [])).toBeNull();
   });
-
-  it("does not use coverage produced by another policy version", () => {
-    const sources = [source(1, "x".repeat(11_000)), source(2, "y".repeat(11_000))];
-    const foreignCoverage = ready(1, 1, "foreign", "continuity-v1-verification-small");
-    expect(planLevelOneCompaction("workspace:orchard" as never, sources, [foreignCoverage]))
-      .toMatchObject({ firstSourceSequence: 1, policyVersion: "continuity-v1" });
-  });
-
   it("does not plan at or below 20,000 rendered units", () => {
     expect(planLevelOneCompaction("workspace:orchard" as never, [source(1, "x".repeat(19_000))], [])).toBeNull();
   });
@@ -138,21 +119,14 @@ describe("level-one compaction planning", () => {
 });
 
 describe("hierarchical compaction and publication validation", () => {
-  it("never merges child segments from different policy versions", () => {
-    const mixed = [
-      ready(1, 2, "mixed-a"),
-      ready(3, 4, "mixed-b", "continuity-v1-verification-small"),
-      ready(5, 6, "mixed-c"),
-      ready(7, 8, "mixed-d"),
-    ];
-    expect(planHigherLevelCompaction("workspace:orchard" as never, mixed)).toBeNull();
+  it("does not merge segments created under another continuity policy", () => {
+    const productionChildren = [ready(1, 2, "a"), ready(3, 4, "b"), ready(5, 6, "c"), ready(7, 8, "d")];
     expect(planHigherLevelCompaction(
       "workspace:orchard" as never,
-      mixed,
-      VERIFICATION_SMALL_CONTINUITY_POLICY,
+      productionChildren,
+      CONTINUITY_POLICIES["verification-small"],
     )).toBeNull();
   });
-
   it("merges exactly four adjacent complete children through a generic next-level plan", () => {
     const children = [ready(1, 2, "a"), ready(3, 4, "b"), ready(5, 6, "c"), ready(7, 8, "d")];
     expect(planHigherLevelCompaction("workspace:orchard" as never, children)).toMatchObject({

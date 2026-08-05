@@ -1,7 +1,6 @@
 import {
   ContinuityThreadConversationService,
   ThreadConversationService,
-  VERIFICATION_SMALL_CONTINUITY_POLICY,
 } from "@medbuddy/chat";
 import type {
   ContinuityRepository,
@@ -11,6 +10,7 @@ import type {
   MessageRepository,
   WorkspaceFamilyMapRepository,
 } from "@medbuddy/contracts";
+import { CONTINUITY_POLICIES } from "@medbuddy/contracts";
 import { expect } from "vitest";
 
 import {
@@ -167,7 +167,7 @@ export async function runSyntheticContinuityVerification(
     responder,
     systemInstructions: SYSTEM_INSTRUCTIONS,
     dispatcher: queue,
-    policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+    policy: CONTINUITY_POLICIES["verification-small"],
     now: () => "2026-08-05T12:10:00.000Z",
   });
   const handler = new LineWebhookHandler({
@@ -213,7 +213,7 @@ export async function runSyntheticContinuityVerification(
     promptVersion: "continuity-summary-v1",
     logger: { write(entry) { workerLogs.push(structuredClone(entry)); } },
     dispatcher: queue,
-    policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+    policy: CONTINUITY_POLICIES["verification-small"],
   });
   let correlation = 0;
   const send = async (event: unknown) => handler.handle({

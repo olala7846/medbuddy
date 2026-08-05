@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  CONTINUITY_POLICIES,
+  ContinuityProfileSchema,
+  type ContinuityPolicy,
+} from "@medbuddy/contracts";
 
 const LocatorKeySchema = z.string().refine((value) => {
   const decoded = Buffer.from(value, "base64");
@@ -28,6 +33,7 @@ const RequiredContinuityConfigSchema = z.object({
   MEDBUDDY_VERTEX_PROJECT: z.string().trim().min(1),
   MEDBUDDY_VERTEX_LOCATION: z.string().trim().min(1),
   MEDBUDDY_VERTEX_MODEL: z.literal("gemini-3.6-flash"),
+  MEDBUDDY_CONTINUITY_PROFILE: ContinuityProfileSchema.default("production"),
 });
 
 export type ProductionConfig = {
@@ -52,6 +58,7 @@ export type ContinuityConfiguration = {
   vertexProjectId: string;
   vertexLocation: string;
   vertexModel: "gemini-3.6-flash";
+  continuityPolicy: ContinuityPolicy;
 };
 
 const RequiredLineConfigSchema = z.object({
@@ -59,6 +66,30 @@ const RequiredLineConfigSchema = z.object({
   MEDBUDDY_LINE_CHANNEL_SECRET: z.string().min(1),
   MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN: z.string().min(1),
 });
+
+const LangSmithTracingConfigSchema = z.object({
+  MEDBUDDY_LANGSMITH_TRACING_ENABLED: z.literal("true"),
+  MEDBUDDY_LANGSMITH_SERVICE_KEY: z.string().trim().min(1),
+  MEDBUDDY_LANGSMITH_PROJECT: z.string().trim().min(1),
+  MEDBUDDY_LANGSMITH_WORKSPACE_ID: z.string().trim().min(1),
+  MEDBUDDY_LANGSMITH_API_URL: z.enum([
+    "https://api.smith.langchain.com",
+    "https://eu.api.smith.langchain.com",
+    "https://apac.api.smith.langchain.com",
+    "https://aws.api.smith.langchain.com",
+  ]),
+  MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID: z.string().regex(/^workspace:[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/),
+  MEDBUDDY_LANGSMITH_VERIFICATION_ID: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
+});
+
+export type LangSmithTracingConfiguration = {
+  serviceKey: string;
+  project: string;
+  langSmithWorkspaceId: string;
+  apiUrl: z.infer<typeof LangSmithTracingConfigSchema>["MEDBUDDY_LANGSMITH_API_URL"];
+  allowedMedBuddyWorkspaceId: string;
+  verificationId: string;
+};
 
 export type LineConfiguration = {
   projectId: string;
@@ -91,6 +122,27 @@ export function loadLineConfiguration(
     projectId: parsed.data.MEDBUDDY_GCP_PROJECT_ID,
     channelSecret: parsed.data.MEDBUDDY_LINE_CHANNEL_SECRET,
     channelAccessToken: parsed.data.MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN,
+  };
+}
+
+/** Default-off exact-content tracing for one explicitly fictional workspace. */
+export function loadLangSmithTracingConfiguration(
+  environment: Record<string, string | undefined>,
+): LangSmithTracingConfiguration | null {
+  if (environment.MEDBUDDY_LANGSMITH_TRACING_ENABLED !== "true") return null;
+  const parsed = LangSmithTracingConfigSchema.safeParse(environment);
+  if (!parsed.success) {
+    const missingKeys = [...new Set(parsed.error.issues.map((issue) => String(issue.path[0])))].sort();
+    throw new ProductionConfigurationError(missingKeys);
+  }
+  const value = parsed.data;
+  return {
+    serviceKey: value.MEDBUDDY_LANGSMITH_SERVICE_KEY,
+    project: value.MEDBUDDY_LANGSMITH_PROJECT,
+    langSmithWorkspaceId: value.MEDBUDDY_LANGSMITH_WORKSPACE_ID,
+    apiUrl: value.MEDBUDDY_LANGSMITH_API_URL,
+    allowedMedBuddyWorkspaceId: value.MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID,
+    verificationId: value.MEDBUDDY_LANGSMITH_VERIFICATION_ID,
   };
 }
 
@@ -134,5 +186,6 @@ export function loadContinuityConfiguration(
     vertexProjectId: value.MEDBUDDY_VERTEX_PROJECT,
     vertexLocation: value.MEDBUDDY_VERTEX_LOCATION,
     vertexModel: value.MEDBUDDY_VERTEX_MODEL,
+    continuityPolicy: CONTINUITY_POLICIES[value.MEDBUDDY_CONTINUITY_PROFILE],
   };
 }

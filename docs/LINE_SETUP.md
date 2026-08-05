@@ -47,7 +47,15 @@ MEDBUDDY_ATTACHMENT_CALLBACK_URL=https://<cloud-run-host>/api/internal/attachmen
 MEDBUDDY_ATTACHMENT_BUCKET=<private-bucket>
 MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1
 MEDBUDDY_ATTACHMENT_LOCATOR_KEY=<Secret Manager mapping; canonical base64 for 32 bytes>
+MEDBUDDY_CONTINUITY_PROFILE=production
 ```
+
+`MEDBUDDY_CONTINUITY_PROFILE` defaults to `production`. For a fictional-only,
+temporary compaction exercise, set it to `verification-small`; this uses a
+600-unit protected recent window, a 1,200-unit compaction trigger, and a
+1,800-unit pending hard ceiling. The verification profile has a distinct
+policy version, so its jobs and segments are not reused as production history.
+Restore `production` after the exercise.
 
 The callback service must verify the task OIDC audience and service-account
 identity. The bucket must remain private. Bucket/object names, provider IDs,
@@ -63,6 +71,46 @@ when performing an explicitly planned key rotation.
 The adapter-private provider locator and attachment callback are covered by
 synthetic tests. Deployment remains deferred until the configuration-gated
 `gemini-3.6-flash` smoke succeeds in the target project and region.
+
+## Optional Effort 2 exact tracing (default off)
+
+LangSmith tracing exists only to inspect the exact structured Vertex request
+and parsed response for fictional conversation and compaction verification. It
+does not trace the full LINE webhook, text capture, image extraction, attachment
+ingestion, Google authentication, headers, or access tokens.
+
+Tracing remains disabled unless every value below is present and the enable
+flag is exactly `true`:
+
+```text
+MEDBUDDY_LANGSMITH_TRACING_ENABLED=true
+MEDBUDDY_LANGSMITH_SERVICE_KEY=<dedicated Secret Manager mapping>
+MEDBUDDY_LANGSMITH_PROJECT=<dedicated Effort 2 tracing project>
+MEDBUDDY_LANGSMITH_WORKSPACE_ID=<LangSmith workspace ID>
+MEDBUDDY_LANGSMITH_API_URL=<approved regional LangSmith API URL>
+MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID=<one fictional internal workspace ID>
+MEDBUDDY_LANGSMITH_VERIFICATION_ID=<content-free verification label>
+```
+
+Only the US GCP, EU GCP, APAC GCP, and AWS US LangSmith SaaS API URLs are
+accepted. Generic `LANGSMITH_*` environment variables do not enable this
+integration. The MedBuddy workspace allowlist is evaluated locally and is
+never sent as trace metadata. A missing scope, a different workspace, or any
+Vertex request containing inline image data proceeds without tracing.
+
+Before enabling, create a dedicated LangSmith project with base 14-day trace
+retention and a short-lived workspace-scoped service key. Map that key from a
+pinned Secret Manager version; never place it in source, `.env`, a command
+argument, chat, logs, or screenshots. Do not add traced runs to datasets,
+experiments, annotation queues, feedback, evaluators, or automation rules,
+because those features can retain or upgrade trace data beyond the base tier.
+Exact-content tracing is not approved for real family traffic.
+
+For rollback, first deploy with tracing disabled and remove the Cloud Run
+secret mapping, then revoke the service key. After verification is complete,
+delete the dedicated LangSmith project and query it later to confirm the
+provider's asynchronous deletion. Some billing or analytics metadata may
+persist according to LangSmith policy.
 
 Use Secret Manager-backed environment variables in Cloud Run. To avoid putting secret values in shell history, create the secret containers and add values interactively through standard input:
 

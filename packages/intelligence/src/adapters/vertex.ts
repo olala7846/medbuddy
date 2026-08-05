@@ -71,6 +71,31 @@ export type VertexGenerationRequest = {
   };
 };
 
+export type VertexInvocationContext = {
+  workspaceId: string;
+};
+
+export function buildVertexGenerateContentBody(input: VertexGenerationRequest): Record<string, unknown> {
+  return {
+    systemInstruction: { parts: [{ text: input.systemInstruction }] },
+    contents: input.contents,
+    ...(input.tools === undefined ? {} : { tools: input.tools }),
+    ...(input.toolConfig === undefined ? {} : { toolConfig: input.toolConfig }),
+    ...(
+      input.generationConfig === undefined && input.tools !== undefined
+        ? {}
+        : {
+            generationConfig: {
+              ...input.generationConfig,
+              ...(input.tools === undefined
+                ? { responseMimeType: input.generationConfig?.responseMimeType ?? "application/json" }
+                : {}),
+            },
+          }
+    ),
+  };
+}
+
 /** Includes serialized conversational instructions, tool declarations, and context. */
 export const CONVERSATION_PROVIDER_REQUEST_MAX_UTF16 = 60_000;
 /** Reserves a deterministic response allowance instead of accepting the model default. */
@@ -78,7 +103,7 @@ export const CONVERSATION_MAX_OUTPUT_TOKENS = 2_048;
 
 /** Minimal model boundary shared by the live and fixed adapters. */
 export interface VertexModelClient {
-  generate(input: VertexGenerationRequest): Promise<unknown>;
+  generate(input: VertexGenerationRequest, context?: VertexInvocationContext): Promise<unknown>;
 }
 
 export type VertexConfiguration = {
@@ -158,24 +183,7 @@ export class VertexRestClient implements VertexModelClient {
             authorization: `Bearer ${accessToken}`,
             "content-type": "application/json",
           },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: input.systemInstruction }] },
-            contents: input.contents,
-            ...(input.tools === undefined ? {} : { tools: input.tools }),
-            ...(input.toolConfig === undefined ? {} : { toolConfig: input.toolConfig }),
-            ...(
-              input.generationConfig === undefined && input.tools !== undefined
-                ? {}
-                : {
-                    generationConfig: {
-                      ...input.generationConfig,
-                      ...(input.tools === undefined
-                        ? { responseMimeType: input.generationConfig?.responseMimeType ?? "application/json" }
-                        : {}),
-                    },
-                  }
-            ),
-          }),
+          body: JSON.stringify(buildVertexGenerateContentBody(input)),
           signal: controller.signal,
         });
         if (!response.ok) {
@@ -414,7 +422,10 @@ export class VertexConversationProvider implements ConversationProvider {
 
   async respond(input: Parameters<ConversationProvider["respond"]>[0]): Promise<unknown> {
     try {
-      const output = parseConversationStep(await this.client.generate(conversationRequest(input)));
+      const output = parseConversationStep(await this.client.generate(
+        conversationRequest(input),
+        { workspaceId: input.focalMessage.workspaceId },
+      ));
       const instruction = ConversationInstructionSchema.safeParse(output);
       if (!instruction.success) {
         throw new ConversationProviderError("MALFORMED_TRANSPORT");

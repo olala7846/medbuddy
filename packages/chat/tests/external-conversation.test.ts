@@ -1,4 +1,5 @@
 import {
+  CONTINUITY_POLICIES,
   type ConversationResponder,
   type MessageRepository,
   type WorkspaceFamilyMapRepository,
@@ -11,7 +12,6 @@ import { describe, expect, it } from "vitest";
 import {
   ContinuityThreadConversationService,
   ThreadConversationService,
-  VERIFICATION_SMALL_CONTINUITY_POLICY,
 } from "../src/index.js";
 import { InMemoryContinuityRepository } from "@medbuddy/platform";
 import { InMemoryPersistence } from "@medbuddy/platform";
@@ -148,7 +148,10 @@ describe("ThreadConversationService", () => {
 });
 
 describe("ContinuityThreadConversationService", () => {
-  function createContinuityHarness() {
+  function createContinuityHarness(options: {
+    policy?: typeof CONTINUITY_POLICIES[keyof typeof CONTINUITY_POLICIES];
+    dispatched?: unknown[];
+  } = {}) {
     const persistence = new InMemoryPersistence();
     const continuity = new InMemoryContinuityRepository();
     const modelRequests: Parameters<ConversationResponder["respond"]>[0][] = [];
@@ -163,6 +166,10 @@ describe("ContinuityThreadConversationService", () => {
         },
       },
       systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
+      ...(options.policy === undefined ? {} : { policy: options.policy }),
+      ...(options.dispatched === undefined ? {} : { dispatcher: {
+        async dispatch(input) { options.dispatched!.push(input); },
+      } }),
       now: () => timestamp,
     });
     return { service, continuity, messages: persistence.messages, modelRequests };
@@ -186,6 +193,25 @@ describe("ContinuityThreadConversationService", () => {
     await expect(harness.service.observe(observedInput(false))).resolves.toMatchObject({ kind: "OBSERVED" });
     await expect(harness.continuity.listSourceEvents("workspace:line-thread-a" as never)).resolves.toHaveLength(1);
     expect(harness.modelRequests).toEqual([]);
+  });
+
+  it("schedules verification-small compaction with its distinct policy version", async () => {
+    const dispatched: unknown[] = [];
+    const harness = createContinuityHarness({
+      policy: CONTINUITY_POLICIES["verification-small"],
+      dispatched,
+    });
+    for (const suffix of ["a", "b", "c"]) {
+      const input = observedInput(false, suffix);
+      await harness.service.observe(ObserveContinuityConversationInputSchema.parse({
+        ...input,
+        payload: { kind: "TEXT", body: suffix.repeat(500), replyRequested: false },
+      }));
+    }
+
+    const active = await harness.continuity.getActiveCompactionJob("workspace:line-thread-a" as never);
+    expect(active).toMatchObject({ policyVersion: "continuity-v1-verification-small" });
+    expect(dispatched).toEqual([{ workspaceId: "workspace:line-thread-a", jobId: active!.id }]);
   });
 
   it("keeps outbound text as a candidate until LINE acceptance", async () => {
@@ -231,7 +257,7 @@ describe("ContinuityThreadConversationService", () => {
       },
       systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
       dispatcher: { async dispatch(input) { dispatched.push(input); } },
-      policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+      policy: CONTINUITY_POLICIES["verification-small"],
       now: () => timestamp,
     });
     for (let index = 0; index < 3; index += 1) {

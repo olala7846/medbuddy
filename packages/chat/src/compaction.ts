@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import {
   COMPACTION_MERGE_FAN_IN,
   COMPACTION_INPUT_MAX_UTF16,
+  CONTINUITY_POLICIES,
   CompactionJobIdSchema,
   CompactionSegmentSchema,
   type CompactionSegment,
+  type ContinuityPolicy,
   SegmentSummarySchema,
   type SegmentSummary,
   type SourceEvent,
@@ -17,14 +19,8 @@ import {
   renderProjectedTurn,
   type ProjectedTurn,
 } from "./conversation-continuity.js";
-import {
-  DEFAULT_CONTINUITY_POLICY,
-  type ContinuityPolicy,
-} from "./continuity-policy.js";
 
-export { VERIFICATION_SMALL_CONTINUITY_POLICY } from "./continuity-policy.js";
-
-export const COMPACTION_POLICY_VERSION = DEFAULT_CONTINUITY_POLICY.policyVersion;
+export const COMPACTION_POLICY_VERSION = CONTINUITY_POLICIES.production.policyVersion;
 export const COMPACTION_PROMPT_VERSION = "continuity-summary-v1";
 const COMPACTION_OMISSION_LABEL = "UTF-16 CODE UNITS OMITTED FROM COMPACTION INPUT";
 
@@ -147,9 +143,8 @@ export function planLevelOneCompaction(
   workspaceId: WorkspaceId,
   sourceEvents: readonly SourceEvent[],
   readySegments: readonly CompactionSegment[],
-  policy: ContinuityPolicy = DEFAULT_CONTINUITY_POLICY,
+  policy: ContinuityPolicy = CONTINUITY_POLICIES.production,
 ): CompactionPlan | null {
-  const policyVersion = policy.policyVersion;
   for (const event of sourceEvents) {
     if (event.workspaceId !== workspaceId) throw new Error("Compaction planning cannot cross a workspace boundary.");
   }
@@ -157,7 +152,7 @@ export function planLevelOneCompaction(
     if (segment.workspaceId !== workspaceId) throw new Error("Compaction coverage cannot cross a workspace boundary.");
   }
   const coverage = Math.max(0, ...readySegments
-    .filter((segment) => segment.level === 1 && segment.policyVersion === policyVersion)
+    .filter((segment) => segment.level === 1 && segment.policyVersion === policy.policyVersion)
     .map((segment) => segment.lastSourceSequence));
   const eligibleSources = [...sourceEvents]
     .filter((event) => event.sourceSequence > coverage)
@@ -182,7 +177,7 @@ export function planLevelOneCompaction(
   const coveredSources = eligibleSources.filter((event) => event.sourceSequence <= lastSourceSequence);
   if (coveredSources.length === 0) return null;
   const digestSources = sourceEventsForCompactionRange(sourceEvents, firstSourceSequence, lastSourceSequence);
-  const orderedDigest = orderedSourceDigest(policyVersion, digestSources);
+  const orderedDigest = orderedSourceDigest(policy.policyVersion, digestSources);
   const renderedInput = renderBoundedCompactionInput(projectCompactionRange(
     workspaceId,
     sourceEvents,
@@ -190,7 +185,7 @@ export function planLevelOneCompaction(
     lastSourceSequence,
   ).map(renderProjectedTurn).join("\n\n"));
   return {
-    id: deterministicCompactionJobId({ workspaceId, level: 1, firstSourceSequence, lastSourceSequence, policyVersion, orderedSourceDigest: orderedDigest }),
+    id: deterministicCompactionJobId({ workspaceId, level: 1, firstSourceSequence, lastSourceSequence, policyVersion: policy.policyVersion, orderedSourceDigest: orderedDigest }),
     workspaceId,
     level: 1,
     firstSourceSequence,
@@ -198,7 +193,7 @@ export function planLevelOneCompaction(
     sourceCount: coveredSources.length,
     orderedSourceDigest: orderedDigest,
     childSegmentIds: [],
-    policyVersion,
+    policyVersion: policy.policyVersion,
     inputCharacters: renderedInput.length,
   };
 }
@@ -206,13 +201,12 @@ export function planLevelOneCompaction(
 export function planHigherLevelCompaction(
   workspaceId: WorkspaceId,
   readySegments: readonly CompactionSegment[],
-  policy: ContinuityPolicy = DEFAULT_CONTINUITY_POLICY,
+  policy: ContinuityPolicy = CONTINUITY_POLICIES.production,
 ): CompactionPlan | null {
-  const policyVersion = policy.policyVersion;
   for (const segment of readySegments) {
     if (segment.workspaceId !== workspaceId) throw new Error("Higher-level planning cannot cross a workspace boundary.");
   }
-  const policySegments = readySegments.filter((segment) => segment.policyVersion === policyVersion);
+  const policySegments = readySegments.filter((segment) => segment.policyVersion === policy.policyVersion);
   const parented = new Set(policySegments.flatMap((segment) => segment.childSegmentIds));
   const unparented = policySegments.filter((segment) => !parented.has(segment.id));
   const levels = [...new Set(unparented.map((segment) => segment.level))].sort((left, right) => left - right);
@@ -229,11 +223,11 @@ export function planHigherLevelCompaction(
       const lastSourceSequence = children.at(-1)!.lastSourceSequence;
       const nextLevel = level + 1;
       const digest = sha256(JSON.stringify({
-        policyVersion,
+        policyVersion: policy.policyVersion,
         children: children.map((child) => ({ id: child.id, digest: child.orderedSourceDigest, summary: child.summary })),
       }));
       return {
-        id: deterministicCompactionJobId({ workspaceId, level: nextLevel, firstSourceSequence, lastSourceSequence, policyVersion }),
+        id: deterministicCompactionJobId({ workspaceId, level: nextLevel, firstSourceSequence, lastSourceSequence, policyVersion: policy.policyVersion }),
         workspaceId,
         level: nextLevel,
         firstSourceSequence,
@@ -241,7 +235,7 @@ export function planHigherLevelCompaction(
         sourceCount: children.reduce((total, child) => total + child.sourceCount, 0),
         orderedSourceDigest: digest,
         childSegmentIds: children.map((child) => child.id),
-        policyVersion,
+        policyVersion: policy.policyVersion,
         inputCharacters: children.reduce((total, child) => total + child.outputCharacters, 0),
       };
     }

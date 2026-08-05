@@ -3,9 +3,11 @@ import { createHash } from "node:crypto";
 import {
   AcceptContinuityResponseInputSchema,
   CompactionJobSchema,
+  CONTINUITY_POLICIES,
   type ContinuityConversation,
   type ContinuityRepository,
   type ContinuityTaskDispatcher,
+  type ContinuityPolicy,
   MessageSchema,
   type MessageRepository,
   ObserveContinuityConversationInputSchema,
@@ -18,7 +20,6 @@ import {
 
 import { assembleConversationContext } from "./conversation-continuity.js";
 import { planHigherLevelCompaction, planLevelOneCompaction } from "./compaction.js";
-import { DEFAULT_CONTINUITY_POLICY, type ContinuityPolicy } from "./continuity-policy.js";
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -35,8 +36,8 @@ export class ContinuityThreadConversationService implements ContinuityConversati
     familyMaps: WorkspaceFamilyMapRepository;
     responder: ConversationResponder;
     systemInstructions: string;
-    dispatcher?: ContinuityTaskDispatcher;
     policy?: ContinuityPolicy;
+    dispatcher?: ContinuityTaskDispatcher;
     now?: () => string;
   }) {}
 
@@ -102,7 +103,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
       familyMap,
       system: this.dependencies.systemInstructions,
       compactionPending: activeJob !== null,
-      ...(this.dependencies.policy === undefined ? {} : { policy: this.dependencies.policy }),
+      policy: this.dependencies.policy ?? CONTINUITY_POLICIES.production,
     });
     const focalMessage = MessageSchema.parse({
       id: input.providerMessageId,
@@ -198,7 +199,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
         this.dependencies.continuity.listSourceEvents(workspaceId),
         this.dependencies.continuity.listReadySegments(workspaceId),
       ]);
-      const policy = this.dependencies.policy ?? DEFAULT_CONTINUITY_POLICY;
+      const policy = this.dependencies.policy ?? CONTINUITY_POLICIES.production;
       const plan = planLevelOneCompaction(workspaceId, sources, ready, policy)
         ?? planHigherLevelCompaction(workspaceId, ready, policy);
       if (plan === null) return;

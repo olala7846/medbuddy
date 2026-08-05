@@ -4,6 +4,7 @@ import {
   ASSEMBLED_CONTEXT_MAX_UTF16,
   AgentActionContextSchema,
   CompactionSegmentSchema,
+  CONTINUITY_POLICIES,
   ContinuityAttachmentSchema,
   SourceEventSchema,
   type SourceEvent,
@@ -14,7 +15,6 @@ import {
   projectEffectiveConversation,
   renderProjectedTurn,
 } from "../src/conversation-continuity.js";
-import { VERIFICATION_SMALL_CONTINUITY_POLICY } from "../src/compaction.js";
 
 function event(sequence: number, body: string, overrides: Record<string, unknown> = {}): SourceEvent {
   return SourceEventSchema.parse({
@@ -30,7 +30,15 @@ function event(sequence: number, body: string, overrides: Record<string, unknown
   });
 }
 
-function segment(input: { id: string; level: number; first: number; last: number; children?: string[]; summaryText?: string; policyVersion?: string }) {
+function segment(input: {
+  id: string;
+  level: number;
+  first: number;
+  last: number;
+  children?: string[];
+  summaryText?: string;
+  policyVersion?: string;
+}) {
   const summary = { overview: input.summaryText ?? `Fictional history ${input.first}-${input.last}.`, keyEvents: [], openLoops: [], caveats: [] };
   return CompactionSegmentSchema.parse({
     id: `compaction-segment:${input.id}`,
@@ -93,47 +101,56 @@ describe("effective conversation projection", () => {
 });
 
 describe("deterministic conversation context", () => {
-  it("renders historical segments only from the active policy version", () => {
-    const sources = [event(3, "Current fictional focal.")];
+  it("uses the verification-small normal limit and only its eligible history before compaction is pending", () => {
+    const sources = Array.from({ length: 4 }, (_, index) => event(index + 5, `${index}`.repeat(400)));
+    const productionHistory = segment({
+      id: "production-normal",
+      level: 1,
+      first: 1,
+      last: 4,
+      summaryText: "Production-only fictional history.",
+    });
+    const verificationHistory = segment({
+      id: "verification-normal",
+      level: 1,
+      first: 1,
+      last: 4,
+      summaryText: "Verification-small fictional history.",
+      policyVersion: "continuity-v1-verification-small",
+    });
     const assembled = assembleConversationContext({
       workspaceId: "workspace:orchard" as never,
-      focalSourceEventId: sources[0]!.id,
+      focalSourceEventId: sources.at(-1)!.id,
       sourceEvents: sources,
-      readySegments: [
-        segment({ id: "production", level: 1, first: 1, last: 1, summaryText: "PRODUCTION_ONLY" }),
-        segment({
-          id: "verification",
-          level: 1,
-          first: 2,
-          last: 2,
-          summaryText: "VERIFICATION_ONLY",
-          policyVersion: "continuity-v1-verification-small",
-        }),
-      ],
+      readySegments: [productionHistory, verificationHistory],
       system: "SYSTEM SAFETY",
       compactionPending: false,
-      policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+      policy: CONTINUITY_POLICIES["verification-small"],
     });
-    expect(assembled.history).toContain("VERIFICATION_ONLY");
-    expect(assembled.history).not.toContain("PRODUCTION_ONLY");
-    expect(assembled.selectedSegments).toHaveLength(1);
+
+    expect(assembled.recentConversation.length).toBeLessThanOrEqual(1_200);
+    expect(assembled.history).toContain("Verification-small fictional history.");
+    expect(assembled.history).not.toContain("Production-only fictional history.");
+    expect(assembled.selectedSegments).toEqual([verificationHistory]);
   });
 
-  it("uses the verification-small pending ceiling only when explicitly selected", () => {
-    const sources = [event(1, "a".repeat(900)), event(2, "b".repeat(900)), event(3, "focal")];
+  it("caps verification-small recent context and excludes history from another policy", () => {
+    const sources = Array.from({ length: 6 }, (_, index) => event(index + 5, `${index}`.repeat(400)));
+    const oldPolicyHistory = segment({ id: "production", level: 1, first: 1, last: 4 });
     const assembled = assembleConversationContext({
       workspaceId: "workspace:orchard" as never,
-      focalSourceEventId: sources[2]!.id,
+      focalSourceEventId: sources.at(-1)!.id,
       sourceEvents: sources,
-      readySegments: [],
+      readySegments: [oldPolicyHistory],
       system: "SYSTEM SAFETY",
       compactionPending: true,
-      policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+      policy: CONTINUITY_POLICIES["verification-small"],
     });
-    expect(assembled.recentConversation.length).toBeLessThanOrEqual(1_800);
-    expect(assembled.recentConversation).toContain("OLDER HISTORY IS PENDING COMPACTION");
-  });
 
+    expect(assembled.recentConversation.length).toBeLessThanOrEqual(1_800);
+    expect(assembled.history).toBe("");
+    expect(assembled.selectedSegments).toEqual([]);
+  });
   it("counts attribution and surrogate pairs in protected whole-turn selection", () => {
     const sources = [event(1, "x".repeat(9_900)), event(2, "😀".repeat(40))];
     const projected = projectEffectiveConversation("workspace:orchard" as never, sources);

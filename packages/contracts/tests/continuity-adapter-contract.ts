@@ -179,6 +179,20 @@ export function describeContinuityRepositoryContract(
       await expect(continuity.listReadySegments("workspace:orchard" as never)).resolves.toEqual([]);
     });
 
+    it("keeps overlapping segment ranges isolated by continuity policy version", async () => {
+      const { continuity } = createHarness();
+      const production = readySegment();
+      const verification = readySegment({
+        id: "compaction-segment:fictional-verification-small",
+        orderedSourceDigest: "b".repeat(64),
+        policyVersion: "continuity-v1-verification-small",
+      });
+
+      await expect(continuity.publishSegment(production)).resolves.toEqual(production);
+      await expect(continuity.publishSegment(verification)).resolves.toEqual(verification);
+      await expect(continuity.listReadySegments("workspace:orchard" as never)).resolves.toHaveLength(2);
+    });
+
     it("claims one compaction model attempt atomically and can reclaim a failed job", async () => {
       const { continuity } = createHarness();
       const job = {
