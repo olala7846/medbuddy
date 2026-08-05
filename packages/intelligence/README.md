@@ -34,10 +34,11 @@ Vertex live smoke and family-map behavior evaluations are opt-in at the repo roo
 
 The optional LangSmith adapter wraps only explicitly composed conversation and
 compaction `VertexModelClient` instances. It requires an exact allowlisted
-fictional workspace match, refuses inline image data, flushes before the
-serverless request finishes, and never changes or retries the underlying Vertex
-result when trace export fails. Text capture, image extraction, and attachment
-ingestion remain untraced.
+fictional workspace match, refuses inline image data, attempts to flush before
+the serverless request finishes with a bounded two-second wait, and never changes or
+retries the underlying Vertex result when trace export fails. Text capture,
+image extraction, and attachment ingestion remain untraced. A flush timeout can
+therefore lose a verification trace without changing the model outcome.
 
 The family-map prompt keeps one readable raw-text document with `Participants`,
 `Named relatives`, and `Direct relationships` sections. Explicitly named
