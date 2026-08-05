@@ -1,6 +1,8 @@
 # Synthetic continuity fixture
 
-`continuity-verification.jsonl` contains one strict action envelope per line:
+`continuity-verification.jsonl` contains the English scenario and
+`continuity-verification-zh-TW.jsonl` contains the equivalent fictional
+Traditional Chinese scenario. Each file has one strict action envelope per line:
 
 - `SEND` embeds the exact provider-shaped LINE event serialized and signed by the harness.
 - `REPLAY_CONCURRENT` references one earlier `SEND` step and submits that exact signed body twice.

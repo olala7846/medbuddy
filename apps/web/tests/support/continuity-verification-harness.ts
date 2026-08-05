@@ -98,6 +98,10 @@ function signedRequest(event: unknown) {
   return { rawBody, signature: createLineSignature(rawBody, CHANNEL_SECRET) };
 }
 
+function countOccurrences(value: string, expected: string): number {
+  return value.split(expected).length - 1;
+}
+
 export function syntheticContinuityCleanupManifest(runNonce = "local"): SyntheticContinuityCleanupManifest {
   return deriveSyntheticContinuityManifest(runNonce);
 }
@@ -114,6 +118,10 @@ export async function runSyntheticContinuityVerification(
     modelAssertions?: "DETERMINISTIC" | "STRUCTURAL";
     responder?: ConversationResponder;
     generator?: CompactionSummaryPort;
+    expectedCompactedContent?: {
+      sourceText: string;
+      summaryMarker: string;
+    };
   } = {},
 ): Promise<SyntheticContinuityCleanupManifest> {
   const queue = new DeterministicContinuityTaskQueue();
@@ -129,6 +137,10 @@ export async function runSyntheticContinuityVerification(
     CORRECTION_CANARY,
     "fictional-verification-bot",
   ]);
+  if (options.expectedCompactedContent !== undefined) {
+    sensitiveValues.add(options.expectedCompactedContent.sourceText);
+    sensitiveValues.add(options.expectedCompactedContent.summaryMarker);
+  }
   const generatedInputs: Array<{ allowedSourceSequences: readonly number[]; renderedInput: string }> = [];
   const fixedResponder: ConversationResponder = {
     async respond() {
@@ -168,7 +180,9 @@ export async function runSyntheticContinuityVerification(
     async generate() {
       return {
         summary: {
-          overview: `${EARLY_CANARY} was retained as fictional derived context.`,
+          overview: options.expectedCompactedContent === undefined
+            ? `${EARLY_CANARY} was retained as fictional derived context.`
+            : `${EARLY_CANARY} ${options.expectedCompactedContent.summaryMarker}`,
           keyEvents: [],
           openLoops: ["A fictional follow-up remains open."],
           caveats: ["Derived and non-authoritative."],
@@ -318,6 +332,15 @@ export async function runSyntheticContinuityVerification(
       active.firstSourceSequence,
       active.lastSourceSequence,
     );
+    if (options.expectedCompactedContent !== undefined) {
+      const expectedSourceText = options.expectedCompactedContent.sourceText;
+      const sourceTextWasPreserved = rangeSources.some((event) =>
+        event.payload.kind === "TEXT" && event.payload.body.includes(expectedSourceText));
+      if (!sourceTextWasPreserved) {
+        throw new Error("Expected compacted source text was not preserved in persisted source events.");
+      }
+      expect(generatedInputs[0]!.renderedInput).toContain(expectedSourceText);
+    }
     expect(segments[0]).toMatchObject({
       workspaceId: primaryWorkspace,
       firstSourceSequence: active.firstSourceSequence,
@@ -356,9 +379,12 @@ export async function runSyntheticContinuityVerification(
   if ((options.modelAssertions ?? "DETERMINISTIC") === "DETERMINISTIC") {
     expect(finalContext.history).toContain(EARLY_CANARY);
   }
+  if (options.expectedCompactedContent !== undefined) {
+    expect(finalContext.history).toContain(options.expectedCompactedContent.summaryMarker);
+  }
   expect(finalContext.recentConversation).toContain(CORRECTION_CANARY);
   expect(finalContext.recentConversation).toContain(finalFocalText);
-  expect(finalContext.recentConversation.match(/What is the latest fictional plan\?/g)).toHaveLength(1);
+  expect(countOccurrences(finalContext.recentConversation, finalFocalText)).toBe(1);
   const renderedContext = [
     finalContext.system,
     finalContext.familyMap,
@@ -367,7 +393,7 @@ export async function runSyntheticContinuityVerification(
     finalContext.recentConversation,
   ].filter((block): block is string => block !== undefined && block.length > 0).join("\n\n");
   expect(renderedContext.indexOf(finalContext.history)).toBeLessThan(renderedContext.indexOf(finalContext.recentConversation));
-  expect(renderedContext.match(/What is the latest fictional plan\?/g)).toHaveLength(1);
+  expect(countOccurrences(renderedContext, finalFocalText)).toBe(1);
   const recentSequences = [...finalContext.recentConversation.matchAll(/\| source ([0-9]+)\]/g)]
     .map((match) => Number(match[1]));
   expect(recentSequences.length).toBeGreaterThan(0);
