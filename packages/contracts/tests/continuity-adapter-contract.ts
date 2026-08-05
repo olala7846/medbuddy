@@ -166,6 +166,35 @@ export function describeContinuityRepositoryContract(
       await expect(continuity.listReadySegments("workspace:meadow" as never)).resolves.toEqual([]);
     }, 20_000);
 
+    it("rejects a fenced segment whose policy differs from the owning active job", async () => {
+      const { continuity } = createHarness();
+      const job = await continuity.claimCompactionJob({
+        id: "compaction-job:fictional-1",
+        workspaceId: "workspace:orchard",
+        level: 1,
+        firstSourceSequence: 1,
+        lastSourceSequence: 1,
+        orderedSourceDigest: "a".repeat(64),
+        childSegmentIds: [],
+        policyVersion: "continuity-v1",
+        status: "PENDING",
+        attempts: 0,
+        createdAt: acceptedAt,
+      } as never);
+      const attempt = await continuity.claimCompactionAttempt(job.workspaceId, job.id, acceptedAt);
+      if (attempt.kind !== "CLAIMED") throw new Error("Expected publication attempt ownership.");
+      const fence = { jobId: attempt.job.id, claimGeneration: attempt.job.claimGeneration };
+
+      await expect(continuity.publishSegment(readySegment({
+        policyVersion: "continuity-v1-verification-small",
+      }), undefined, fence)).rejects.toThrow(/job envelope/i);
+      await expect(continuity.listReadySegments(job.workspaceId)).resolves.toEqual([]);
+      await expect(continuity.getActiveCompactionJob(job.workspaceId)).resolves.toMatchObject({
+        id: job.id,
+        status: "RUNNING",
+      });
+    }, 20_000);
+
     it("rejects ready publication after the source ledger advances past its validated watermark", async () => {
       const { continuity } = createHarness();
       await continuity.acceptSourceEvent(inbound());
