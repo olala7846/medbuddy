@@ -63,6 +63,8 @@ describe("conversation responder", () => {
     "I wonder if Mei is my mother.",
     "I'm not sure Mei is my mother.",
     "I am not Mei.",
+    "I am happy.",
+    "I am tired.",
   ])("does not authorize an interrogative family-map turn: %s", (body) => {
     expect(focalAuthorizesFamilyMapUpdate(body)).toBe(false);
   });
@@ -76,6 +78,9 @@ describe("conversation responder", () => {
     "Remember family name Mei.",
     "梅是凱的媽媽。",
     "請更正家庭關係。",
+    "Correction: Mei is Kai's mother, not his sister.",
+    "Forget that Mei is Kai's mother.",
+    "Forget everything in our family map.",
   ])("authorizes an explicit focal declaration or mutation: %s", (body) => {
     expect(focalAuthorizesFamilyMapUpdate(body)).toBe(true);
   });

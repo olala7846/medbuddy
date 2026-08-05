@@ -229,7 +229,8 @@ target as `gemini-3.6-flash`.
   explicit identity, relationship, correction, or forget/clear forms.
   Interrogatives, uncertainty, and negation never grant it, including
   punctuation-free, fullwidth-punctuation, indirect English, and common CJK
-  question forms.
+  question forms. A complete correction may use “not” to replace a prior
+  relationship, while ordinary “I am” state/adjective sentences remain denied.
 
 **Likely files:**
 

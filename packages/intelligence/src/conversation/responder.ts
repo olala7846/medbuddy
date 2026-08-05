@@ -117,6 +117,11 @@ const FAMILY_PERSON_NAME = "[\\p{L}\\p{M}][\\p{L}\\p{M}'’.-]*(?:\\s+[\\p{L}\\p
 /** Only the current attributed turn can grant the family-map write capability. */
 export function focalAuthorizesFamilyMapUpdate(body: string): boolean {
   const normalized = body.normalize("NFKC").replace(/^\s*@\S+\s*/u, "").trim();
+  const explicitCorrection = new RegExp(
+    `^correction\\s*:\\s*${FAMILY_PERSON_NAME}\\s+(?:is|are)\\s+(?:(?:${FAMILY_PERSON_NAME})(?:['’]s)|my|our)\\s+(?:${FAMILY_RELATION_TERM})\\s*,\\s*not\\s+(?:(?:his|her|their|my|our)\\s+)?(?:${FAMILY_RELATION_TERM})[.!]?$`,
+    "iu",
+  ).test(normalized);
+  if (explicitCorrection) return true;
   const unsafeAuthority = /[?¿]/u.test(normalized) ||
     /\b(?:who|whom|whose|what|which|whether)\b/iu.test(normalized) ||
     /^(?:please\s+)?(?:tell|show|explain)\b/iu.test(normalized) ||
@@ -129,6 +134,8 @@ export function focalAuthorizesFamilyMapUpdate(body: string): boolean {
   const statement = normalized.replace(/[.!。！]+$/u, "").trim();
   if (/^(?:please\s+)?(?:remember|forget|remove|delete|clear|correct|update)\s+(?:(?:the|my|our|this\s+chat['’]s)\s+)?(?:family\s+map|family\s+(?:name|relationship|member)|direct\s+relationship|relationship|relative|member|person)$/iu.test(statement) ||
       new RegExp(`^(?:please\\s+)?remember\\s+(?:the\\s+)?family\\s+name\\s+${FAMILY_PERSON_NAME}$`, "iu").test(statement) ||
+      /^(?:please\s+)?forget\s+everything\s+in\s+(?:the|my|our|this\s+chat['’]s)\s+family\s+map$/iu.test(statement) ||
+      new RegExp(`^(?:please\\s+)?forget\\s+that\\s+${FAMILY_PERSON_NAME}\\s+(?:is|are)\\s+(?:(?:${FAMILY_PERSON_NAME})(?:['’]s)|my|our)\\s+(?:${FAMILY_RELATION_TERM})$`, "iu").test(statement) ||
       new RegExp(`^(?:please\\s+)?(?:forget|remove|delete|clear|correct|update)\\s+(?:(?:the|my|our)\\s+)?(?:${FAMILY_RELATION_TERM})$`, "iu").test(statement) ||
       /^(?:請)?(?:記住|忘記|清除|刪除|更正)(?:這個|我的|我們的)?(?:家人|家庭地圖|家庭關係|關係|名字|成員)$/u.test(statement)) {
     return true;
@@ -137,7 +144,10 @@ export function focalAuthorizesFamilyMapUpdate(body: string): boolean {
   return statement.split(/[.!。！]+/u).some((rawClause) => {
     const clause = rawClause.trim();
     const englishClause = clause.replace(/^(?:actually|correction)\s*[:,]?\s*/iu, "");
-    return new RegExp(`^(?:i am|i['’]m|my name is|call me)\\s+${FAMILY_PERSON_NAME}$`, "iu").test(englishClause) ||
+    const informalIdentity = /^(?:i am|i['’]m)\s+(.+)$/iu.exec(englishClause);
+    const explicitNameIntroduction = new RegExp(`^(?:my name is|call me)\\s+${FAMILY_PERSON_NAME}$`, "iu").test(englishClause) ||
+      (informalIdentity !== null && new RegExp(`^\\p{Lu}[\\p{L}\\p{M}'’.-]*(?:\\s+\\p{Lu}[\\p{L}\\p{M}'’.-]*){0,3}$`, "u").test(informalIdentity[1]!));
+    return explicitNameIntroduction ||
       new RegExp(`^${FAMILY_PERSON_NAME}\\s+(?:is|are)\\s+(?:(?:${FAMILY_PERSON_NAME})(?:['’]s)|my|our)\\s+(?:${FAMILY_RELATION_TERM})$`, "iu").test(englishClause) ||
       new RegExp(`^(?:my|our)\\s+(?:${FAMILY_RELATION_TERM})\\s+(?:is|are)\\s+${FAMILY_PERSON_NAME}$`, "iu").test(englishClause) ||
       /^我是[\p{L}\p{M}]{1,40}$/u.test(clause) ||

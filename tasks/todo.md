@@ -61,7 +61,8 @@
 - [x] Reload the source ledger after Gemini and enforce its validated watermark
   atomically at level-1 publication.
 - [x] Replace family-map authority heuristics with a structural allowlist that
-  denies interrogatives, uncertainty, and negation independently of punctuation.
+  denies interrogatives, uncertainty, and ordinary negation independently of
+  punctuation while retaining explicit corrections and specific/global forget.
 - [x] Stabilize attachment emulator contention and correct deployment/audit docs.
 - [x] Update the executable LINE deployment template to `gemini-3.6-flash`
   with the private continuity callbacks, task identity, bucket, and encrypted
