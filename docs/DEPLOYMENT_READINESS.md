@@ -10,13 +10,17 @@ provisioned or claimed.
   active user has owner access for the prototype foundation apply.
 - The selected prototype region is `us-west1`. Firestore, Cloud Tasks, Cloud
   Run, and Cloud Storage will remain co-located there where supported.
-- Java 17 is installed locally, but the current Google Cloud Firestore emulator
-  requires a Java 21+ JRE. A local emulator start was attempted on 2026-07-29
-  and was rejected before tests ran; the Firestore persistence suite therefore
-  remains blocked rather than treated as a passing skip.
-- `npm audit --omit=dev` reports 5 high and 5 moderate transitive advisories
-  in the current compatible Google client dependency paths. This is a
-  documented prototype exception, not a clean production audit.
+- The default Java is 17, and Homebrew OpenJDK 26 is available explicitly for
+  the current Google Cloud Firestore emulator. On 2026-08-04 the focused
+  continuity contract and the complete emulator-enabled suite passed using
+  that JRE. The final remediation run passed 48 files and 388 tests; only the
+  live-provider file remained gated. Emulator skips are not treated as
+  evidence.
+- `npm audit --omit=dev` reports 9 findings: 4 high and 5 moderate. The high
+  findings are in Firestore cleanup tooling and Next.js build/optional-image
+  paths. The moderate chain reaches the Storage client but concerns UUID
+  v3/v5/v6 buffer APIs that the adapter does not call. This reachability triage
+  is a documented prototype exception, not a clean production audit.
 
 ## What needs an owner decision or authorization
 
@@ -36,8 +40,8 @@ provisioned or claimed.
    project and deployment architecture before any policy change.
 4. Accept or remediate the production dependency audit finding before handling
    real health information. It must be re-run immediately before deployment.
-5. Provide a Java 21+ JRE on the development/CI host, then execute the
-   Firestore emulator suite rather than treating its skips as proof of parity.
+5. Keep a Java 21+ JRE available in development/CI and continue running the
+   complete Firestore-emulator-enabled suite before deployment.
 
 ## What an agent can safely do now with the existing `gcloud` login
 
@@ -78,14 +82,18 @@ payloads, or issue comments.
 
 ## Runtime configuration to supply after provisioning
 
-The production composition requires these non-secret values:
+The production and private continuity compositions require these settings:
 
 - `MEDBUDDY_GCP_PROJECT_ID`
 - `MEDBUDDY_TASKS_LOCATION`
 - `MEDBUDDY_TASKS_QUEUE`
 - `MEDBUDDY_CAPTURE_CALLBACK_URL`
+- `MEDBUDDY_CONTINUITY_CALLBACK_URL`
+- `MEDBUDDY_ATTACHMENT_CALLBACK_URL`
 - `MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL`
 - `MEDBUDDY_ATTACHMENT_BUCKET`
+- `MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION`
+- `MEDBUDDY_ATTACHMENT_LOCATOR_KEY` (secret; canonical base64 for 32 bytes)
 
 Missing values fail safely by naming only the missing setting; values are not
 echoed. The Vertex adapter, if enabled separately, also needs a selected

@@ -7,6 +7,7 @@ import {
   WorkspaceIdSchema,
 } from "./ids.js";
 import { WorkspaceFamilyMapContentSchema } from "./workspace-family-map.js";
+import { AssembledContextSchema } from "./continuity.js";
 
 const TimestampSchema = z.string().datetime({ offset: true });
 
@@ -46,7 +47,7 @@ export const MessageSchema = z.object({
   id: MessageIdSchema,
   workspaceId: WorkspaceIdSchema,
   authorMemberId: z.union([MemberIdSchema, z.literal("MEDBUDDY")]),
-  body: z.string().min(1).max(10_000),
+  body: z.string().min(1).max(100_000),
   createdAt: TimestampSchema,
   attachmentIds: z.array(AttachmentIdSchema).max(5),
   captureIntent: CaptureIntentSchema,
@@ -71,6 +72,7 @@ export const ConversationContextSchema = z
       content: WorkspaceFamilyMapContentSchema,
       revision: z.number().int().nonnegative(),
     }).strict().optional(),
+    assembledContext: AssembledContextSchema.optional(),
   })
   .superRefine((context, issueContext) => {
     for (const [index, message] of context.messages.entries()) {
@@ -87,6 +89,13 @@ export const ConversationContextSchema = z
         code: "custom",
         message: "Conversation family map must belong to the requested workspace.",
         path: ["familyMap", "workspaceId"],
+      });
+    }
+    if (context.assembledContext !== undefined && context.assembledContext.workspaceId !== context.workspaceId) {
+      issueContext.addIssue({
+        code: "custom",
+        message: "Assembled conversation context must belong to the requested workspace.",
+        path: ["assembledContext", "workspaceId"],
       });
     }
   })
@@ -114,7 +123,7 @@ export const MessagePageSchema = z.object({
 
 export const AppendMessageInputSchema = z.object({
   workspaceId: WorkspaceIdSchema,
-  body: z.string().min(1).max(10_000),
+  body: z.string().min(1).max(100_000),
   attachmentIds: z.array(AttachmentIdSchema).max(5).default([]),
   captureIntent: CaptureIntentSchema.default("PASSIVE"),
   idempotencyKey: z.string().min(1).max(128),

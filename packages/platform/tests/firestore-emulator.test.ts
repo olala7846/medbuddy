@@ -180,12 +180,13 @@ describeEmulator("Firestore emulator persistence", () => {
     );
     await expect(platform.messages.putMessage({ ...createMessage("message:revision-1"), body: "Changed." })).rejects.toThrow("immutable");
     const messages = await platform.messages.listMessages(first.workspaceId);
-    expect(messages.slice(0, 3)).toMatchObject([
-      { id: "message:revision-1", revision: 2 },
-      { id: "message:revision-2", revision: 3 },
-      { id: "message:revision-3", revision: 4 },
-    ]);
-  });
+    expect(messages.map((message) => message.revision)).toEqual(
+      Array.from({ length: 21 }, (_, index) => index + 2),
+    );
+    expect(messages.map((message) => message.id).sort()).toEqual(
+      Array.from({ length: 21 }, (_, index) => `message:revision-${index + 1}`).sort(),
+    );
+  }, 20_000);
 
   it("atomically replaces the one current workspace family map", async () => {
     const platform = persistence();

@@ -2,9 +2,17 @@ import { Firestore } from "@google-cloud/firestore";
 import { CloudTasksClient } from "@google-cloud/tasks";
 import { Storage } from "@google-cloud/storage";
 
-import { CloudTasksCaptureDispatcher, type CloudTasksDispatcherOptions } from "./cloud-tasks/dispatcher.js";
+import {
+  CloudTasksCaptureDispatcher,
+  CloudTasksAttachmentDispatcher,
+  CloudTasksContinuityDispatcher,
+  type CloudTasksDispatcherOptions,
+} from "./cloud-tasks/dispatcher.js";
 import { FirestorePersistence } from "./firestore/repositories.js";
+import { FirestoreContinuityRepository } from "./firestore/continuity.js";
 import { PrivateAttachmentStorage } from "./storage/attachments.js";
+import { ContinuityPrivateAttachmentStorage } from "./storage/attachments.js";
+import { EncryptedLineAttachmentLocatorStore, FirestoreAttachmentLocatorDocuments } from "./firestore/attachment-locator.js";
 
 export interface ProductionPlatformOptions extends CloudTasksDispatcherOptions {
   storageBucket: string;
@@ -12,8 +20,33 @@ export interface ProductionPlatformOptions extends CloudTasksDispatcherOptions {
 
 /** Minimal Firestore-only platform for synchronous external conversations. */
 export function createConversationPlatform(projectId: string) {
+  const firestore = new Firestore({ projectId });
   return {
-    persistence: new FirestorePersistence(new Firestore({ projectId })),
+    persistence: new FirestorePersistence(firestore),
+    continuity: new FirestoreContinuityRepository(firestore),
+  };
+}
+
+export function createContinuityDispatcher(options: CloudTasksDispatcherOptions) {
+  return new CloudTasksContinuityDispatcher(new CloudTasksClient(), options);
+}
+
+export function createLineAttachmentPlatform(options: CloudTasksDispatcherOptions & {
+  storageBucket: string;
+  locatorKeyVersion: string;
+  locatorKeyBase64: string;
+}) {
+  const firestore = new Firestore({ projectId: options.projectId });
+  return {
+    locator: new EncryptedLineAttachmentLocatorStore(
+      new FirestoreAttachmentLocatorDocuments(firestore),
+      { version: options.locatorKeyVersion, keyBase64: options.locatorKeyBase64 },
+    ),
+    dispatcher: new CloudTasksAttachmentDispatcher(new CloudTasksClient(), options),
+    storage: new ContinuityPrivateAttachmentStorage(
+      new Storage({ projectId: options.projectId }),
+      options.storageBucket,
+    ),
   };
 }
 
@@ -25,6 +58,7 @@ export function createProductionPlatform(options: ProductionPlatformOptions) {
   const firestore = new Firestore({ projectId: options.projectId });
   return {
     persistence: new FirestorePersistence(firestore),
+    continuity: new FirestoreContinuityRepository(firestore),
     captureDispatcher: new CloudTasksCaptureDispatcher(new CloudTasksClient(), options),
     attachmentStorage: new PrivateAttachmentStorage(new Storage({ projectId: options.projectId }), options.storageBucket),
   };

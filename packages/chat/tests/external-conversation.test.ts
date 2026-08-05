@@ -3,11 +3,14 @@ import {
   type MessageRepository,
   type WorkspaceFamilyMapRepository,
   MessageWriteSchema,
+  ObserveContinuityConversationInputSchema,
   ThreadConversationInputSchema,
 } from "@medbuddy/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ThreadConversationService } from "../src/index.js";
+import { ContinuityThreadConversationService, ThreadConversationService } from "../src/index.js";
+import { InMemoryContinuityRepository } from "@medbuddy/platform";
+import { InMemoryPersistence } from "@medbuddy/platform";
 
 const timestamp = "2026-08-03T12:00:00.000Z";
 const input = ThreadConversationInputSchema.parse({
@@ -137,5 +140,105 @@ describe("ThreadConversationService", () => {
       body: "A fictional request.",
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE" });
     await expect(messages.listMessages("workspace:line-thread-a" as never)).resolves.toHaveLength(1);
+  });
+});
+
+describe("ContinuityThreadConversationService", () => {
+  function createContinuityHarness() {
+    const persistence = new InMemoryPersistence();
+    const continuity = new InMemoryContinuityRepository();
+    const modelRequests: Parameters<ConversationResponder["respond"]>[0][] = [];
+    const service = new ContinuityThreadConversationService({
+      continuity,
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      responder: {
+        async respond(request) {
+          modelRequests.push(request);
+          return { kind: "RESPONDED", responseText: "A fictional continuity reply.", retryable: false };
+        },
+      },
+      systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
+      now: () => timestamp,
+    });
+    return { service, continuity, messages: persistence.messages, modelRequests };
+  }
+
+  function observedInput(replyRequested: boolean, suffix = "a") {
+    return ObserveContinuityConversationInputSchema.parse({
+      receiptKey: `event:line-fictional-${suffix}`,
+      sourceEventId: `source-event:line-fictional-${suffix}`,
+      workspaceId: "workspace:line-thread-a",
+      authorMemberId: "member:line-sender-a",
+      occurredAt: timestamp,
+      acceptedAt: timestamp,
+      providerMessageId: `message:line-fictional-${suffix}`,
+      payload: { kind: "TEXT", body: `Fictional observed message ${suffix}.`, replyRequested },
+    });
+  }
+
+  it("persists unmentioned observation without invoking a model", async () => {
+    const harness = createContinuityHarness();
+    await expect(harness.service.observe(observedInput(false))).resolves.toMatchObject({ kind: "OBSERVED" });
+    await expect(harness.continuity.listSourceEvents("workspace:line-thread-a" as never)).resolves.toHaveLength(1);
+    expect(harness.modelRequests).toEqual([]);
+  });
+
+  it("keeps outbound text as a candidate until LINE acceptance", async () => {
+    const harness = createContinuityHarness();
+    const result = await harness.service.observe(observedInput(true));
+    expect(result).toMatchObject({ kind: "RESPONSE_CANDIDATE", responseText: "A fictional continuity reply." });
+    await expect(harness.continuity.listSourceEvents("workspace:line-thread-a" as never)).resolves.toHaveLength(1);
+    await expect(harness.messages.listMessages("workspace:line-thread-a" as never)).resolves.toHaveLength(1);
+    if (result.kind !== "RESPONSE_CANDIDATE") throw new Error("Expected a candidate.");
+    await harness.service.acceptDeliveredResponse({
+      workspaceId: "workspace:line-thread-a" as never,
+      candidateId: result.candidateId,
+      acceptedAt: timestamp,
+    });
+    await expect(harness.continuity.listSourceEvents("workspace:line-thread-a" as never)).resolves.toMatchObject([
+      { authorMemberId: "member:line-sender-a", sourceSequence: 1 },
+      { authorMemberId: "MEDBUDDY", sourceSequence: 2 },
+    ]);
+    expect(harness.modelRequests[0]?.context.assembledContext?.recentConversation).toContain("Fictional observed message a.");
+  });
+
+  it("deduplicates observation before model work", async () => {
+    const harness = createContinuityHarness();
+    await harness.service.observe(observedInput(true));
+    await expect(harness.service.observe(observedInput(true))).resolves.toEqual({ kind: "DUPLICATE" });
+    expect(harness.modelRequests).toHaveLength(1);
+  });
+
+  it("renders only attachment lifecycle metadata into a later model context", async () => {
+    const harness = createContinuityHarness();
+    await harness.service.observe(ObserveContinuityConversationInputSchema.parse({
+      receiptKey: "event:line-fictional-attachment",
+      sourceEventId: "source-event:line-fictional-attachment",
+      workspaceId: "workspace:line-thread-a",
+      authorMemberId: "member:line-sender-a",
+      occurredAt: timestamp,
+      acceptedAt: timestamp,
+      providerMessageId: "message:line-fictional-attachment",
+      payload: { kind: "ATTACHMENT", attachmentId: "attachment:line-fictional-1", mediaClass: "IMAGE" },
+    }));
+    const pending = await harness.continuity.getAttachment(
+      "workspace:line-thread-a" as never,
+      "attachment:line-fictional-1" as never,
+    );
+    if (pending === null) throw new Error("Expected fictional pending attachment.");
+    await harness.continuity.putAttachment({
+      ...pending,
+      state: "AVAILABLE",
+      attempts: 1,
+      byteSize: 11,
+      checksum: "a".repeat(64),
+    });
+
+    await harness.service.observe(observedInput(true, "after-attachment"));
+    expect(harness.modelRequests[0]?.context.assembledContext?.recentConversation)
+      .toContain("[image attachment available]");
+    expect(JSON.stringify(harness.modelRequests[0])).not.toContain("attachment:line-fictional-1");
+    expect(JSON.stringify(harness.modelRequests[0])).not.toContain('"checksum"');
   });
 });

@@ -1,29 +1,32 @@
 # GCP adapter operational notes
 
 The Firestore, Cloud Tasks, and Cloud Storage adapters use the current
-compatible Google Cloud Node clients. As of 2026-07-28, `npm audit --omit=dev`
-reports transitive advisories in `google-gax` and Cloud Storage's legacy HTTP
-dependency chain. The affected current Google client versions have no
-non-breaking patched release: `google-gax` 5.0.8 is the latest compatible
-release, and npm proposes a breaking downgrade of Cloud Storage to 5.18.3.
+compatible Google Cloud Node clients. As of 2026-08-04, `npm audit --omit=dev`
+reports 9 findings (4 high and 5 moderate). npm proposes normal updates for
+some high transitive paths and a breaking downgrade of Cloud Storage to 5.18.3
+for the moderate chain; no automatic dependency mutation was authorized.
 
 This is an explicitly accepted prototype dependency exception, not a claim of
-a clean production audit. On 2026-07-29, the production-only audit reports 10
-transitive findings (5 high and 5 moderate):
+a clean production audit. Current reachability triage is:
 
-- Firestore and Tasks share `google-gax@5.0.8`'s `rimraf@5` → `glob@10` →
-  `minimatch@9` → `brace-expansion@2` chain (5 high findings).
-- Storage's supported dependency ranges resolve to `gaxios@6.7.1` and
-  `teeny-request@9.0.0` / `retry-request@7.0.2`, which retain `uuid@9`
-  (5 moderate findings).
+- One high `brace-expansion` advisory is under Firestore's `rimraf`/`glob`
+  cleanup tooling; the application runtime does not invoke that cleanup path.
+- High PostCSS advisories are limited to trusted checked-in build CSS; the
+  application does not accept user-authored CSS or source maps.
+- High Sharp/libvips advisories are in Next.js's optional image path. The app
+  has no `next/image` or remote-image configuration, and LINE attachment
+  ingestion validates signatures and stores bytes without invoking Sharp.
+- The five moderate entries are the `uuid` advisory and its
+  `gaxios`/`teeny-request`/`retry-request`/Storage dependency chain. The
+  vulnerable operation is an explicitly supplied output buffer for UUID
+  v3/v5/v6; these client paths use UUID v4 and the MedBuddy adapter never calls
+  those buffer APIs directly.
 
-The Google client releases above are the current compatible releases. The
-available audit remediation proposes downgrading Storage across a major version
-to `@google-cloud/storage@5.18.3`, so it must not be applied. We also rejected
-forcing current major versions of `rimraf`, `gaxios`, `teeny-request`, or
-`retry-request` through npm overrides: those versions are outside their Google
-clients' declared compatibility ranges, and local adapter tests cannot prove
-their behavior against live GCP APIs.
+The audit remediation that covers the moderate chain proposes downgrading
+Storage across a major version to `@google-cloud/storage@5.18.3`, so it must
+not be applied without a focused compatibility change. Forced transitive
+overrides likewise remain inappropriate because emulator tests cannot prove
+behavior against live GCP APIs.
 
 Before any real-data deployment, re-run `npm audit --omit=dev` and upgrade to
 the first compatible Google client releases that remove these transitive paths.
@@ -32,17 +35,25 @@ owner records a time-bounded risk acceptance with compensating controls.
 Do not use service-account keys: deploy with workload identity, a private
 uniform-access bucket, and a dedicated Cloud Tasks callback service account.
 
+On 2026-08-04 the complete Firestore-emulator-enabled suite passed 48 files and
+388 tests using Homebrew OpenJDK 26. The remaining skipped file is the
+credential-gated live Vertex smoke, not an adapter test.
+
 ## Production composition status
 
-The application composition validates these required, non-secret settings before
+The application compositions validate these required settings before
 constructing Firestore, Cloud Tasks, or Storage adapters:
 
 - `MEDBUDDY_GCP_PROJECT_ID`
 - `MEDBUDDY_TASKS_LOCATION`
 - `MEDBUDDY_TASKS_QUEUE`
 - `MEDBUDDY_CAPTURE_CALLBACK_URL`
+- `MEDBUDDY_CONTINUITY_CALLBACK_URL`
+- `MEDBUDDY_ATTACHMENT_CALLBACK_URL`
 - `MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL`
 - `MEDBUDDY_ATTACHMENT_BUCKET`
+- `MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION`
+- `MEDBUDDY_ATTACHMENT_LOCATOR_KEY` (secret)
 
 Invalid or absent configuration reports only setting names; values are never
 echoed. The composition intentionally does not provision a project, IAM roles,
@@ -64,9 +75,9 @@ test path. The live Vertex REST adapter is opt-in: set
 `MEDBUDDY_VERTEX_ENABLED=true`, `MEDBUDDY_VERTEX_PROJECT`, and (optionally)
 `MEDBUDDY_VERTEX_LOCATION` / `MEDBUDDY_VERTEX_MODEL`, then provide Application
 Default Credentials. Do not put credentials in environment files committed to
-the repository. The default `gemini-2.5-flash` configuration uses Vertex's
-`global` location; supply both a regional model and its location when using a
-regional endpoint. Each request has a bounded timeout and returns a typed
+the repository. `gemini-3.6-flash` is the selected continuity model and uses
+Vertex's `global` location by default. Each conversational request has bounded
+context, reserved output, and a bounded timeout, and returns a typed
 provider-timeout outcome when it expires.
 
 Run the live, fictional-only smoke tests with:

@@ -4,6 +4,8 @@ import { AttachmentSchema, ConversationRequestSchema, MessageSchema } from "@med
 
 import {
   CommittedSourceCardGrounding,
+  CONVERSATION_MAX_OUTPUT_TOKENS,
+  CONVERSATION_PROVIDER_REQUEST_MAX_UTF16,
   ConversationResponder,
   VertexConversationProvider,
   type VertexGenerationRequest,
@@ -73,7 +75,7 @@ describe("Vertex adapters", () => {
     expect(globalConfiguration).toEqual({
       projectId: "fictional-project",
       location: "global",
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
     });
     await new VertexRestClient(globalConfiguration!, accessToken, fetchStub).generate({
       systemInstruction: "fictional",
@@ -89,12 +91,12 @@ describe("Vertex adapters", () => {
     });
 
     expect(urls).toEqual([
-      "https://aiplatform.googleapis.com/v1/projects/fictional-project/locations/global/publishers/google/models/gemini-2.5-flash:generateContent",
+      "https://aiplatform.googleapis.com/v1/projects/fictional-project/locations/global/publishers/google/models/gemini-3.6-flash:generateContent",
       "https://us-central1-aiplatform.googleapis.com/v1/projects/fictional-project/locations/us-central1/publishers/google/models/regional-fictional-model:generateContent",
     ]);
   });
 
-  it("keeps the declaration and omits JSON MIME constraints for AUTO and NONE tool steps", async () => {
+  it("keeps the declaration and reserves bounded output for AUTO and NONE tool steps", async () => {
     const bodies: unknown[] = [];
     const fetchStub: typeof fetch = async (_input, init) => {
       bodies.push(JSON.parse(String(init?.body)) as unknown);
@@ -111,12 +113,14 @@ describe("Vertex adapters", () => {
       contents: [{ role: "user", parts: [{ text: "fictional" }] }],
       tools: [{ functionDeclarations: [] }],
       toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+      generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
     });
     await client.generate({
       systemInstruction: "fictional",
       contents: [{ role: "user", parts: [{ text: "fictional continuation" }] }],
       tools: [{ functionDeclarations: [{ name: "update_workspace_family_map" }] }],
       toolConfig: { functionCallingConfig: { mode: "NONE" } },
+      generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
     });
 
     expect(bodies).toEqual([
@@ -129,9 +133,44 @@ describe("Vertex adapters", () => {
         toolConfig: { functionCallingConfig: { mode: "NONE" } },
       }),
     ]);
-    for (const body of bodies as Record<string, unknown>[]) {
-      expect(body).not.toHaveProperty("generationConfig");
-    }
+  });
+
+  it("bounds the complete conversational provider request including wrappers", async () => {
+    const requests: VertexGenerationRequest[] = [];
+    const recordingClient: VertexModelClient = {
+      async generate(input) {
+        requests.push(input);
+        return { candidates: [{ content: { parts: [{ text: '{"kind":"ACKNOWLEDGE"}' }] } }] };
+      },
+    };
+    const boundedInput = ConversationRequestSchema.parse({
+      ...conversationInput,
+      context: {
+        ...conversationInput.context,
+        assembledContext: {
+          workspaceId: focalMessage.workspaceId,
+          focalSourceEventId: "source-event:vertex",
+          system: "s".repeat(8_000),
+          familyMap: "f".repeat(4_000),
+          agentActions: "a".repeat(4_000),
+          history: "h".repeat(18_800),
+          recentConversation: "r".repeat(4_900),
+          omittedSourceEventCount: 1,
+        },
+      },
+    });
+
+    await new VertexConversationProvider(recordingClient).respond({
+      focalMessage,
+      context: boundedInput.context,
+    });
+
+    expect(JSON.stringify(requests[0]).length).toBeLessThanOrEqual(
+      CONVERSATION_PROVIDER_REQUEST_MAX_UTF16,
+    );
+    expect(requests[0]?.generationConfig).toEqual({
+      maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS,
+    });
   });
 
   it("bounds a stalled provider request and returns a typed timeout", async () => {
@@ -275,6 +314,7 @@ describe("Vertex adapters", () => {
       systemInstruction: expect.stringContaining("general conversational assistant"),
       tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
       toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+      generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
       contents: [
         { role: "model", parts: [{ text: "A prior fictional reply." }] },
         { role: "user", parts: [{ text: "[member:vertex]\nA fictional follow-up." }] },
@@ -383,6 +423,7 @@ describe("Vertex adapters", () => {
     expect(requests[1]).toMatchObject({
       tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
       toolConfig: { functionCallingConfig: { mode: "NONE" } },
+      generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
     });
   });
 
@@ -431,10 +472,11 @@ describe("Vertex adapters", () => {
       new CommittedSourceCardGrounding([]),
       new VertexConversationProvider(retryClient),
     );
+    const explicitFocal = MessageSchema.parse({ ...focalMessage, body: "Mei is Kai's mother." });
 
     await expect(responder.respond({
       messageId: focalMessage.id,
-      context: conversationInput.context,
+      context: { ...conversationInput.context, messages: [explicitFocal] },
     }, {
       updateWorkspaceFamilyMap: {
         async update(input) {

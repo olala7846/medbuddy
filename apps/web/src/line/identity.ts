@@ -5,6 +5,8 @@ import {
   ExternalEventReceiptKeySchema,
   MemberIdSchema,
   MessageIdSchema,
+  SourceEventIdSchema,
+  AttachmentIdSchema,
   WorkspaceIdSchema,
   type ExternalConversationIdentity,
 } from "@medbuddy/contracts";
@@ -21,5 +23,7 @@ export function deriveLineConversationIds(identityValue: ExternalConversationIde
     memberId: MemberIdSchema.parse(`member:line-${digest([workspaceDigest, identity.senderId])}`),
     messageId: MessageIdSchema.parse(`message:line-${digest([workspaceDigest, identity.messageId])}`),
     receiptKey: ExternalEventReceiptKeySchema.parse(`event:line-${digest([identity.channel, identity.eventId])}`),
+    sourceEventId: SourceEventIdSchema.parse(`source-event:line-${digest([identity.channel, identity.eventId])}`),
+    attachmentId: AttachmentIdSchema.parse(`attachment:line-${digest([workspaceDigest, identity.messageId])}`),
   };
 }

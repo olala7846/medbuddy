@@ -2,7 +2,7 @@
 
 MedBuddy is becoming an AI participant in an existing family conversation without making medical decisions.
 
-The current LINE prototype maps a verified text event to one isolated group/DM workspace, supplies recent attributed messages plus one bounded workspace family map to Vertex, and replies to the same conversation. The model may replace that map through one server-bound tool; it still has no repository access or authority to write medical facts. See [`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md).
+The current LINE prototype maps verified DM/group/room events to isolated workspaces, preserves an immutable continuity ledger, supplies bounded recent and progressively compacted attributed history plus one bounded family map to Vertex, and publishes MedBuddy output as evidence only after LINE accepts it. Private tasks compact history and ingest validated attachments. The model still has no repository access or authority to write medical facts. See [`PRODUCT_DIRECTION.md`](./PRODUCT_DIRECTION.md).
 
 ## Start here (progressive disclosure)
 
