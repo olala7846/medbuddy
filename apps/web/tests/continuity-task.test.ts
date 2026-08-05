@@ -5,7 +5,11 @@ import {
   type SegmentSummary,
 } from "@medbuddy/contracts";
 import { InMemoryContinuityRepository } from "@medbuddy/platform";
-import { orderedSourceDigest } from "@medbuddy/chat";
+import {
+  orderedSourceDigest,
+  type ContinuityPolicy,
+  VERIFICATION_SMALL_CONTINUITY_POLICY,
+} from "@medbuddy/chat";
 
 import {
   ContinuityCompactionWorker,
@@ -26,6 +30,7 @@ async function harness(options: {
   lateSources?: number;
   lateEdit?: boolean;
   abandonedRunning?: boolean;
+  policy?: ContinuityPolicy;
 } = {}) {
   const continuity = new InMemoryContinuityRepository();
   const source = SourceEventSchema.parse({
@@ -50,9 +55,9 @@ async function harness(options: {
     level: 1,
     firstSourceSequence: 1,
     lastSourceSequence: 1,
-    orderedSourceDigest: orderedSourceDigest("continuity-v1", [source]),
+    orderedSourceDigest: orderedSourceDigest(options.policy?.policyVersion ?? "continuity-v1", [source]),
     childSegmentIds: [],
-    policyVersion: "continuity-v1",
+    policyVersion: options.policy?.policyVersion ?? "continuity-v1",
     status: "PENDING",
     attempts: options.attempts ?? 0,
     claimGeneration: options.attempts ?? 0,
@@ -122,6 +127,7 @@ async function harness(options: {
     promptVersion: "continuity-summary-v1",
     logger: { write: (entry) => logs.push(entry) },
     dispatcher: { async dispatch(input) { dispatched.push(input); } },
+    ...(options.policy === undefined ? {} : { policy: options.policy }),
   });
   const dispatched: unknown[] = [];
   const handler = new ContinuityTaskHandler({
@@ -332,6 +338,25 @@ describe("private continuity task", () => {
     expect(dispatched).toEqual([{ workspaceId, jobId: next!.id }]);
   });
 
+  it("uses verification-small for follow-up scheduling and allowlisted telemetry", async () => {
+    const { continuity, dispatched, handler, logs } = await harness({
+      lateSources: 3,
+      policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+    });
+    await expect(handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    })).resolves.toEqual({ status: 200 });
+
+    const next = await continuity.getActiveCompactionJob(workspaceId as never);
+    expect(next?.policyVersion).toBe("continuity-v1-verification-small");
+    expect(dispatched).toEqual([{ workspaceId, jobId: next!.id }]);
+    expect(logs).toContainEqual(expect.objectContaining({
+      event: "continuity_job_completed",
+      policyVersion: "continuity-v1-verification-small",
+    }));
+  });
+
   it("rejects a stale in-range edit before Gemini and dispatches a refreshed job", async () => {
     const { calls, continuity, dispatched, handler } = await harness({
       body: "x".repeat(21_000),
@@ -398,6 +423,10 @@ describe("private continuity task", () => {
       promptVersion: "continuity-summary-v1",
       policyVersion: "continuity-v1",
     })).toMatchObject({ event: "continuity_job_completed", level: 1 });
+    expect(ContinuityWorkerLogEntrySchema.parse({
+      event: "continuity_job_completed",
+      policyVersion: "continuity-v1-verification-small",
+    })).toMatchObject({ policyVersion: "continuity-v1-verification-small" });
     for (const field of ["workspaceId", "jobId", "body", "prompt", "summary", "attachmentId", "objectPath"]) {
       expect(() => ContinuityWorkerLogEntrySchema.parse({
         event: "continuity_job_completed",

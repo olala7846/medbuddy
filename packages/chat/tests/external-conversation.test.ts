@@ -8,7 +8,11 @@ import {
 } from "@medbuddy/contracts";
 import { describe, expect, it } from "vitest";
 
-import { ContinuityThreadConversationService, ThreadConversationService } from "../src/index.js";
+import {
+  ContinuityThreadConversationService,
+  ThreadConversationService,
+  VERIFICATION_SMALL_CONTINUITY_POLICY,
+} from "../src/index.js";
 import { InMemoryContinuityRepository } from "@medbuddy/platform";
 import { InMemoryPersistence } from "@medbuddy/platform";
 
@@ -208,6 +212,39 @@ describe("ContinuityThreadConversationService", () => {
     await harness.service.observe(observedInput(true));
     await expect(harness.service.observe(observedInput(true))).resolves.toEqual({ kind: "DUPLICATE" });
     expect(harness.modelRequests).toHaveLength(1);
+  });
+
+  it("uses one explicit policy for inbound scheduling and context assembly", async () => {
+    const persistence = new InMemoryPersistence();
+    const continuity = new InMemoryContinuityRepository();
+    const dispatched: unknown[] = [];
+    const contexts: string[] = [];
+    const service = new ContinuityThreadConversationService({
+      continuity,
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      responder: {
+        async respond(request) {
+          contexts.push(request.context.assembledContext!.recentConversation);
+          return { kind: "RESPONDED", responseText: "A fictional continuity reply.", retryable: false };
+        },
+      },
+      systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
+      dispatcher: { async dispatch(input) { dispatched.push(input); } },
+      policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+      now: () => timestamp,
+    });
+    for (let index = 0; index < 3; index += 1) {
+      await service.observe(ObserveContinuityConversationInputSchema.parse({
+        ...observedInput(index === 2, `small-${index}`),
+        payload: { kind: "TEXT", body: `${index}`.repeat(650), replyRequested: index === 2 },
+      }));
+    }
+
+    const active = await continuity.getActiveCompactionJob("workspace:line-thread-a" as never);
+    expect(active?.policyVersion).toBe("continuity-v1-verification-small");
+    expect(dispatched).toContainEqual({ workspaceId: active!.workspaceId, jobId: active!.id });
+    expect(contexts.at(-1)!.length).toBeLessThanOrEqual(1_800);
   });
 
   it("renders only attachment lifecycle metadata into a later model context", async () => {

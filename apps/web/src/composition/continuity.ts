@@ -8,6 +8,9 @@ import {
   renderProjectedTurn,
   sourceEventsForCompactionRange,
   type CompactionPlan,
+  DEFAULT_CONTINUITY_POLICY,
+  type ContinuityPolicy,
+  VERIFICATION_SMALL_CONTINUITY_POLICY,
 } from "@medbuddy/chat";
 import {
   COMPACTION_MAX_ATTEMPTS,
@@ -51,7 +54,10 @@ export const ContinuityWorkerLogEntrySchema = z.object({
   omissionCount: z.number().int().nonnegative().optional(),
   modelId: z.literal("gemini-3.6-flash").optional(),
   promptVersion: z.literal("continuity-summary-v1").optional(),
-  policyVersion: z.literal("continuity-v1").optional(),
+  policyVersion: z.enum([
+    DEFAULT_CONTINUITY_POLICY.policyVersion,
+    VERIFICATION_SMALL_CONTINUITY_POLICY.policyVersion,
+  ]).optional(),
 }).strict();
 
 export type ContinuityWorkerLogEntry = z.infer<typeof ContinuityWorkerLogEntrySchema>;
@@ -101,6 +107,13 @@ function backlogClass(characters: number): ContinuityWorkerLogEntry["backlogClas
   return "OVER_30K";
 }
 
+function telemetryPolicyVersion(policyVersion: string): ContinuityWorkerLogEntry["policyVersion"] {
+  return policyVersion === DEFAULT_CONTINUITY_POLICY.policyVersion ||
+    policyVersion === VERIFICATION_SMALL_CONTINUITY_POLICY.policyVersion
+    ? policyVersion
+    : undefined;
+}
+
 export class ContinuityCompactionWorker {
   constructor(private readonly dependencies: {
     continuity: ContinuityRepository;
@@ -111,6 +124,7 @@ export class ContinuityCompactionWorker {
     promptVersion: "continuity-summary-v1";
     logger: ContinuityWorkerLogger;
     dispatcher?: ContinuityTaskDispatcher;
+    policy?: ContinuityPolicy;
   }) {}
 
   async run(input: ContinuityTaskInput): Promise<"PUBLISHED" | "REUSED" | "EXHAUSTED"> {
@@ -202,7 +216,9 @@ export class ContinuityCompactionWorker {
         backlogClass: backlogClass(renderedInput.length),
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
-        ...(claimedJob.policyVersion === "continuity-v1" ? { policyVersion: claimedJob.policyVersion } : {}),
+        ...(telemetryPolicyVersion(claimedJob.policyVersion) === undefined
+          ? {}
+          : { policyVersion: telemetryPolicyVersion(claimedJob.policyVersion) }),
       });
       const generated = await this.dependencies.generator.generate({
         workspaceId: input.workspaceId,
@@ -257,7 +273,9 @@ export class ContinuityCompactionWorker {
         durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
         modelId: this.dependencies.modelId,
         promptVersion: this.dependencies.promptVersion,
-        ...(claimedJob.policyVersion === "continuity-v1" ? { policyVersion: claimedJob.policyVersion } : {}),
+        ...(telemetryPolicyVersion(claimedJob.policyVersion) === undefined
+          ? {}
+          : { policyVersion: telemetryPolicyVersion(claimedJob.policyVersion) }),
       });
       await this.scheduleNext(input.workspaceId);
       return "PUBLISHED";
@@ -289,8 +307,9 @@ export class ContinuityCompactionWorker {
         this.dependencies.continuity.listSourceEvents(workspaceId),
         this.dependencies.continuity.listReadySegments(workspaceId),
       ]);
-      const plan = planLevelOneCompaction(workspaceId, sources, ready)
-        ?? planHigherLevelCompaction(workspaceId, ready);
+      const policy = this.dependencies.policy ?? DEFAULT_CONTINUITY_POLICY;
+      const plan = planLevelOneCompaction(workspaceId, sources, ready, policy)
+        ?? planHigherLevelCompaction(workspaceId, ready, policy);
       if (plan === null) return;
       const job = await this.dependencies.continuity.claimCompactionJob(CompactionJobSchema.parse({
         id: plan.id,

@@ -18,6 +18,7 @@ import {
 
 import { assembleConversationContext } from "./conversation-continuity.js";
 import { planHigherLevelCompaction, planLevelOneCompaction } from "./compaction.js";
+import { DEFAULT_CONTINUITY_POLICY, type ContinuityPolicy } from "./continuity-policy.js";
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -35,6 +36,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
     responder: ConversationResponder;
     systemInstructions: string;
     dispatcher?: ContinuityTaskDispatcher;
+    policy?: ContinuityPolicy;
     now?: () => string;
   }) {}
 
@@ -100,6 +102,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
       familyMap,
       system: this.dependencies.systemInstructions,
       compactionPending: activeJob !== null,
+      ...(this.dependencies.policy === undefined ? {} : { policy: this.dependencies.policy }),
     });
     const focalMessage = MessageSchema.parse({
       id: input.providerMessageId,
@@ -195,8 +198,9 @@ export class ContinuityThreadConversationService implements ContinuityConversati
         this.dependencies.continuity.listSourceEvents(workspaceId),
         this.dependencies.continuity.listReadySegments(workspaceId),
       ]);
-      const plan = planLevelOneCompaction(workspaceId, sources, ready)
-        ?? planHigherLevelCompaction(workspaceId, ready);
+      const policy = this.dependencies.policy ?? DEFAULT_CONTINUITY_POLICY;
+      const plan = planLevelOneCompaction(workspaceId, sources, ready, policy)
+        ?? planHigherLevelCompaction(workspaceId, ready, policy);
       if (plan === null) return;
       const job = await this.dependencies.continuity.claimCompactionJob(CompactionJobSchema.parse({
         id: plan.id,
