@@ -12,7 +12,8 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "npm run typecheck && npm run lint && npm run check:boundaries",
+    "check": "npm run typecheck && npm run check:adapter-js && npm run lint && npm run check:boundaries",
+    "check:adapter-js": "tsc --project tsconfig.adapter-js.json",
     "check:boundaries": "node scripts/check-module-boundaries.mjs",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "lint": "eslint .",
@@ -21,6 +22,10 @@
     "start": "npm run start --workspace @medbuddy/web",
     "test": "vitest run",
     "smoke:line": "vitest run --run line",
+    "verify:continuity:memory": "vitest run --run continuity-verification-memory",
+    "verify:continuity:emulator": "vitest run --run continuity-verification-firestore",
+    "verify:continuity:target": "vitest run --run --testTimeout=120000 continuity-verification-target",
+    "verify:continuity:cleanup": "node scripts/cleanup-continuity-verification.mjs",
     "test:e2e": "playwright test",
     "eval:compaction": "MEDBUDDY_RUN_COMPACTION_EVAL=true vitest run --run --testTimeout=60000 compaction-eval",
     "test:vertex-smoke": "MEDBUDDY_RUN_VERTEX_SMOKE=true vitest run --run --testTimeout=60000 vertex-smoke"

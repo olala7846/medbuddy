@@ -35,6 +35,17 @@ function sameJobIdentity(left: CompactionJob, right: CompactionJob): boolean {
     left.policyVersion === right.policyVersion;
 }
 
+function matchesJobEnvelope(job: CompactionJob, segment: CompactionSegment): boolean {
+  return segment.id === `compaction-segment:${job.id.slice("compaction-job:".length)}` &&
+    segment.workspaceId === job.workspaceId &&
+    segment.level === job.level &&
+    segment.firstSourceSequence === job.firstSourceSequence &&
+    segment.lastSourceSequence === job.lastSourceSequence &&
+    segment.orderedSourceDigest === job.orderedSourceDigest &&
+    same(segment.childSegmentIds, job.childSegmentIds) &&
+    segment.policyVersion === job.policyVersion;
+}
+
 class WorkspaceQueue {
   private readonly tails = new Map<string, Promise<void>>();
 
@@ -238,6 +249,13 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
     return clone(this.activeJobs.get(workspaceId) ?? null);
   }
 
+  async getCompactionJob(
+    workspaceId: Parameters<ContinuityRepository["getCompactionJob"]>[0],
+    jobId: Parameters<ContinuityRepository["getCompactionJob"]>[1],
+  ): Promise<CompactionJob | null> {
+    return clone(this.jobs.get(this.key(workspaceId, jobId)) ?? null);
+  }
+
   async updateCompactionJob(
     value: CompactionJob,
     expectedAttempt?: Parameters<ContinuityRepository["updateCompactionJob"]>[1],
@@ -259,7 +277,7 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
         throw new Error("Compaction attempt fencing token is required.");
       }
       this.jobs.set(key, clone(job));
-      if (job.status === "FAILED") this.activeJobs.delete(job.workspaceId);
+      if (job.status === "FAILED" || job.status === "COMPLETED") this.activeJobs.delete(job.workspaceId);
       else this.activeJobs.set(job.workspaceId, clone(job));
       return job;
     });
@@ -278,8 +296,18 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       const existing = this.segments.get(key);
       if (fence !== undefined) {
         const owner = this.jobs.get(this.key(segment.workspaceId, fence.jobId));
-        if (owner?.status !== "RUNNING" || owner.claimGeneration !== fence.claimGeneration ||
-            (existing === undefined && active?.id !== owner.id)) {
+        if (owner === undefined || owner.claimGeneration !== fence.claimGeneration) {
+          throw new Error("Compaction attempt fencing conflict.");
+        }
+        if (!matchesJobEnvelope(owner, segment)) {
+          throw new Error("Compaction segment does not match its owning job envelope.");
+        }
+        if (owner.status === "COMPLETED") {
+          if (existing === undefined) throw new Error("Completed compaction job is missing its ready segment.");
+          if (!same(existing, segment)) throw new Error("An immutable ready segment already exists with a different value.");
+          return clone(existing);
+        }
+        if (owner.status !== "RUNNING" || (existing === undefined && active?.id !== owner.id)) {
           throw new Error("Compaction attempt fencing conflict.");
         }
       } else if (active !== undefined) {
@@ -304,8 +332,16 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
         throw new Error("Ready segment ranges at one level must be disjoint.");
       }
       this.segments.set(key, clone(segment));
-      if (active?.id === `compaction-job:${segment.id.slice("compaction-segment:".length)}` ||
-          (active?.firstSourceSequence === segment.firstSourceSequence && active.lastSourceSequence === segment.lastSourceSequence)) {
+      if (fence !== undefined) {
+        const owner = this.jobs.get(this.key(segment.workspaceId, fence.jobId));
+        if (owner === undefined) throw new Error("Compaction attempt fencing conflict.");
+        const { attemptClaimedAt: _claimedAt, attemptLeaseExpiresAt: _leaseExpiresAt, ...released } = owner;
+        void _claimedAt;
+        void _leaseExpiresAt;
+        this.jobs.set(this.key(segment.workspaceId, owner.id), CompactionJobSchema.parse({
+          ...released,
+          status: "COMPLETED",
+        }));
         this.activeJobs.delete(segment.workspaceId);
       }
       return segment;

@@ -4,6 +4,7 @@ import sharp from "sharp";
 import { AttachmentSchema, MemberIdSchema, MessageSchema, WorkspaceIdSchema, type MemberId, type Message } from "@medbuddy/contracts";
 
 import {
+  CompactionSummaryGenerator,
   ConversationResponder,
   FAMILY_MAP_UPDATE_FAILURE_TEXT,
   VertexConversationProvider,
@@ -373,6 +374,40 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
 
     expect(result).toMatchObject({ kind: expect.any(String) });
   });
+
+  it("returns a contract-valid compaction summary using structured output", async () => {
+    const generator = new CompactionSummaryGenerator(createConfiguredClient());
+
+    const result = await generator.generate({
+      workspaceId: "workspace:vertex-fictional-compaction",
+      level: 1,
+      firstSourceSequence: 1,
+      lastSourceSequence: 2,
+      allowedSourceSequences: [1, 2],
+      renderedInput: [
+        "[member:vertex-fictional | source 1]",
+        "A fictional verification note was recorded.",
+        "",
+        "[member:vertex-fictional | source 2]",
+        "A second synthetic note leaves a fictional follow-up open.",
+      ].join("\n"),
+    });
+
+    expect(result.summary.overview).toEqual(expect.any(String));
+    expect(result.summary.keyEvents).toEqual(expect.any(Array));
+    expect(result.summary.openLoops.every((item) => typeof item === "string")).toBe(true);
+    expect(result.summary.caveats.every((item) => typeof item === "string")).toBe(true);
+    for (const event of result.summary.keyEvents) {
+      expect(event.text).toEqual(expect.any(String));
+      expect(event).not.toHaveProperty("description");
+      if (event.verbatimExcerpt !== undefined) {
+        expect(event.verbatimExcerpt).toMatchObject({
+          text: expect.any(String),
+          sourceSequence: expect.any(Number),
+        });
+      }
+    }
+  }, 60_000);
 
   it("returns a schema-validated outcome for a fictional image", async () => {
     const focalMessage = MessageSchema.parse({

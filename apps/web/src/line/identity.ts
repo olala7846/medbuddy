@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import {
   ExternalConversationIdentitySchema,
   ExternalEventReceiptKeySchema,
@@ -10,20 +8,17 @@ import {
   WorkspaceIdSchema,
   type ExternalConversationIdentity,
 } from "@medbuddy/contracts";
-
-function digest(parts: readonly string[]): string {
-  return createHash("sha256").update(parts.join("\u0000")).digest("base64url").slice(0, 32);
-}
+import { deriveCanonicalLineIds } from "./identity-derivation.mjs";
 
 export function deriveLineConversationIds(identityValue: ExternalConversationIdentity) {
   const identity = ExternalConversationIdentitySchema.parse(identityValue);
-  const workspaceDigest = digest([identity.channel, identity.conversationType, identity.conversationId]);
+  const ids = deriveCanonicalLineIds(identity);
   return {
-    workspaceId: WorkspaceIdSchema.parse(`workspace:line-${workspaceDigest}`),
-    memberId: MemberIdSchema.parse(`member:line-${digest([workspaceDigest, identity.senderId])}`),
-    messageId: MessageIdSchema.parse(`message:line-${digest([workspaceDigest, identity.messageId])}`),
-    receiptKey: ExternalEventReceiptKeySchema.parse(`event:line-${digest([identity.channel, identity.eventId])}`),
-    sourceEventId: SourceEventIdSchema.parse(`source-event:line-${digest([identity.channel, identity.eventId])}`),
-    attachmentId: AttachmentIdSchema.parse(`attachment:line-${digest([workspaceDigest, identity.messageId])}`),
+    workspaceId: WorkspaceIdSchema.parse(ids.workspaceId),
+    memberId: MemberIdSchema.parse(ids.memberId),
+    messageId: MessageIdSchema.parse(ids.messageId),
+    receiptKey: ExternalEventReceiptKeySchema.parse(ids.receiptKey),
+    sourceEventId: SourceEventIdSchema.parse(ids.sourceEventId),
+    attachmentId: AttachmentIdSchema.parse(ids.attachmentId),
   };
 }

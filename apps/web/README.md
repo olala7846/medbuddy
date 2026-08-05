@@ -103,3 +103,35 @@ tests/               Workspace-scoped tests
 npm test --workspace @medbuddy/web
 npm run build --workspace @medbuddy/web
 ```
+
+### Synthetic continuity verification
+
+The verification harness signs fictional sequential LINE group events and calls
+`LineWebhookHandler.handle()` directly. It captures replies locally and drains a
+deduplicating in-process continuity queue; it never contacts LINE, changes a
+registered webhook, or uses Cloud Tasks.
+
+```bash
+npm run verify:continuity:memory
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8787 npm run verify:continuity:emulator
+```
+
+The target-project variant is disabled unless all of the normal Firestore and
+Vertex ADC configuration is present and the exact acknowledgement below is
+set. It creates only nonce-scoped fictional workspaces and receipts, uses real
+Vertex for replies and compaction, and verifies cleanup in `finally`.
+
+```bash
+MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION=I_ACKNOWLEDGE_FICTIONAL_TARGET_WRITES \
+  npm run verify:continuity:target
+```
+
+If the process is interrupted, it leaves an owner-only manifest in the OS
+temporary directory. Point the cleanup-only command at that exact manifest;
+the command refuses a mismatched project or malformed scope.
+
+```bash
+MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION=I_ACKNOWLEDGE_FICTIONAL_TARGET_WRITES \
+MEDBUDDY_CONTINUITY_CLEANUP_MANIFEST=/absolute/path/to/manifest.json \
+  npm run verify:continuity:cleanup
+```
