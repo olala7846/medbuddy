@@ -2,7 +2,10 @@ import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/pla
 import { describe, it } from "vitest";
 
 import { runSyntheticContinuityVerification } from "./support/continuity-verification-harness.js";
-import { SYNTHETIC_CONTINUITY_FIXTURE_URL } from "./support/continuity-verification-fixture.js";
+import {
+  SYNTHETIC_CONTINUITY_FIXTURE_URL,
+  SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
+} from "./support/continuity-verification-fixture.js";
 
 describe("synthetic continuity verification (in-memory)", () => {
   it("runs signed LINE events through compaction and final context assembly", async () => {
@@ -13,6 +16,19 @@ describe("synthetic continuity verification (in-memory)", () => {
       familyMaps: persistence.familyMaps,
       receipts: persistence.externalEvents,
     }, { fixtureUrl: SYNTHETIC_CONTINUITY_FIXTURE_URL });
+  });
+
+  it("preserves a fictional Traditional Chinese conversation through compaction", async () => {
+    const persistence = new InMemoryPersistence();
+    await runSyntheticContinuityVerification({
+      continuity: new InMemoryContinuityRepository(),
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      receipts: persistence.externalEvents,
+    }, {
+      fixtureUrl: SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
+      runNonce: "traditional-chinese-memory",
+    });
   });
 
   it("keeps real-model assertions structural without requiring verbatim canary reproduction", async () => {

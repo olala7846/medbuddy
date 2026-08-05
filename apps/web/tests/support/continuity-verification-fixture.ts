@@ -52,6 +52,11 @@ export const SYNTHETIC_CONTINUITY_FIXTURE_URL = new URL(
   import.meta.url,
 );
 
+export const SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL = new URL(
+  "../fixtures/continuity-verification-zh-TW.jsonl",
+  import.meta.url,
+);
+
 export function parseSyntheticContinuityJsonl(raw: string, runNonce: string): SyntheticContinuityStep[] {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(runNonce)) throw new Error("Synthetic fixture run nonce is invalid.");
   const placeholders = raw.match(/\{\{[^{}]+\}\}/g) ?? [];

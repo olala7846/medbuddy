@@ -98,6 +98,10 @@ function signedRequest(event: unknown) {
   return { rawBody, signature: createLineSignature(rawBody, CHANNEL_SECRET) };
 }
 
+function countOccurrences(value: string, expected: string): number {
+  return value.split(expected).length - 1;
+}
+
 export function syntheticContinuityCleanupManifest(runNonce = "local"): SyntheticContinuityCleanupManifest {
   return deriveSyntheticContinuityManifest(runNonce);
 }
@@ -358,7 +362,7 @@ export async function runSyntheticContinuityVerification(
   }
   expect(finalContext.recentConversation).toContain(CORRECTION_CANARY);
   expect(finalContext.recentConversation).toContain(finalFocalText);
-  expect(finalContext.recentConversation.match(/What is the latest fictional plan\?/g)).toHaveLength(1);
+  expect(countOccurrences(finalContext.recentConversation, finalFocalText)).toBe(1);
   const renderedContext = [
     finalContext.system,
     finalContext.familyMap,
@@ -367,7 +371,7 @@ export async function runSyntheticContinuityVerification(
     finalContext.recentConversation,
   ].filter((block): block is string => block !== undefined && block.length > 0).join("\n\n");
   expect(renderedContext.indexOf(finalContext.history)).toBeLessThan(renderedContext.indexOf(finalContext.recentConversation));
-  expect(renderedContext.match(/What is the latest fictional plan\?/g)).toHaveLength(1);
+  expect(countOccurrences(renderedContext, finalFocalText)).toBe(1);
   const recentSequences = [...finalContext.recentConversation.matchAll(/\| source ([0-9]+)\]/g)]
     .map((match) => Number(match[1]));
   expect(recentSequences.length).toBeGreaterThan(0);

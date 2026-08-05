@@ -11,6 +11,10 @@ import {
   cleanupSyntheticContinuityTarget,
   preflightSyntheticContinuityTarget,
 } from "./support/continuity-verification-lifecycle.js";
+import {
+  SYNTHETIC_CONTINUITY_FIXTURE_URL,
+  SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
+} from "./support/continuity-verification-fixture.js";
 
 const describeEmulator = process.env.FIRESTORE_EMULATOR_HOST ? describe : describe.skip;
 
@@ -39,7 +43,10 @@ describeEmulator("synthetic continuity verification (Firestore emulator)", () =>
     }
   });
 
-  it("runs the same signed scenario with persisted jobs and segments", async () => {
+  it.each([
+    ["English", SYNTHETIC_CONTINUITY_FIXTURE_URL],
+    ["Traditional Chinese", SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL],
+  ])("runs the signed %s scenario with persisted jobs and segments", async (_language, fixtureUrl) => {
     const firestore = new Firestore({ projectId: `medbuddy-verification-${randomUUID()}` });
     const persistence = new FirestorePersistence(firestore);
     const runNonce = randomUUID();
@@ -51,7 +58,7 @@ describeEmulator("synthetic continuity verification (Firestore emulator)", () =>
         messages: persistence.messages,
         familyMaps: persistence.familyMaps,
         receipts: persistence.externalEvents,
-      }, { runNonce });
+      }, { fixtureUrl, runNonce });
     } finally {
       expect(await cleanupSyntheticContinuityTarget(firestore, cleanup)).toBe(true);
       await firestore.terminate();

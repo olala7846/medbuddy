@@ -4,6 +4,7 @@ import {
   loadSyntheticContinuityFixture,
   parseSyntheticContinuityJsonl,
   SYNTHETIC_CONTINUITY_FIXTURE_URL,
+  SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
 } from "./support/continuity-verification-fixture.js";
 
 describe("synthetic continuity JSONL fixture", () => {
@@ -26,6 +27,28 @@ describe("synthetic continuity JSONL fixture", () => {
     ]);
     expect(JSON.stringify(steps)).not.toContain("{{RUN_NONCE}}");
     expect(JSON.stringify(steps)).toContain("fictional-primary-fixture-test");
+  });
+
+  it("loads a separate fictional Traditional Chinese conversation", async () => {
+    const steps = await loadSyntheticContinuityFixture(
+      SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
+      "fixture-zh-tw",
+    );
+    expect(steps.map((step) => step.action)).toEqual([
+      "SEND",
+      "SEND",
+      "SEND",
+      "SEND",
+      "SEND",
+      "SEND",
+      "REPLAY_CONCURRENT",
+      "DRAIN",
+      "SEND",
+      "SEND",
+    ]);
+    expect(JSON.stringify(steps)).toContain("這是完全虛構的繁體中文連續性驗證");
+    expect(JSON.stringify(steps)).toContain("最新的虛構安排是什麼？");
+    expect(JSON.stringify(steps)).toContain("fictional-primary-fixture-zh-tw");
   });
 
   it("rejects unknown actions, duplicate step IDs and references, and unknown placeholders", () => {
