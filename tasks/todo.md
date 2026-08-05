@@ -59,7 +59,7 @@
   atomically at level-1 publication.
 - [x] Deny interrogative family-map authorization independently of punctuation.
 - [x] Stabilize attachment emulator contention and correct deployment/audit docs.
-- [ ] Rerun final-verifier remediation gates.
+- [x] Rerun final-verifier remediation gates.
 
 ## Final gates
 
@@ -75,14 +75,15 @@
 ## Implementer verification evidence (2026-08-04)
 
 - `npm run check`: passed.
-- `npm test`: 46 files and 321 tests passed; 3 files and 48 tests were
+- `npm test`: 46 files and 338 tests passed; 3 files and 50 tests were
   configuration-gated and skipped.
 - `npm run build --workspace @medbuddy/web`: passed, including the private
   `/api/internal/attachment` and `/api/internal/continuity` routes.
-- Full Firestore-emulator-enabled suite: 48 files and 351 tests passed; one
+- Full Firestore-emulator-enabled suite: 48 files and 370 tests passed; one
   live-provider file and 18 tests remained configuration-gated. The focused
-  continuity contract passed 6 tests, including concurrent atomic attachment
-  and compaction-attempt allocation plus failed-job reclaim.
+  continuity contract passed 8 tests, including concurrent atomic attachment
+  and compaction-attempt allocation, expired-lease takeover, publication
+  watermark enforcement, and failed-job reclaim.
 - The broader legacy concurrent-message emulator test now allows 20 seconds
   and asserts unique revisions without assuming concurrent submission order;
   the complete emulator-enabled rerun passed.
