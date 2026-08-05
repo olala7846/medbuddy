@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   LangSmithVertexModelClient,
+  LangSmithVertexTraceRuntime,
   buildVertexGenerateContentBody,
+  createContentSafeLangSmithFetch,
   type VertexGenerationRequest,
   type VertexModelClient,
   type VertexTraceLogEntry,
@@ -74,6 +76,40 @@ function createClient(input?: {
 }
 
 describe("LangSmith Vertex tracing boundary", () => {
+  it("sanitizes LangSmith HTTP and network failures before the SDK can log them", async () => {
+    const responseFetch: typeof fetch = async () => new Response(
+      "server echoed a fictional prompt",
+      { status: 500, statusText: "provider detail" },
+    );
+    const safeResponse = await createContentSafeLangSmithFetch(responseFetch)("https://api.smith.langchain.com/info");
+
+    expect(safeResponse.status).toBe(500);
+    expect(safeResponse.statusText).toBe("LangSmith export failed");
+    expect(await safeResponse.text()).toBe("");
+
+    const networkFetch: typeof fetch = async () => {
+      throw new Error("network error containing fictional content");
+    };
+    await expect(createContentSafeLangSmithFetch(networkFetch)(
+      "https://api.smith.langchain.com/info",
+    )).rejects.toThrow("LANGSMITH_EXPORT_FAILED");
+  });
+
+  it("rejects SDK fallback-file configuration before constructing a trace client", () => {
+    expect(() => new LangSmithVertexTraceRuntime({
+      serviceKey: "fictional-service-key",
+      project: "medbuddy-effort2-fictional",
+      workspaceId: "langsmith-workspace-fictional",
+      apiUrl: "https://api.smith.langchain.com",
+      boundary: "conversation",
+      metadata: {
+        boundary: "conversation",
+        modelId: "gemini-3.6-flash",
+        verificationId: "effort2-fictional-verification",
+      },
+    }, { LANGSMITH_FAILED_TRACES_DIR: "/tmp/must-not-write" })).toThrow(/fallback-file/i);
+  });
+
   it("traces the exact serialized request and untouched provider response for the allowlisted workspace", async () => {
     const { client, runtime, calls } = createClient();
 

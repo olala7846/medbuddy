@@ -46,6 +46,22 @@ export type LangSmithRuntimeConfiguration = {
   metadata: VertexTraceRecord["metadata"];
 };
 
+export function createContentSafeLangSmithFetch(request: typeof fetch = fetch): typeof fetch {
+  return async (input, init) => {
+    let response: Response;
+    try {
+      response = await request(input, init);
+    } catch {
+      throw new Error("LANGSMITH_EXPORT_FAILED");
+    }
+    if (response.ok) return response;
+    return new Response(null, {
+      status: response.status,
+      statusText: "LangSmith export failed",
+    });
+  };
+}
+
 /** Exact-content trace transport used only by explicitly wrapped clients. */
 export class LangSmithVertexTraceRuntime implements VertexTraceRuntime {
   private readonly client: Client;
@@ -54,7 +70,16 @@ export class LangSmithVertexTraceRuntime implements VertexTraceRuntime {
     invoke: () => Promise<unknown>;
   }) => Promise<{ response: unknown }>>;
 
-  constructor(configuration: LangSmithRuntimeConfiguration) {
+  constructor(
+    configuration: LangSmithRuntimeConfiguration,
+    environment: Record<string, string | undefined> = process.env,
+  ) {
+    if (
+      environment.LANGSMITH_FAILED_TRACES_DIR?.trim() ||
+      environment.LANGCHAIN_FAILED_TRACES_DIR?.trim()
+    ) {
+      throw new Error("LangSmith fallback-file persistence must remain disabled.");
+    }
     this.client = new Client({
       apiKey: configuration.serviceKey,
       apiUrl: configuration.apiUrl,
@@ -68,6 +93,7 @@ export class LangSmithVertexTraceRuntime implements VertexTraceRuntime {
       omitTracedRuntimeInfo: true,
       disablePromptCache: true,
       debug: false,
+      fetchImplementation: createContentSafeLangSmithFetch(),
     });
     this.traced = traceable(
       async ({ invoke }) => ({ response: await invoke() }),
@@ -76,6 +102,7 @@ export class LangSmithVertexTraceRuntime implements VertexTraceRuntime {
         run_type: "llm",
         project_name: configuration.project,
         metadata: configuration.metadata,
+        replicas: [],
         client: this.client,
         tracingEnabled: true,
         processInputs: ({ requestBody }) => ({ requestBody }),
