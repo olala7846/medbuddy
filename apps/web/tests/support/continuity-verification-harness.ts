@@ -15,6 +15,7 @@ import { expect } from "vitest";
 
 import {
   ContinuityCompactionWorker,
+  type CompactionSummaryPort,
   type ContinuityWorkerLogEntry,
 } from "../../src/composition/continuity.js";
 import {
@@ -131,7 +132,11 @@ export function syntheticContinuityCleanupManifest(runNonce = "local"): Syntheti
  */
 export async function runSyntheticContinuityVerification(
   dependencies: HarnessDependencies,
-  options: { runNonce?: string } = {},
+  options: {
+    runNonce?: string;
+    responder?: ConversationResponder;
+    generator?: CompactionSummaryPort;
+  } = {},
 ): Promise<SyntheticContinuityCleanupManifest> {
   const queue = new DeterministicContinuityTaskQueue();
   const requests: CapturedRequest[] = [];
@@ -139,10 +144,16 @@ export async function runSyntheticContinuityVerification(
   const lineLogs: LineOperationalLogEntry[] = [];
   const workerLogs: ContinuityWorkerLogEntry[] = [];
   const generatedInputs: Array<{ allowedSourceSequences: readonly number[]; renderedInput: string }> = [];
-  const responder: ConversationResponder = {
-    async respond(request) {
-      requests.push(structuredClone(request));
+  const fixedResponder: ConversationResponder = {
+    async respond() {
       return { kind: "RESPONDED", responseText: FIXED_REPLY, retryable: false };
+    },
+  };
+  const selectedResponder = options.responder ?? fixedResponder;
+  const responder: ConversationResponder = {
+    async respond(request, tools) {
+      requests.push(structuredClone(request));
+      return selectedResponder.respond(request, tools);
     },
   };
   const conversation = new ContinuityThreadConversationService({
@@ -167,6 +178,20 @@ export async function runSyntheticContinuityVerification(
     replyClient: { async reply(input) { replies.push(structuredClone(input)); } },
     logger: { write(entry) { lineLogs.push(structuredClone(entry)); } },
   });
+  const fixedGenerator: CompactionSummaryPort = {
+    async generate() {
+      return {
+        summary: {
+          overview: `${EARLY_CANARY} was retained as fictional derived context.`,
+          keyEvents: [],
+          openLoops: ["A fictional follow-up remains open."],
+          caveats: ["Derived and non-authoritative."],
+        },
+        usage: { inputTokens: 100, outputTokens: 30 },
+      };
+    },
+  };
+  const selectedGenerator = options.generator ?? fixedGenerator;
   const worker = new ContinuityCompactionWorker({
     continuity: dependencies.continuity,
     generator: {
@@ -175,15 +200,7 @@ export async function runSyntheticContinuityVerification(
           allowedSourceSequences: [...input.allowedSourceSequences],
           renderedInput: input.renderedInput,
         });
-        return {
-          summary: {
-            overview: `${EARLY_CANARY} was retained as fictional derived context.`,
-            keyEvents: [],
-            openLoops: ["A fictional follow-up remains open."],
-            caveats: ["Derived and non-authoritative."],
-          },
-          usage: { inputTokens: 100, outputTokens: 30 },
-        };
+        return selectedGenerator.generate(input);
       },
     },
     now: () => "2026-08-05T12:11:00.000Z",
@@ -271,16 +288,26 @@ export async function runSyntheticContinuityVerification(
   expect(JSON.stringify(finalContext)).not.toContain(DECOY_CANARY);
   expect(await dependencies.continuity.listSourceEvents(decoyWorkspace)).toHaveLength(1);
   expect(requests).toHaveLength(2);
-  expect(replies).toEqual([
-    { replyToken: `fictional-reply-${groupId}-5`, text: FIXED_REPLY },
-    { replyToken: `fictional-reply-${groupId}-7`, text: FIXED_REPLY },
+  expect(replies.map((reply) => reply.replyToken)).toEqual([
+    `fictional-reply-${groupId}-5`,
+    `fictional-reply-${groupId}-7`,
   ]);
+  expect(replies.every((reply) => reply.text.length > 0)).toBe(true);
+  if (options.responder === undefined) {
+    expect(replies.map((reply) => reply.text)).toEqual([FIXED_REPLY, FIXED_REPLY]);
+  }
 
   const sourceSequences = (await dependencies.continuity.listSourceEvents(primaryWorkspace))
     .map((event) => event.sourceSequence);
   expect(sourceSequences).toEqual(Array.from({ length: sourceSequences.length }, (_, index) => index + 1));
   const metadataLogs = JSON.stringify([...lineLogs, ...workerLogs]);
-  for (const prohibited of [EARLY_CANARY, DECOY_CANARY, CORRECTION_CANARY, "fictional-reply-primary", FIXED_REPLY]) {
+  for (const prohibited of [
+    EARLY_CANARY,
+    DECOY_CANARY,
+    CORRECTION_CANARY,
+    "fictional-reply-primary",
+    ...replies.map((reply) => reply.text),
+  ]) {
     expect(metadataLogs).not.toContain(prohibited);
   }
   expect(workerLogs).toContainEqual(expect.objectContaining({
