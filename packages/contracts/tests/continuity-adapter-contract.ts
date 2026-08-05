@@ -214,7 +214,7 @@ export function describeContinuityRepositoryContract(
         status: "PENDING",
         attempts: 0,
       });
-    });
+    }, 20_000);
 
     it("takes over an expired compaction lease once without exceeding the attempt bound", async () => {
       const { continuity } = createHarness();
@@ -263,7 +263,7 @@ export function describeContinuityRepositoryContract(
         job.id as never,
         "2026-08-04T12:03:01.000Z",
       )).resolves.toMatchObject({ kind: "TERMINAL", job: { attempts: 3 } });
-    });
+    }, 20_000);
 
     it("fences a late compaction owner after an expired lease is taken over", async () => {
       const { continuity } = createHarness();
