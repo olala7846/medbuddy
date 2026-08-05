@@ -207,7 +207,7 @@ export const CompactionJobSchema = z.object({
   orderedSourceDigest: DigestSchema,
   childSegmentIds: z.array(CompactionSegmentIdSchema).max(COMPACTION_MERGE_FAN_IN),
   policyVersion: PolicyVersionSchema,
-  status: z.enum(["PENDING", "RUNNING", "FAILED"]),
+  status: z.enum(["PENDING", "RUNNING", "COMPLETED", "FAILED"]),
   attempts: z.number().int().min(0).max(COMPACTION_MAX_ATTEMPTS),
   claimGeneration: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
   attemptClaimedAt: TimestampSchema.optional(),
@@ -317,6 +317,7 @@ export interface ContinuityRepository {
   claimCompactionJob(job: CompactionJob): Promise<CompactionJob>;
   claimCompactionAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof CompactionJobIdSchema>, claimedAt: string): Promise<CompactionAttemptClaim>;
   getActiveCompactionJob(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<CompactionJob | null>;
+  getCompactionJob(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof CompactionJobIdSchema>): Promise<CompactionJob | null>;
   updateCompactionJob(job: CompactionJob, expectedAttempt?: CompactionAttemptFence): Promise<CompactionJob>;
   publishSegment(segment: CompactionSegment, expectedSourceSequenceWatermark?: number, expectedAttempt?: CompactionAttemptFence): Promise<CompactionSegment>;
   listReadySegments(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<readonly CompactionSegment[]>;

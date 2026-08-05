@@ -161,9 +161,21 @@ export function describeContinuityRepositoryContract(
 
       const segment = readySegment();
       await expect(continuity.publishSegment(segment, undefined, fence)).resolves.toEqual(segment);
+      await expect(continuity.getCompactionJob(job.workspaceId as never, job.id as never)).resolves.toMatchObject({
+        id: job.id,
+        workspaceId: job.workspaceId,
+        firstSourceSequence: job.firstSourceSequence,
+        lastSourceSequence: job.lastSourceSequence,
+        orderedSourceDigest: job.orderedSourceDigest,
+        policyVersion: job.policyVersion,
+        status: "COMPLETED",
+        attempts: 1,
+        claimGeneration: 1,
+      });
       await expect(continuity.publishSegment(segment, undefined, fence)).resolves.toEqual(segment);
       await expect(continuity.publishSegment(readySegment({ modelId: "different-model" }), undefined, fence)).rejects.toThrow(/immutable/i);
       await expect(continuity.listReadySegments("workspace:meadow" as never)).resolves.toEqual([]);
+      await expect(continuity.getCompactionJob("workspace:meadow" as never, job.id as never)).resolves.toBeNull();
     }, 20_000);
 
     it("rejects a fenced segment whose policy differs from the owning active job", async () => {
