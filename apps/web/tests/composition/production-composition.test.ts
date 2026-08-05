@@ -14,6 +14,7 @@ import {
   LineConfigurationError,
   ProductionConfigurationError,
   loadContinuityConfiguration,
+  loadLangSmithTracingConfiguration,
   loadLineConfiguration,
   loadProductionConfig,
 } from "../../src/composition/config.js";
@@ -36,6 +37,50 @@ const productionEnvironment = {
 };
 
 describe("production composition configuration", () => {
+  it("keeps LangSmith tracing default-off and ignores generic LangSmith environment variables", () => {
+    expect(loadLangSmithTracingConfiguration({
+      LANGSMITH_TRACING: "true",
+      LANGSMITH_API_KEY: "must-not-enable",
+    })).toBeNull();
+  });
+
+  it("requires the complete dedicated fictional LangSmith configuration when enabled", () => {
+    const environment = {
+      MEDBUDDY_LANGSMITH_TRACING_ENABLED: "true",
+      MEDBUDDY_LANGSMITH_SERVICE_KEY: "fictional-service-key",
+      MEDBUDDY_LANGSMITH_PROJECT: "medbuddy-effort2-fictional",
+      MEDBUDDY_LANGSMITH_WORKSPACE_ID: "langsmith-workspace-fictional",
+      MEDBUDDY_LANGSMITH_API_URL: "https://api.smith.langchain.com",
+      MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID: "workspace:fictional-tracing",
+      MEDBUDDY_LANGSMITH_VERIFICATION_ID: "effort2-fictional-verification",
+    };
+
+    expect(loadLangSmithTracingConfiguration(environment)).toEqual({
+      serviceKey: "fictional-service-key",
+      project: "medbuddy-effort2-fictional",
+      langSmithWorkspaceId: "langsmith-workspace-fictional",
+      apiUrl: "https://api.smith.langchain.com",
+      allowedMedBuddyWorkspaceId: "workspace:fictional-tracing",
+      verificationId: "effort2-fictional-verification",
+    });
+
+    const incomplete = { ...environment, MEDBUDDY_LANGSMITH_SERVICE_KEY: "" };
+    expect(() => loadLangSmithTracingConfiguration(incomplete)).toThrow("MEDBUDDY_LANGSMITH_SERVICE_KEY");
+    expect(() => loadLangSmithTracingConfiguration(incomplete)).not.toThrow("fictional-service-key");
+  });
+
+  it("rejects non-approved LangSmith endpoints", () => {
+    expect(() => loadLangSmithTracingConfiguration({
+      MEDBUDDY_LANGSMITH_TRACING_ENABLED: "true",
+      MEDBUDDY_LANGSMITH_SERVICE_KEY: "fictional-service-key",
+      MEDBUDDY_LANGSMITH_PROJECT: "medbuddy-effort2-fictional",
+      MEDBUDDY_LANGSMITH_WORKSPACE_ID: "langsmith-workspace-fictional",
+      MEDBUDDY_LANGSMITH_API_URL: "https://example.test",
+      MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID: "workspace:fictional-tracing",
+      MEDBUDDY_LANGSMITH_VERIFICATION_ID: "effort2-fictional-verification",
+    })).toThrow("MEDBUDDY_LANGSMITH_API_URL");
+  });
+
   it("rejects missing configuration without echoing supplied values", () => {
     const environment = { ...productionEnvironment, MEDBUDDY_TASKS_QUEUE: "", UNRELATED_SECRET: "do-not-echo" };
     expect(() => loadProductionConfig(environment)).toThrow(ProductionConfigurationError);
