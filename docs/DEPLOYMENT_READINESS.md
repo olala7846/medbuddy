@@ -13,7 +13,7 @@ provisioned or claimed.
 - The default Java is 17, and Homebrew OpenJDK 26 is available explicitly for
   the current Google Cloud Firestore emulator. On 2026-08-04 the focused
   continuity contract and the complete emulator-enabled suite passed using
-  that JRE. The final remediation run passed 48 files and 384 tests; only the
+  that JRE. The final remediation run passed 48 files and 388 tests; only the
   live-provider file remained gated. Emulator skips are not treated as
   evidence.
 - `npm audit --omit=dev` reports 9 findings: 4 high and 5 moderate. The high
