@@ -71,7 +71,7 @@ export function describeContinuityRepositoryContract(
         providerMessageId: "message:fictional-2",
       }));
       expect(second.event.sourceSequence).toBe(2);
-    });
+    }, 20_000);
 
     it("isolates identical-looking source evidence by workspace", async () => {
       const { continuity } = createHarness();
@@ -107,7 +107,7 @@ export function describeContinuityRepositoryContract(
       expect(published).toEqual(duplicate);
       expect(published.sourceSequence).toBe(2);
       expect(published.authorMemberId).toBe("MEDBUDDY");
-    });
+    }, 20_000);
 
     it("keeps attachment transitions bounded and workspace-scoped", async () => {
       const { continuity } = createHarness();
@@ -164,7 +164,7 @@ export function describeContinuityRepositoryContract(
       await expect(continuity.publishSegment(segment, undefined, fence)).resolves.toEqual(segment);
       await expect(continuity.publishSegment(readySegment({ modelId: "different-model" }), undefined, fence)).rejects.toThrow(/immutable/i);
       await expect(continuity.listReadySegments("workspace:meadow" as never)).resolves.toEqual([]);
-    });
+    }, 20_000);
 
     it("rejects ready publication after the source ledger advances past its validated watermark", async () => {
       const { continuity } = createHarness();
