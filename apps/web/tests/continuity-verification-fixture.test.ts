@@ -54,14 +54,22 @@ describe("synthetic continuity JSONL fixture", () => {
       [...primary].map((step) => step.event.timestamp).sort((left, right) => left - right),
     );
 
-    for (const relationship of [
-      "野原鶴是我的太太",
-      "銀之介是我的先生",
+    const introductionByStep = new Map(primary
+      .filter((step) => step.step === "group-purpose" || step.step.startsWith("intro-"))
+      .map((step) => [step.step, step.event.message.text]));
+    expect(introductionByStep.get("group-purpose")).not.toMatch(/父母|太太|孩子|兒子|先生|公公|婆婆|爺爺|奶奶/);
+    expect(introductionByStep.get("intro-grandpa")).toContain("廣志是我的兒子");
+    expect(introductionByStep.get("intro-grandma")).toContain("銀之介是我的先生，廣志是我的兒子");
+    expect(introductionByStep.get("intro-mother")).toContain("廣志是我的先生，小新和小葵是我們的孩子");
+    expect(introductionByStep.get("intro-child-one")).not.toMatch(/爸爸|媽媽|父母|爺爺|奶奶/);
+    expect(introductionByStep.get("intro-child-two")).not.toMatch(/爸爸|媽媽|父母|爺爺|奶奶/);
+    const introductions = [...introductionByStep.values()].join("\n");
+    for (const redundantOrDerivedRelationship of [
       "銀之介和野原鶴是我的父母",
-      "廣志是我的先生",
-      "廣志和美冴是我的爸爸媽媽",
+      "銀之介和野原鶴是我的公公婆婆",
       "銀之介和野原鶴是我的爺爺奶奶",
-    ]) expect(conversation).toContain(relationship);
+      "廣志和美冴是我的爸爸媽媽",
+    ]) expect(introductions).not.toContain(redundantOrDerivedRelationship);
     expect(conversation).toContain("第一次回診");
     expect(conversation).toContain("今天由我陪爸爸看診");
     expect(conversation).toContain("第二次回診");
@@ -71,6 +79,8 @@ describe("synthetic continuity JSONL fixture", () => {
     expect(conversation).toContain("昨晚睡得不好");
     expect(conversation).toContain("剛才那筆血壓我輸入錯了");
     expect(conversation).toContain("更正後是 125/78");
+    expect(primary.find((step) => step.step === "final-mentioned-question")?.event.message.text)
+      .toContain("推得我們六個人的關係");
     const wrongReading = primary.find((step) => step.step === "day-five-wrong-reading");
     const correction = primary.find((step) => step.step === "newer-correction");
     expect(wrongReading?.event.message.text).toContain("血壓是 152/88");
