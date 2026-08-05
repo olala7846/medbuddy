@@ -68,6 +68,7 @@ export type VertexGenerationRequest = {
   generationConfig?: {
     maxOutputTokens?: number;
     responseMimeType?: string;
+    responseJsonSchema?: unknown;
   };
 };
 

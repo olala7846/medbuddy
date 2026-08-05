@@ -32,6 +32,15 @@ npm test --workspace @medbuddy/intelligence
 Vertex live smoke and family-map behavior evaluations are opt-in at the repo root
 (`npm run test:vertex-smoke`) and use fictional inputs only.
 
+The compaction semantic evaluation is also opt-in and fictional-only. It calls
+the configured Vertex project with `gemini-3.5-flash-lite` and checks correction,
+attribution, unresolved-loop, safety-caveat, and hierarchical-compaction
+behavior with deterministic assertions:
+
+```bash
+MEDBUDDY_VERTEX_PROJECT=<project-id> npm run eval:compaction
+```
+
 The optional LangSmith adapter wraps only explicitly composed conversation and
 compaction `VertexModelClient` instances. It requires an exact allowlisted
 fictional workspace match, refuses inline image data, attempts to flush before

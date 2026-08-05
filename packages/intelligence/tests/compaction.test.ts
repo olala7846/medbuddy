@@ -59,8 +59,33 @@ describe("compaction summary generation", () => {
     expect(client.requests).toHaveLength(1);
     expect(client.contexts).toEqual([{ workspaceId: "workspace:orchard" }]);
     expect(client.requests[0]).not.toHaveProperty("tools");
+    expect(client.requests[0]?.generationConfig).toMatchObject({
+      responseMimeType: "application/json",
+      responseJsonSchema: {
+        type: "object",
+        required: ["overview", "keyEvents", "openLoops", "caveats"],
+      },
+    });
     expect(JSON.stringify(client.requests[0])).not.toMatch(/familyMap|careRecord|repository|storage/i);
     expect(client.requests[0]!.systemInstruction).toContain("attributed reports");
+  });
+
+  it("forbids source references when compacting derived child summaries", async () => {
+    const client = new RecordingClient(response({
+      ...validSummary,
+      keyEvents: [{ text: "A derived fictional event.", attribution: "member:fictional-a" }],
+    }));
+    await new CompactionSummaryGenerator(client).generate({
+      ...request,
+      level: 2,
+      allowedSourceSequences: [],
+    });
+
+    const schema = client.requests[0]?.generationConfig?.responseJsonSchema as {
+      properties?: { keyEvents?: { items?: { properties?: Record<string, unknown> } } };
+    };
+    expect(schema.properties?.keyEvents?.items?.properties).not.toHaveProperty("sourceSequence");
+    expect(schema.properties?.keyEvents?.items?.properties).not.toHaveProperty("verbatimExcerpt");
   });
 
   it("rejects extra fields, unbounded output, and out-of-range source references", async () => {

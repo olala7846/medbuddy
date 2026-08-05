@@ -1,4 +1,9 @@
-import { SegmentSummarySchema, type SegmentSummary, WorkspaceIdSchema } from "@medbuddy/contracts";
+import {
+  SegmentSummarySchema,
+  SUMMARY_MAX_UTF16,
+  type SegmentSummary,
+  WorkspaceIdSchema,
+} from "@medbuddy/contracts";
 import { z } from "zod";
 
 import type { VertexGenerationRequest, VertexModelClient } from "../adapters/vertex.js";
@@ -60,6 +65,53 @@ const SYSTEM_INSTRUCTION = [
   "Return no prose outside the JSON object.",
 ].join(" ");
 
+function compactionResponseJsonSchema(allowSourceReferences: boolean): Record<string, unknown> {
+  const keyEventProperties: Record<string, unknown> = {
+    text: { type: "string", maxLength: SUMMARY_MAX_UTF16 },
+    attribution: { type: "string", maxLength: 256 },
+    ...(allowSourceReferences ? {
+      sourceSequence: { type: "integer", minimum: 1 },
+      verbatimExcerpt: {
+        type: "object",
+        additionalProperties: false,
+        required: ["text", "sourceSequence"],
+        properties: {
+          text: { type: "string", maxLength: 300 },
+          sourceSequence: { type: "integer", minimum: 1 },
+        },
+      },
+    } : {}),
+  };
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["overview", "keyEvents", "openLoops", "caveats"],
+    properties: {
+      overview: { type: "string", maxLength: SUMMARY_MAX_UTF16 },
+      keyEvents: {
+        type: "array",
+        maxItems: 12,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["text"],
+          properties: keyEventProperties,
+        },
+      },
+      openLoops: {
+        type: "array",
+        maxItems: 8,
+        items: { type: "string", maxLength: SUMMARY_MAX_UTF16 },
+      },
+      caveats: {
+        type: "array",
+        maxItems: 8,
+        items: { type: "string", maxLength: SUMMARY_MAX_UTF16 },
+      },
+    },
+  };
+}
+
 export class CompactionSummaryGenerator {
   constructor(private readonly client: VertexModelClient) {}
 
@@ -80,6 +132,10 @@ export class CompactionSummaryGenerator {
           ].join("\n"),
         }],
       }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseJsonSchema: compactionResponseJsonSchema(input.level === 1),
+      },
     };
     const response = await this.client.generate(request, { workspaceId: input.workspaceId });
     const transport = VertexSummaryResponseSchema.safeParse(response);

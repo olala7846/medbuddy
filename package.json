@@ -22,6 +22,7 @@
     "test": "vitest run",
     "smoke:line": "vitest run --run line",
     "test:e2e": "playwright test",
+    "eval:compaction": "MEDBUDDY_RUN_COMPACTION_EVAL=true vitest run --run --testTimeout=60000 compaction-eval",
     "test:vertex-smoke": "MEDBUDDY_RUN_VERTEX_SMOKE=true vitest run --run --testTimeout=60000 vertex-smoke"
   },
   "devDependencies": {
