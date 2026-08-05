@@ -9,6 +9,7 @@ import {
   ConversationResponder,
   VertexConversationProvider,
   type VertexGenerationRequest,
+  type VertexInvocationContext,
   VertexRestClient,
   VertexModelClient,
   VertexReadableLabelExtractor,
@@ -137,9 +138,11 @@ describe("Vertex adapters", () => {
 
   it("bounds the complete conversational provider request including wrappers", async () => {
     const requests: VertexGenerationRequest[] = [];
+    const contexts: Array<VertexInvocationContext | undefined> = [];
     const recordingClient: VertexModelClient = {
-      async generate(input) {
+      async generate(input, context) {
         requests.push(input);
+        contexts.push(context);
         return { candidates: [{ content: { parts: [{ text: '{"kind":"ACKNOWLEDGE"}' }] } }] };
       },
     };
@@ -171,6 +174,7 @@ describe("Vertex adapters", () => {
     expect(requests[0]?.generationConfig).toEqual({
       maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS,
     });
+    expect(contexts).toEqual([{ workspaceId: "workspace:vertex" }]);
   });
 
   it("bounds a stalled provider request and returns a typed timeout", async () => {

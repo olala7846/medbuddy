@@ -12,6 +12,7 @@ import { DurableLineAttachmentCoordinator } from "../line/attachment.js";
 import { LineMessagingReplyClient } from "../line/reply-client.js";
 import { LineWebhookHandler, type LineWebhookLogger } from "../line/webhook.js";
 import { LineConfigurationError, loadContinuityConfiguration, loadLineConfiguration } from "./config.js";
+import { applyLangSmithVertexTracing } from "./vertex-tracing.js";
 
 export function createLineWebhookComposition(
   environment: Record<string, string | undefined>,
@@ -27,9 +28,14 @@ export function createLineWebhookComposition(
     throw new LineConfigurationError(["MEDBUDDY_VERTEX_MODEL"]);
   }
   const { persistence, continuity } = createConversationPlatform(line.projectId);
+  const conversationClient = applyLangSmithVertexTracing(environment, {
+    client: new VertexRestClient(vertex),
+    boundary: "conversation",
+    modelId: vertex.model,
+  });
   const responder = new ConversationResponder(
     new CommittedSourceCardGrounding([]),
-    new VertexConversationProvider(new VertexRestClient(vertex)),
+    new VertexConversationProvider(conversationClient),
     25_000,
     options.logger,
   );

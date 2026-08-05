@@ -29,6 +29,7 @@ import {
 import { z } from "zod";
 
 import { loadContinuityConfiguration } from "./config.js";
+import { applyLangSmithVertexTracing } from "./vertex-tracing.js";
 
 export const ContinuityWorkerLogEntrySchema = z.object({
   event: z.enum([
@@ -384,13 +385,18 @@ export function createContinuityTaskComposition(
     callbackUrl: continuityConfig.continuityCallbackUrl,
     serviceAccountEmail: continuityConfig.taskServiceAccountEmail,
   });
+  const compactionClient = applyLangSmithVertexTracing(environment, {
+    client: new VertexRestClient(vertex),
+    boundary: "compaction",
+    modelId: vertex.model,
+  });
   return new ContinuityTaskHandler({
     audience,
     serviceAccountEmail,
     verifier: new GoogleTaskTokenVerifier(),
     worker: new ContinuityCompactionWorker({
       continuity: platform.continuity,
-      generator: new CompactionSummaryGenerator(new VertexRestClient(vertex)),
+      generator: new CompactionSummaryGenerator(compactionClient),
       now: () => new Date().toISOString(),
       modelId: vertex.model,
       promptVersion: "continuity-summary-v1",

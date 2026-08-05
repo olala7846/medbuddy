@@ -81,7 +81,7 @@ export class CompactionSummaryGenerator {
         }],
       }],
     };
-    const response = await this.client.generate(request);
+    const response = await this.client.generate(request, { workspaceId: input.workspaceId });
     const transport = VertexSummaryResponseSchema.safeParse(response);
     const text = transport.success ? transport.data.candidates[0]?.content.parts[0]?.text : undefined;
     if (text === undefined) throw new Error("Malformed compaction provider response.");
