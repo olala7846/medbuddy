@@ -1,10 +1,11 @@
 import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
-import { describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { runSyntheticContinuityVerification } from "./support/continuity-verification-harness.js";
 import {
   SYNTHETIC_CONTINUITY_FIXTURE_URL,
   SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
+  TRADITIONAL_CHINESE_COMPACTED_CONTENT,
 } from "./support/continuity-verification-fixture.js";
 
 describe("synthetic continuity verification (in-memory)", () => {
@@ -28,7 +29,22 @@ describe("synthetic continuity verification (in-memory)", () => {
     }, {
       fixtureUrl: SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
       runNonce: "traditional-chinese-memory",
+      expectedCompactedContent: TRADITIONAL_CHINESE_COMPACTED_CONTENT,
     });
+  });
+
+  it("rejects a scenario that does not preserve the independently expected compacted text", async () => {
+    const persistence = new InMemoryPersistence();
+    await expect(runSyntheticContinuityVerification({
+      continuity: new InMemoryContinuityRepository(),
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      receipts: persistence.externalEvents,
+    }, {
+      fixtureUrl: SYNTHETIC_CONTINUITY_FIXTURE_URL,
+      runNonce: "missing-traditional-chinese",
+      expectedCompactedContent: TRADITIONAL_CHINESE_COMPACTED_CONTENT,
+    })).rejects.toThrow(/expected compacted source text/i);
   });
 
   it("keeps real-model assertions structural without requiring verbatim canary reproduction", async () => {

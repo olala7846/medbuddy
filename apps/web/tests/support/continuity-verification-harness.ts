@@ -118,6 +118,10 @@ export async function runSyntheticContinuityVerification(
     modelAssertions?: "DETERMINISTIC" | "STRUCTURAL";
     responder?: ConversationResponder;
     generator?: CompactionSummaryPort;
+    expectedCompactedContent?: {
+      sourceText: string;
+      summaryMarker: string;
+    };
   } = {},
 ): Promise<SyntheticContinuityCleanupManifest> {
   const queue = new DeterministicContinuityTaskQueue();
@@ -133,6 +137,10 @@ export async function runSyntheticContinuityVerification(
     CORRECTION_CANARY,
     "fictional-verification-bot",
   ]);
+  if (options.expectedCompactedContent !== undefined) {
+    sensitiveValues.add(options.expectedCompactedContent.sourceText);
+    sensitiveValues.add(options.expectedCompactedContent.summaryMarker);
+  }
   const generatedInputs: Array<{ allowedSourceSequences: readonly number[]; renderedInput: string }> = [];
   const fixedResponder: ConversationResponder = {
     async respond() {
@@ -172,7 +180,9 @@ export async function runSyntheticContinuityVerification(
     async generate() {
       return {
         summary: {
-          overview: `${EARLY_CANARY} was retained as fictional derived context.`,
+          overview: options.expectedCompactedContent === undefined
+            ? `${EARLY_CANARY} was retained as fictional derived context.`
+            : `${EARLY_CANARY} ${options.expectedCompactedContent.summaryMarker}`,
           keyEvents: [],
           openLoops: ["A fictional follow-up remains open."],
           caveats: ["Derived and non-authoritative."],
@@ -322,6 +332,15 @@ export async function runSyntheticContinuityVerification(
       active.firstSourceSequence,
       active.lastSourceSequence,
     );
+    if (options.expectedCompactedContent !== undefined) {
+      const expectedSourceText = options.expectedCompactedContent.sourceText;
+      const sourceTextWasPreserved = rangeSources.some((event) =>
+        event.payload.kind === "TEXT" && event.payload.body.includes(expectedSourceText));
+      if (!sourceTextWasPreserved) {
+        throw new Error("Expected compacted source text was not preserved in persisted source events.");
+      }
+      expect(generatedInputs[0]!.renderedInput).toContain(expectedSourceText);
+    }
     expect(segments[0]).toMatchObject({
       workspaceId: primaryWorkspace,
       firstSourceSequence: active.firstSourceSequence,
@@ -359,6 +378,9 @@ export async function runSyntheticContinuityVerification(
   expect(finalContext.history).toContain(JSON.stringify(segments[0]!.summary));
   if ((options.modelAssertions ?? "DETERMINISTIC") === "DETERMINISTIC") {
     expect(finalContext.history).toContain(EARLY_CANARY);
+  }
+  if (options.expectedCompactedContent !== undefined) {
+    expect(finalContext.history).toContain(options.expectedCompactedContent.summaryMarker);
   }
   expect(finalContext.recentConversation).toContain(CORRECTION_CANARY);
   expect(finalContext.recentConversation).toContain(finalFocalText);
