@@ -86,7 +86,9 @@ gcloud services enable \
   aiplatform.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
+  cloudtasks.googleapis.com \
   secretmanager.googleapis.com \
+  storage.googleapis.com \
   --project=med-buddy-503802
 ```
 
@@ -122,12 +124,21 @@ gcloud secrets create medbuddy-line-channel-access-token \
 gcloud secrets versions add medbuddy-line-channel-access-token \
   --data-file=- \
   --project=med-buddy-503802
+
+gcloud secrets create medbuddy-attachment-locator-key \
+  --replication-policy=automatic \
+  --project=med-buddy-503802
+gcloud secrets versions add medbuddy-attachment-locator-key \
+  --data-file=- \
+  --project=med-buddy-503802
 ```
 
-Grant the runtime identity access to only those two secrets:
+The attachment locator value entered above must be canonical base64 for exactly
+32 random bytes. Grant the runtime identity access only to the three runtime
+secrets:
 
 ```bash
-for secret_name in medbuddy-line-channel-secret medbuddy-line-channel-access-token; do
+for secret_name in medbuddy-line-channel-secret medbuddy-line-channel-access-token medbuddy-attachment-locator-key; do
   gcloud secrets add-iam-policy-binding "${secret_name}" \
     --project=med-buddy-503802 \
     --member=serviceAccount:medbuddy-runtime@med-buddy-503802.iam.gserviceaccount.com \
@@ -135,10 +146,22 @@ for secret_name in medbuddy-line-channel-secret medbuddy-line-channel-access-tok
 done
 ```
 
-From the repository root, deploy the source with a scale-to-zero, low-cost prototype ceiling. Secret versions are pinned rather than resolved from `latest` at runtime. Set `LINE_SECRET_VERSION` to the enabled version containing the validated credentials:
+From the repository root, deploy the source with a scale-to-zero, low-cost
+prototype ceiling only after the configuration-gated `gemini-3.6-flash` smoke
+passes. Secret versions are pinned rather than resolved from `latest` at
+runtime. Fill in the non-secret queue, callback, service-account, and private
+bucket values; set the two version variables to the enabled Secret Manager
+versions. The locator key itself remains a secret mapping and never appears in
+the command:
 
 ```bash
 LINE_SECRET_VERSION=2
+TASKS_LOCATION=us-west1
+: "${LOCATOR_SECRET_VERSION:?set the enabled locator-key secret version}"
+: "${TASKS_QUEUE:?set the private Cloud Tasks queue name}"
+: "${TASK_CALLER_SERVICE_ACCOUNT:?set the task-caller service-account email}"
+: "${ATTACHMENT_BUCKET:?set the private attachment bucket name}"
+: "${CLOUD_RUN_HOST:?set the Cloud Run HTTPS origin without a trailing slash}"
 gcloud run deploy medbuddy-line \
   --project=med-buddy-503802 \
   --region=us-west1 \
@@ -148,9 +171,15 @@ gcloud run deploy medbuddy-line \
   --min-instances=0 \
   --max-instances=2 \
   --timeout=30s \
-  --set-env-vars=MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802,MEDBUDDY_VERTEX_ENABLED=true,MEDBUDDY_VERTEX_PROJECT=med-buddy-503802,MEDBUDDY_VERTEX_LOCATION=global,MEDBUDDY_VERTEX_MODEL=gemini-2.5-flash \
-  --set-secrets=MEDBUDDY_LINE_CHANNEL_SECRET=medbuddy-line-channel-secret:${LINE_SECRET_VERSION},MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN=medbuddy-line-channel-access-token:${LINE_SECRET_VERSION}
+  --set-env-vars=MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802,MEDBUDDY_VERTEX_ENABLED=true,MEDBUDDY_VERTEX_PROJECT=med-buddy-503802,MEDBUDDY_VERTEX_LOCATION=global,MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash,MEDBUDDY_TASKS_LOCATION=${TASKS_LOCATION},MEDBUDDY_TASKS_QUEUE=${TASKS_QUEUE},MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL=${TASK_CALLER_SERVICE_ACCOUNT},MEDBUDDY_CONTINUITY_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/continuity,MEDBUDDY_ATTACHMENT_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/attachment,MEDBUDDY_ATTACHMENT_BUCKET=${ATTACHMENT_BUCKET},MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1 \
+  --set-secrets=MEDBUDDY_LINE_CHANNEL_SECRET=medbuddy-line-channel-secret:${LINE_SECRET_VERSION},MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN=medbuddy-line-channel-access-token:${LINE_SECRET_VERSION},MEDBUDDY_ATTACHMENT_LOCATOR_KEY=medbuddy-attachment-locator-key:${LOCATOR_SECRET_VERSION}
 ```
+
+The task caller must have permission to enqueue on the named private queue and
+invoke the Cloud Run service with OIDC. The callback code additionally requires
+the token audience to equal each configured callback URL and the token email to
+equal `MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL`. Keep the attachment bucket private
+and grant only the runtime identity the required object access.
 
 Cloud Run prints the generated HTTPS service URL. No custom domain is required. The LINE webhook URL is that service URL plus `/api/line/webhook`.
 

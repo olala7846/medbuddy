@@ -62,6 +62,9 @@
 - [x] Replace family-map authority heuristics with a structural allowlist that
   denies interrogatives, uncertainty, and negation independently of punctuation.
 - [x] Stabilize attachment emulator contention and correct deployment/audit docs.
+- [x] Update the executable LINE deployment template to `gemini-3.6-flash`
+  with the private continuity callbacks, task identity, bucket, and encrypted
+  locator secret mapping.
 - [x] Rerun final-verifier remediation gates.
 
 ## Final gates
