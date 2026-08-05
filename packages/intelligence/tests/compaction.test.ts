@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CompactionSummaryContractError,
   CompactionSummaryGenerator,
   type VertexGenerationRequest,
   type VertexInvocationContext,
@@ -105,7 +106,7 @@ describe("compaction summary generation", () => {
       }],
       openLoops: [{ description: "A fictional follow-up.", sourceSequence: 1 }],
       caveats: [{ description: "Synthetic data only.", sourceSequence: 1 }],
-    }))).generate(request)).rejects.toThrow(/summary/i);
+    }))).generate(request)).rejects.toBeInstanceOf(CompactionSummaryContractError);
   });
 
   it("rejects extra fields, unbounded output, and out-of-range source references", async () => {
@@ -125,7 +126,8 @@ describe("compaction summary generation", () => {
 
   it("rejects malformed provider transport without a refinement call", async () => {
     const client = new RecordingClient({ candidates: [] });
-    await expect(new CompactionSummaryGenerator(client).generate(request)).rejects.toThrow(/response/i);
+    await expect(new CompactionSummaryGenerator(client).generate(request))
+      .rejects.toBeInstanceOf(CompactionSummaryContractError);
     expect(client.requests).toHaveLength(1);
   });
 });

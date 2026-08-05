@@ -51,6 +51,9 @@ export type GeneratedCompactionSummary = {
   usage?: { inputTokens: number; outputTokens: number };
 };
 
+/** Provider output reached Vertex successfully but violated the summary contract. */
+export class CompactionSummaryContractError extends Error {}
+
 const SYSTEM_INSTRUCTION = [
   "Summarize only the delimited conversation evidence into JSON with exactly four fields: overview, keyEvents, openLoops, caveats.",
   "Each keyEvents item must use keyEvents[].text, optional attribution and sourceSequence, and an optional verbatimExcerpt object containing text and sourceSequence; never use a description field or a string excerpt.",
@@ -99,24 +102,24 @@ export class CompactionSummaryGenerator {
     const response = await this.client.generate(request, { workspaceId: input.workspaceId });
     const transport = VertexSummaryResponseSchema.safeParse(response);
     const text = transport.success ? transport.data.candidates[0]?.content.parts[0]?.text : undefined;
-    if (text === undefined) throw new Error("Malformed compaction provider response.");
+    if (text === undefined) throw new CompactionSummaryContractError("Malformed compaction provider response.");
     const usageMetadata = transport.success ? transport.data.usageMetadata : undefined;
 
     let decoded: unknown;
     try {
       decoded = JSON.parse(text) as unknown;
     } catch {
-      throw new Error("Malformed compaction provider response.");
+      throw new CompactionSummaryContractError("Malformed compaction provider response.");
     }
     const parsed = SegmentSummarySchema.safeParse(decoded);
-    if (!parsed.success) throw new Error("Invalid compaction summary.");
+    if (!parsed.success) throw new CompactionSummaryContractError("Invalid compaction summary.");
     const allowed = new Set(input.allowedSourceSequences);
     for (const event of parsed.data.keyEvents) {
       if (event.sourceSequence !== undefined && !allowed.has(event.sourceSequence)) {
-        throw new Error("Compaction summary references an unavailable source sequence.");
+        throw new CompactionSummaryContractError("Compaction summary references an unavailable source sequence.");
       }
       if (event.verbatimExcerpt !== undefined && !allowed.has(event.verbatimExcerpt.sourceSequence)) {
-        throw new Error("Compaction summary excerpt references an unavailable source sequence.");
+        throw new CompactionSummaryContractError("Compaction summary excerpt references an unavailable source sequence.");
       }
     }
     return {

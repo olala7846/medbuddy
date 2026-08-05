@@ -7,6 +7,7 @@ import {
 } from "@medbuddy/contracts";
 import { InMemoryContinuityRepository } from "@medbuddy/platform";
 import { orderedSourceDigest } from "@medbuddy/chat";
+import { CompactionSummaryContractError } from "@medbuddy/intelligence";
 
 import {
   ContinuityCompactionWorker,
@@ -21,6 +22,7 @@ const now = "2026-08-04T12:10:00.000Z";
 
 async function harness(options: {
   attempts?: number;
+  contractFail?: boolean;
   fail?: boolean;
   body?: string;
   blockGenerate?: boolean;
@@ -116,6 +118,7 @@ async function harness(options: {
         calls.push(input);
         markStarted();
         if (options.blockGenerate) await generateGate;
+        if (options.contractFail) throw new CompactionSummaryContractError("Invalid fictional compaction summary.");
         if (options.fail) throw new Error("fictional provider failure");
         return { summary, usage: { inputTokens: 120, outputTokens: 40 } };
       },
@@ -181,6 +184,25 @@ describe("private continuity task", () => {
       status: "PENDING",
       attempts: 0,
     });
+    expect(logs.every((entry) => !JSON.stringify(entry).includes(workspaceId))).toBe(true);
+  });
+
+  it("fails a schema-invalid summary once without scheduling identical retries", async () => {
+    const { calls, continuity, dispatched, handler, logs } = await harness({ contractFail: true });
+
+    await expect(handler.handle({
+      authorization: "Bearer fictional-task-token",
+      body: { workspaceId, jobId },
+    })).resolves.toEqual({ status: 200 });
+
+    expect(calls).toHaveLength(1);
+    expect(dispatched).toEqual([]);
+    await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toBeNull();
+    expect(logs).toContainEqual(expect.objectContaining({
+      event: "continuity_job_failed",
+      code: "SCHEMA_INVALID",
+      attempt: 1,
+    }));
     expect(logs.every((entry) => !JSON.stringify(entry).includes(workspaceId))).toBe(true);
   });
 
