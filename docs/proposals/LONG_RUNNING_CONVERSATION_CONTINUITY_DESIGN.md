@@ -330,9 +330,11 @@ workspaces/{workspaceId}/attachments/{attachmentId}
   attempt before Gemini is called. The claim records a 60-second claimed-at and
   expiry lease. Concurrent deliveries before expiry perform no model work; one
   delivery may transactionally take over an expired lease, incrementing the
-  same three-attempt bound. The claim timestamp and attempt number form a
-  fencing token: every release, retry, failure, ready publication, and active-job
-  clear transaction compares that token with the current owner. A late expired
+  same three-attempt bound. The monotonically increasing attempt number is the
+  owner generation, with the claim timestamp binding the live lease. Every
+  release, retry, failure, ready publication, and active-job clear transaction
+  compares that generation with the stored job even after the successor becomes
+  `PENDING` or `FAILED` and the active pointer is cleared. A late expired
   owner therefore cannot overwrite or clear its successor's state. A failed job may be explicitly reclaimed as a new
   bounded attempt cycle when no job is active.
 - Segment IDs and job IDs derive from workspace, level, inclusive range,
@@ -396,7 +398,7 @@ Firestore may rerun transaction callbacks after contention, so callbacks perform
 | Gemini timeout/error/malformed summary | Publish nothing, retain prior ready segments, increment safe attempt metadata, and retry the same range within bounds. Failed work may be explicitly reclaimed under a fresh bounded attempt cycle. |
 | Projection changes before publication | Check once before model work and reload/recheck immediately after generation. Atomic publication also requires the source-sequence watermark observed by that reload, closing the final read/write race. Reject stale candidates and dispatch a digest-scoped replacement. |
 | Worker crashes while `RUNNING` | The attempt lease expires after 60 seconds; exactly one later delivery transactionally takes over, increments the bounded attempt count, and continues. |
-| Expired worker finishes after takeover | Transactional attempt fencing rejects its release, failure, or publication without changing the successor, active-job pointer, or bounded attempt count. |
+| Expired worker finishes after takeover | Transactional attempt-generation fencing rejects its release, failure, or publication even after the successor requeues or clears the active pointer, without changing successor state or the bounded attempt count. |
 | Duplicate task/worker | Atomically grant one `PENDING`-to-`RUNNING` attempt; concurrent deliveries perform no Gemini call, then reuse ready output or converge through immutable publication. |
 | Ready publication leaves eligible backlog | Atomically claim and dispatch the next level-1 or higher-level job; at most one workspace job remains active. |
 | LINE rejects or times out | Do not publish the outbound candidate as a source event. Committed family-map updates remain canonical. |

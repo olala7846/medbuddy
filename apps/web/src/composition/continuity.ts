@@ -132,7 +132,7 @@ export class ContinuityCompactionWorker {
       await this.dependencies.continuity.updateCompactionJob(CompactionJobSchema.parse({
         ...releaseCompactionLease(attemptClaim.job),
         status: "FAILED",
-      }), attemptClaim.job.status === "RUNNING" ? compactionAttemptFence(attemptClaim.job) : undefined);
+      }), attemptClaim.job.attempts > 0 ? compactionAttemptFence(attemptClaim.job) : undefined);
       this.dependencies.logger.write({ event: "continuity_job_failed", code: "EXHAUSTED", level: active.level, attempt: attemptClaim.job.attempts });
       return "EXHAUSTED";
     }

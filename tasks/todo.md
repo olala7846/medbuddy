@@ -56,7 +56,8 @@
 - [x] Add crash-safe expiring compaction attempt leases with transactional
   takeover in memory and Firestore.
 - [x] Fence every attempt-owned state transition and publication so an expired
-  worker cannot overwrite or clear its transactional takeover successor.
+  worker cannot overwrite or clear its transactional takeover successor,
+  including after the successor requeues or clears the active pointer.
 - [x] Reload the source ledger after Gemini and enforce its validated watermark
   atomically at level-1 publication.
 - [x] Replace family-map authority heuristics with a structural allowlist that

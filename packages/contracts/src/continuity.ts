@@ -193,7 +193,7 @@ export const CompactionAttemptClaimSchema = z.discriminatedUnion("kind", [
 export const CompactionAttemptFenceSchema = z.object({
   jobId: CompactionJobIdSchema,
   attempts: z.number().int().positive().max(COMPACTION_MAX_ATTEMPTS),
-  attemptClaimedAt: TimestampSchema,
+  attemptClaimedAt: TimestampSchema.optional(),
 }).strict();
 
 export const CompactionSegmentSchema = z.object({

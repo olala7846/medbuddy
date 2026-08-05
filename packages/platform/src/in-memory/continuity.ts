@@ -242,13 +242,16 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       const key = this.key(job.workspaceId, job.id);
       const existing = this.jobs.get(key);
       if (existing === undefined) throw new Error("Compaction job does not exist.");
-      if (existing.status === "RUNNING") {
-        const active = this.activeJobs.get(job.workspaceId);
-        if (fence === undefined || active?.id !== existing.id ||
-            fence.jobId !== existing.id || fence.attempts !== existing.attempts ||
-            fence.attemptClaimedAt !== existing.attemptClaimedAt) {
+      const active = this.activeJobs.get(job.workspaceId);
+      if (fence !== undefined) {
+        if (fence.jobId !== existing.id || fence.attempts !== existing.attempts ||
+            job.attempts !== existing.attempts ||
+            (existing.status === "RUNNING" &&
+             (active?.id !== existing.id || fence.attemptClaimedAt !== existing.attemptClaimedAt))) {
           throw new Error("Compaction attempt fencing conflict.");
         }
+      } else if (existing.attempts > 0) {
+        throw new Error("Compaction attempt fencing token is required.");
       }
       this.jobs.set(key, clone(job));
       if (job.status === "FAILED") this.activeJobs.delete(job.workspaceId);
@@ -266,13 +269,18 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
     const fence = expectedAttempt === undefined ? undefined : CompactionAttemptFenceSchema.parse(expectedAttempt);
     return this.queue.run(segment.workspaceId, () => {
       const active = this.activeJobs.get(segment.workspaceId);
-      if (active !== undefined &&
-          (active.status !== "RUNNING" || fence === undefined || fence.jobId !== active.id ||
-           fence.attempts !== active.attempts || fence.attemptClaimedAt !== active.attemptClaimedAt)) {
-        throw new Error("Compaction attempt fencing conflict.");
-      }
       const key = this.key(segment.workspaceId, segment.id);
       const existing = this.segments.get(key);
+      if (fence !== undefined) {
+        const owner = this.jobs.get(this.key(segment.workspaceId, fence.jobId));
+        if (owner?.status !== "RUNNING" || owner.attempts !== fence.attempts ||
+            owner.attemptClaimedAt !== fence.attemptClaimedAt ||
+            (existing === undefined && active?.id !== owner.id)) {
+          throw new Error("Compaction attempt fencing conflict.");
+        }
+      } else if (active !== undefined) {
+        throw new Error("Compaction attempt fencing token is required.");
+      }
       if (existing !== undefined) {
         if (!same(existing, segment)) throw new Error("An immutable ready segment already exists with a different value.");
         if (active?.firstSourceSequence === segment.firstSourceSequence && active.lastSourceSequence === segment.lastSourceSequence) {

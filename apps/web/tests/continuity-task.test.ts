@@ -221,18 +221,26 @@ describe("private continuity task", () => {
       body: { workspaceId, jobId },
     });
     await generateStarted;
-    await expect(continuity.claimCompactionAttempt(
+    const successor = await continuity.claimCompactionAttempt(
       workspaceId as never,
       jobId as never,
       "2026-08-04T12:11:00.000Z",
-    )).resolves.toMatchObject({ kind: "CLAIMED", job: { attempts: 2 } });
+    );
+    if (successor.kind !== "CLAIMED") throw new Error("Expected successor ownership.");
+    const { attemptClaimedAt: _claimedAt, attemptLeaseExpiresAt: _lease, ...released } = successor.job;
+    void _claimedAt;
+    void _lease;
+    await continuity.updateCompactionJob({ ...released, status: "PENDING" }, {
+      jobId: successor.job.id,
+      attempts: successor.job.attempts,
+      attemptClaimedAt: successor.job.attemptClaimedAt,
+    });
 
     releaseGenerate();
     await expect(first).resolves.toEqual({ status: 500 });
     await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toMatchObject({
-      status: "RUNNING",
+      status: "PENDING",
       attempts: 2,
-      attemptClaimedAt: "2026-08-04T12:11:00.000Z",
     });
   });
 
@@ -243,20 +251,25 @@ describe("private continuity task", () => {
       body: { workspaceId, jobId },
     });
     await generateStarted;
-    await expect(continuity.claimCompactionAttempt(
+    const successor = await continuity.claimCompactionAttempt(
       workspaceId as never,
       jobId as never,
       "2026-08-04T12:11:00.000Z",
-    )).resolves.toMatchObject({ kind: "CLAIMED", job: { attempts: 2 } });
+    );
+    if (successor.kind !== "CLAIMED") throw new Error("Expected successor ownership.");
+    const { attemptClaimedAt: _claimedAt, attemptLeaseExpiresAt: _lease, ...released } = successor.job;
+    void _claimedAt;
+    void _lease;
+    await continuity.updateCompactionJob({ ...released, status: "FAILED" }, {
+      jobId: successor.job.id,
+      attempts: successor.job.attempts,
+      attemptClaimedAt: successor.job.attemptClaimedAt,
+    });
 
     releaseGenerate();
     await expect(first).resolves.toEqual({ status: 500 });
     await expect(continuity.listReadySegments(workspaceId as never)).resolves.toEqual([]);
-    await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toMatchObject({
-      status: "RUNNING",
-      attempts: 2,
-      attemptClaimedAt: "2026-08-04T12:11:00.000Z",
-    });
+    await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toBeNull();
   });
 
   it("claims and dispatches the next backlog job after READY publication", async () => {
