@@ -67,6 +67,10 @@ type CapturedRequest = Parameters<ConversationResponder["respond"]>[0];
 export class DeterministicContinuityTaskQueue implements ContinuityTaskDispatcher {
   readonly dispatchAttempts: Array<Parameters<ContinuityTaskDispatcher["dispatch"]>[0]> = [];
   readonly outcomes: Array<"PUBLISHED" | "REUSED" | "EXHAUSTED"> = [];
+  readonly runs: Array<{
+    jobId: Parameters<ContinuityTaskDispatcher["dispatch"]>[0]["jobId"];
+    outcome: "PUBLISHED" | "REUSED" | "EXHAUSTED";
+  }> = [];
   readonly #pending = new Map<string, Parameters<ContinuityTaskDispatcher["dispatch"]>[0]>();
 
   async dispatch(input: Parameters<ContinuityTaskDispatcher["dispatch"]>[0]): Promise<void> {
@@ -81,7 +85,9 @@ export class DeterministicContinuityTaskQueue implements ContinuityTaskDispatche
       const next = this.#pending.values().next().value;
       if (next === undefined) break;
       this.#pending.delete(next.jobId);
-      this.outcomes.push(await worker.run(next));
+      const outcome = await worker.run(next);
+      this.outcomes.push(outcome);
+      this.runs.push({ jobId: next.jobId, outcome });
     }
   }
 
@@ -122,6 +128,7 @@ export async function runSyntheticContinuityVerification(
       sourceText: string;
       summaryMarker: string;
     };
+    expectedRecentContent?: readonly string[];
   } = {},
 ): Promise<SyntheticContinuityCleanupManifest> {
   const queue = new DeterministicContinuityTaskQueue();
@@ -141,6 +148,7 @@ export async function runSyntheticContinuityVerification(
     sensitiveValues.add(options.expectedCompactedContent.sourceText);
     sensitiveValues.add(options.expectedCompactedContent.summaryMarker);
   }
+  for (const value of options.expectedRecentContent ?? []) sensitiveValues.add(value);
   const generatedInputs: Array<{ allowedSourceSequences: readonly number[]; renderedInput: string }> = [];
   const fixedResponder: ConversationResponder = {
     async respond() {
@@ -177,12 +185,14 @@ export async function runSyntheticContinuityVerification(
     logger: { write(entry) { lineLogs.push(structuredClone(entry)); } },
   });
   const fixedGenerator: CompactionSummaryPort = {
-    async generate() {
+    async generate(input) {
+      const summaryMarker = options.expectedCompactedContent !== undefined &&
+          input.renderedInput.includes(options.expectedCompactedContent.sourceText)
+        ? ` ${options.expectedCompactedContent.summaryMarker}`
+        : "";
       return {
         summary: {
-          overview: options.expectedCompactedContent === undefined
-            ? `${EARLY_CANARY} was retained as fictional derived context.`
-            : `${EARLY_CANARY} ${options.expectedCompactedContent.summaryMarker}`,
+          overview: `${EARLY_CANARY}${summaryMarker} was retained as fictional derived context.`,
           keyEvents: [],
           openLoops: ["A fictional follow-up remains open."],
           caveats: ["Derived and non-authoritative."],
@@ -223,6 +233,8 @@ export async function runSyntheticContinuityVerification(
   const signedByStep = new Map<string, ReturnType<typeof signedRequest>>();
   const sendByStep = new Map<string, SyntheticContinuitySendStep>();
   let active: CompactionJob | null = null;
+  const completedJobs: CompactionJob[] = [];
+  let expectedCompactedContentWasVerified = false;
   let segments: readonly CompactionSegment[] = [];
 
   for (const step of steps) {
@@ -256,15 +268,20 @@ export async function runSyntheticContinuityVerification(
       if (step.step === "below-trigger-two") {
         expect(await dependencies.continuity.getActiveCompactionJob(primaryWorkspace)).toBeNull();
       }
-      if (step.step === "trigger") {
+      if (step.step === "bootstrap-trigger" || step.step === "trigger") {
         active = await dependencies.continuity.getActiveCompactionJob(primaryWorkspace);
         expect(active).toMatchObject({
           level: 1,
-          firstSourceSequence: 1,
           policyVersion: "continuity-v1-verification-small",
           status: "PENDING",
         });
-        expect(active!.lastSourceSequence).toBeLessThan(3);
+        if (step.step === "bootstrap-trigger" || completedJobs.length === 0) {
+          expect(active!.firstSourceSequence).toBe(1);
+        } else {
+          expect(active!.firstSourceSequence).toBeGreaterThan(1);
+        }
+        const currentSources = await dependencies.continuity.listSourceEvents(primaryWorkspace);
+        expect(active!.lastSourceSequence).toBeLessThan(currentSources.at(-1)!.sourceSequence);
         expect(queue.size).toBe(1);
       }
       if (step.step === "mentioned-focal") {
@@ -273,7 +290,7 @@ export async function runSyntheticContinuityVerification(
         expect(requests[0]!.context.assembledContext!.recentConversation.length).toBeLessThanOrEqual(1_800);
         expect(requests[0]!.context.assembledContext!.recentConversation.match(/OLDER HISTORY IS PENDING COMPACTION/g))
           .toHaveLength(1);
-        expect(await dependencies.continuity.listReadySegments(primaryWorkspace)).toEqual([]);
+        expect(await dependencies.continuity.listReadySegments(primaryWorkspace)).toHaveLength(segments.length);
       }
       continue;
     }
@@ -297,85 +314,121 @@ export async function runSyntheticContinuityVerification(
     }
 
     if (active === null) throw new Error("Fixture drain occurred before compaction became active.");
+    const generatedInputCount = generatedInputs.length;
+    const runCount = queue.runs.length;
+    const segmentCount = segments.length;
     await queue.drain(worker);
     expect(queue.size).toBe(0);
-    expect(queue.outcomes).toEqual(["PUBLISHED"]);
-    expect(generatedInputs).toHaveLength(1);
+    const completedRuns = queue.runs.slice(runCount);
+    expect(completedRuns.length).toBeGreaterThan(0);
+    expect(completedRuns[0]!.jobId).toBe(active.id);
+    expect(completedRuns.every((run) => run.outcome === "PUBLISHED")).toBe(true);
+    expect(generatedInputs).toHaveLength(generatedInputCount + completedRuns.length);
     expect(await dependencies.continuity.getActiveCompactionJob(primaryWorkspace)).toBeNull();
     segments = await dependencies.continuity.listReadySegments(primaryWorkspace);
-    expect(segments).toHaveLength(1);
-    expect(segments[0]).toMatchObject({
-      level: 1,
-      firstSourceSequence: active.firstSourceSequence,
-      lastSourceSequence: active.lastSourceSequence,
-      orderedSourceDigest: active.orderedSourceDigest,
-      policyVersion: "continuity-v1-verification-small",
-      status: "READY",
-    });
-    expect(segments[0]!.outputCharacters).toBe(JSON.stringify(segments[0]!.summary).length);
+    expect(segments).toHaveLength(segmentCount + completedRuns.length);
     const currentSources = await dependencies.continuity.listSourceEvents(primaryWorkspace);
-    const expectedProjection = projectCompactionRange(
-      primaryWorkspace,
-      currentSources,
-      active.firstSourceSequence,
-      active.lastSourceSequence,
-    );
-    const expectedRenderedInput = renderBoundedCompactionInput(
-      expectedProjection.map(renderProjectedTurn).join("\n\n"),
-    );
-    expect(generatedInputs[0]).toEqual({
-      allowedSourceSequences: expectedProjection.map((turn) => turn.sourceSequence),
-      renderedInput: expectedRenderedInput,
-    });
-    const rangeSources = sourceEventsForCompactionRange(
-      currentSources,
-      active.firstSourceSequence,
-      active.lastSourceSequence,
-    );
-    if (options.expectedCompactedContent !== undefined) {
-      const expectedSourceText = options.expectedCompactedContent.sourceText;
-      const sourceTextWasPreserved = rangeSources.some((event) =>
-        event.payload.kind === "TEXT" && event.payload.body.includes(expectedSourceText));
-      if (!sourceTextWasPreserved) {
-        throw new Error("Expected compacted source text was not preserved in persisted source events.");
+    for (const [index, run] of completedRuns.entries()) {
+      const completedJob = await dependencies.continuity.getCompactionJob(primaryWorkspace, run.jobId);
+      if (completedJob === null) throw new Error("Compaction drain lost its completed job.");
+      const publishedSegment = segments.find((segment) =>
+        segment.firstSourceSequence === completedJob.firstSourceSequence &&
+        segment.lastSourceSequence === completedJob.lastSourceSequence &&
+        segment.orderedSourceDigest === completedJob.orderedSourceDigest);
+      expect(publishedSegment).toMatchObject({
+        level: completedJob.level,
+        firstSourceSequence: completedJob.firstSourceSequence,
+        lastSourceSequence: completedJob.lastSourceSequence,
+        orderedSourceDigest: completedJob.orderedSourceDigest,
+        policyVersion: "continuity-v1-verification-small",
+        status: "READY",
+      });
+      if (publishedSegment === undefined) throw new Error("Compaction drain did not publish its expected segment.");
+      expect(publishedSegment.outputCharacters).toBe(JSON.stringify(publishedSegment.summary).length);
+      const expectedProjection = projectCompactionRange(
+        primaryWorkspace,
+        currentSources,
+        completedJob.firstSourceSequence,
+        completedJob.lastSourceSequence,
+      );
+      const expectedRenderedInput = renderBoundedCompactionInput(
+        expectedProjection.map(renderProjectedTurn).join("\n\n"),
+      );
+      const generatedInput = generatedInputs[generatedInputCount + index]!;
+      expect(generatedInput).toEqual({
+        allowedSourceSequences: expectedProjection.map((turn) => turn.sourceSequence),
+        renderedInput: expectedRenderedInput,
+      });
+      const rangeSources = sourceEventsForCompactionRange(
+        currentSources,
+        completedJob.firstSourceSequence,
+        completedJob.lastSourceSequence,
+      );
+      if (options.expectedCompactedContent !== undefined) {
+        const expectedSourceText = options.expectedCompactedContent.sourceText;
+        const sourceTextWasPreserved = rangeSources.some((event) =>
+          event.payload.kind === "TEXT" && event.payload.body.includes(expectedSourceText));
+        if (sourceTextWasPreserved) {
+          expect(generatedInput.renderedInput).toContain(expectedSourceText);
+          expectedCompactedContentWasVerified = true;
+        }
       }
-      expect(generatedInputs[0]!.renderedInput).toContain(expectedSourceText);
+      expect(publishedSegment).toMatchObject({
+        workspaceId: primaryWorkspace,
+        firstSourceSequence: completedJob.firstSourceSequence,
+        lastSourceSequence: completedJob.lastSourceSequence,
+        sourceCount: rangeSources.length,
+        orderedSourceDigest: orderedSourceDigest(completedJob.policyVersion, rangeSources),
+        policyVersion: completedJob.policyVersion,
+        inputCharacters: expectedRenderedInput.length,
+      });
+      expect(completedJob).toMatchObject({
+        id: run.jobId,
+        workspaceId: primaryWorkspace,
+        policyVersion: "continuity-v1-verification-small",
+        status: "COMPLETED",
+        attempts: 1,
+        claimGeneration: 1,
+      });
+      expect(completedJob).not.toHaveProperty("attemptClaimedAt");
+      expect(completedJob).not.toHaveProperty("attemptLeaseExpiresAt");
+      completedJobs.push(completedJob);
     }
-    expect(segments[0]).toMatchObject({
-      workspaceId: primaryWorkspace,
-      firstSourceSequence: active.firstSourceSequence,
-      lastSourceSequence: active.lastSourceSequence,
-      sourceCount: rangeSources.length,
-      orderedSourceDigest: orderedSourceDigest(active.policyVersion, rangeSources),
-      policyVersion: active.policyVersion,
-      inputCharacters: expectedRenderedInput.length,
-    });
-    const completedJob = await dependencies.continuity.getCompactionJob(primaryWorkspace, active.id);
-    expect(completedJob).toMatchObject({
-      id: active.id,
-      workspaceId: primaryWorkspace,
-      level: active.level,
-      firstSourceSequence: active.firstSourceSequence,
-      lastSourceSequence: active.lastSourceSequence,
-      orderedSourceDigest: active.orderedSourceDigest,
-      childSegmentIds: active.childSegmentIds,
-      policyVersion: active.policyVersion,
-      status: "COMPLETED",
-      attempts: 1,
-      claimGeneration: 1,
-      createdAt: active.createdAt,
-    });
-    expect(completedJob).not.toHaveProperty("attemptClaimedAt");
-    expect(completedJob).not.toHaveProperty("attemptLeaseExpiresAt");
+    active = null;
   }
 
-  if (active === null || segments.length === 0) throw new Error("Fixture did not execute its compaction lifecycle.");
+  if (completedJobs.length === 0 || segments.length === 0) {
+    throw new Error("Fixture did not execute its compaction lifecycle.");
+  }
+  if (options.expectedCompactedContent !== undefined && !expectedCompactedContentWasVerified) {
+    throw new Error("Expected compacted source text was not preserved in persisted source events.");
+  }
   const finalFocalText = sendByStep.get("final-mentioned-question")?.event.message.text;
   if (finalFocalText === undefined) throw new Error("Fixture is missing its final focal question.");
 
   const finalContext = requests.at(-1)!.context.assembledContext!;
   expect(finalContext.history).toContain("BEGIN DERIVED NON-AUTHORITATIVE HISTORY");
-  expect(finalContext.history).toContain(JSON.stringify(segments[0]!.summary));
+  const recentSequences = [...finalContext.recentConversation.matchAll(/\| source ([0-9]+)\]/g)]
+    .map((match) => Number(match[1]));
+  expect(recentSequences.length).toBeGreaterThan(0);
+  const firstRecentSequence = Math.min(...recentSequences);
+  const renderedHistoryRanges = [...finalContext.history.matchAll(
+    /BEGIN DERIVED NON-AUTHORITATIVE HISTORY \(level ([0-9]+); sources ([0-9]+)-([0-9]+)\)/g,
+  )].map((match) => ({
+    level: Number(match[1]),
+    firstSourceSequence: Number(match[2]),
+    lastSourceSequence: Number(match[3]),
+  }));
+  const eligiblePersistedRanges = segments
+    .filter((segment) => segment.lastSourceSequence < firstRecentSequence)
+    .map((segment) => ({
+      level: segment.level,
+      firstSourceSequence: segment.firstSourceSequence,
+      lastSourceSequence: segment.lastSourceSequence,
+    }));
+  expect(renderedHistoryRanges).toEqual(eligiblePersistedRanges);
+  expect(Math.max(...renderedHistoryRanges.map((range) => range.lastSourceSequence)))
+    .toBeLessThan(firstRecentSequence);
   if ((options.modelAssertions ?? "DETERMINISTIC") === "DETERMINISTIC") {
     expect(finalContext.history).toContain(EARLY_CANARY);
   }
@@ -383,6 +436,9 @@ export async function runSyntheticContinuityVerification(
     expect(finalContext.history).toContain(options.expectedCompactedContent.summaryMarker);
   }
   expect(finalContext.recentConversation).toContain(CORRECTION_CANARY);
+  for (const expected of options.expectedRecentContent ?? []) {
+    expect(countOccurrences(finalContext.recentConversation, expected), expected).toBe(1);
+  }
   expect(finalContext.recentConversation).toContain(finalFocalText);
   expect(countOccurrences(finalContext.recentConversation, finalFocalText)).toBe(1);
   const renderedContext = [
@@ -394,11 +450,6 @@ export async function runSyntheticContinuityVerification(
   ].filter((block): block is string => block !== undefined && block.length > 0).join("\n\n");
   expect(renderedContext.indexOf(finalContext.history)).toBeLessThan(renderedContext.indexOf(finalContext.recentConversation));
   expect(countOccurrences(renderedContext, finalFocalText)).toBe(1);
-  const recentSequences = [...finalContext.recentConversation.matchAll(/\| source ([0-9]+)\]/g)]
-    .map((match) => Number(match[1]));
-  expect(recentSequences.length).toBeGreaterThan(0);
-  expect(Math.max(...segments.map((segment) => segment.lastSourceSequence)))
-    .toBeLessThan(Math.min(...recentSequences));
   expect(JSON.stringify(finalContext)).not.toContain(DECOY_CANARY);
   expect(await dependencies.continuity.listSourceEvents(decoyWorkspace)).toHaveLength(1);
   expect(requests).toHaveLength(2);
@@ -431,8 +482,10 @@ export async function runSyntheticContinuityVerification(
     if (event.providerMessageId !== undefined) sensitiveValues.add(event.providerMessageId);
     if (event.payload.kind === "TEXT") sensitiveValues.add(event.payload.body);
   }
-  sensitiveValues.add(active.id);
-  sensitiveValues.add(active.orderedSourceDigest);
+  for (const job of completedJobs) {
+    sensitiveValues.add(job.id);
+    sensitiveValues.add(job.orderedSourceDigest);
+  }
   for (const segment of segments) {
     sensitiveValues.add(segment.id);
     sensitiveValues.add(segment.orderedSourceDigest);

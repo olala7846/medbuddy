@@ -15,6 +15,7 @@ import {
   SYNTHETIC_CONTINUITY_FIXTURE_URL,
   SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
   TRADITIONAL_CHINESE_COMPACTED_CONTENT,
+  TRADITIONAL_CHINESE_RECENT_CONTENT,
 } from "./support/continuity-verification-fixture.js";
 
 const describeEmulator = process.env.FIRESTORE_EMULATOR_HOST ? describe : describe.skip;
@@ -45,16 +46,18 @@ describeEmulator("synthetic continuity verification (Firestore emulator)", () =>
   });
 
   it.each([
-    ["English", SYNTHETIC_CONTINUITY_FIXTURE_URL, undefined],
+    ["English", SYNTHETIC_CONTINUITY_FIXTURE_URL, undefined, undefined],
     [
       "Traditional Chinese",
       SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
       TRADITIONAL_CHINESE_COMPACTED_CONTENT,
+      TRADITIONAL_CHINESE_RECENT_CONTENT,
     ],
   ])("runs the signed %s scenario with persisted jobs and segments", async (
     _language,
     fixtureUrl,
     expectedCompactedContent,
+    expectedRecentContent,
   ) => {
     const firestore = new Firestore({ projectId: `medbuddy-verification-${randomUUID()}` });
     const persistence = new FirestorePersistence(firestore);
@@ -71,6 +74,7 @@ describeEmulator("synthetic continuity verification (Firestore emulator)", () =>
         fixtureUrl,
         runNonce,
         ...(expectedCompactedContent === undefined ? {} : { expectedCompactedContent }),
+        ...(expectedRecentContent === undefined ? {} : { expectedRecentContent }),
       });
     } finally {
       expect(await cleanupSyntheticContinuityTarget(firestore, cleanup)).toBe(true);

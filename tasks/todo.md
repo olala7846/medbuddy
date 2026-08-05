@@ -83,6 +83,27 @@
 - [ ] Exact Git state, commits, tests, residual risks, and deferred fictional smoke are handed back.
 - [x] No deployment, PR creation, PR merge, or branch merge was performed.
 
+## Realistic Traditional Chinese continuity fixture
+
+- [x] Lock six-person relationships and multi-day chronology in fixture tests.
+- [x] Replace repetitive JSONL with two appointments and longitudinal facts.
+- [x] Prove Appointment 1 compacts while Appointment 2 and latest facts stay recent.
+- [x] Cover every added signed event in strict nonce-scoped cleanup.
+- [x] Pass memory, fresh emulator, full tests, checks, build, and privacy review.
+
+## Realistic Traditional Chinese fixture evidence (2026-08-05)
+
+- `npm run verify:continuity:memory`: 4 tests passed, including the realistic
+  Traditional Chinese scenario and independent compacted/recent literals.
+- Fresh Firestore emulator `npm run verify:continuity:emulator`: 3 tests passed;
+  the complete emulator-enabled suite passed 55 files and 436 tests with only
+  live-provider/configuration-gated tests skipped.
+- `npm run check`, the complete in-memory test suite, and the production web
+  build passed.
+- `npm audit --omit=dev` still reports the documented 9 transitive findings
+  (4 high, 5 moderate); this fixture-only change adds no dependencies and does
+  not alter the existing pre-real-data release gate.
+
 ## Implementer verification evidence (2026-08-04)
 
 - `npm run check`: passed.

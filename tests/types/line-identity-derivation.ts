@@ -18,7 +18,7 @@ void workspaceId;
 const derived = deriveSyntheticContinuityManifest("fictional-run");
 const version: 1 = derived.version;
 const workspaces: readonly [string, string] = derived.workspaceIds;
-const receipts: readonly [string, string, string, string, string, string, string, string] = derived.receiptKeys;
+const receipts: readonly string[] = derived.receiptKeys;
 void version;
 void workspaces;
 void receipts;

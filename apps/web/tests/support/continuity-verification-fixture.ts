@@ -58,9 +58,17 @@ export const SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL = new URL(
 );
 
 export const TRADITIONAL_CHINESE_COMPACTED_CONTENT = {
-  sourceText: "這是完全虛構的繁體中文連續性驗證",
-  summaryMarker: "虛構繁體中文壓縮摘要標記",
+  sourceText: "第一次回診，今天由我陪爸爸看診",
+  summaryMarker: "第一次回診已納入虛構壓縮摘要",
 } as const;
+
+export const TRADITIONAL_CHINESE_RECENT_CONTENT = [
+  "更正後是 125/78",
+  "第二次回診，今天由我陪公公看診",
+  "9 月 8 日早上 7:10",
+  "下午散步也沒有",
+  "昨晚大約十點半睡著",
+] as const;
 
 export function parseSyntheticContinuityJsonl(raw: string, runNonce: string): SyntheticContinuityStep[] {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(runNonce)) throw new Error("Synthetic fixture run nonce is invalid.");

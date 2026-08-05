@@ -27,7 +27,7 @@ export const SYNTHETIC_CONTINUITY_MANIFEST_VERSION = 1;
  * @property {1} version
  * @property {string} runNonce
  * @property {readonly [string, string]} workspaceIds
- * @property {readonly [string, string, string, string, string, string, string, string]} receiptKeys
+ * @property {readonly string[]} receiptKeys
  */
 
 /** @param {readonly string[]} parts */
@@ -75,16 +75,11 @@ export function deriveSyntheticContinuityManifest(runNonce) {
     deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 0)).workspaceId,
     deriveCanonicalLineIds(syntheticIdentity(decoyGroupId, 0)).workspaceId,
   ]);
-  const receiptKeys = /** @type {[string, string, string, string, string, string, string, string]} */ ([
+  const receiptKeys = [
     deriveCanonicalLineIds(syntheticIdentity(decoyGroupId, 90)).receiptKey,
-    deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 1)).receiptKey,
-    deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 2)).receiptKey,
-    deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 3)).receiptKey,
-    deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 4)).receiptKey,
-    deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 5)).receiptKey,
-    deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 6)).receiptKey,
-    deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 7)).receiptKey,
-  ]);
+    ...Array.from({ length: 37 }, (_, index) =>
+      deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, index + 1)).receiptKey),
+  ];
   return { version: SYNTHETIC_CONTINUITY_MANIFEST_VERSION, runNonce, workspaceIds, receiptKeys };
 }
 
