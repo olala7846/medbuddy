@@ -1,5 +1,6 @@
 import {
   CONTINUITY_POLICIES,
+  ConversationTurnRequestSchema,
   type ConversationResponder,
   type MessageRepository,
   type WorkspaceFamilyMapRepository,
@@ -161,6 +162,7 @@ describe("ContinuityThreadConversationService", () => {
       familyMaps: persistence.familyMaps,
       responder: {
         async respond(request) {
+          ConversationTurnRequestSchema.parse(request);
           modelRequests.push(request);
           return { kind: "RESPONDED", responseText: "A fictional continuity reply.", retryable: false };
         },
