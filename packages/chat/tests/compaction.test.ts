@@ -32,7 +32,12 @@ function source(sequence: number, body = "x".repeat(5_000)): SourceEvent {
   });
 }
 
-function ready(first: number, last: number, suffix: string): CompactionSegment {
+function ready(
+  first: number,
+  last: number,
+  suffix: string,
+  policyVersion = "continuity-v1",
+): CompactionSegment {
   const summary = { overview: `Fictional ${suffix}.`, keyEvents: [], openLoops: [], caveats: [] };
   return CompactionSegmentSchema.parse({
     id: `compaction-segment:${suffix}`,
@@ -45,7 +50,7 @@ function ready(first: number, last: number, suffix: string): CompactionSegment {
     childSegmentIds: [],
     modelId: "gemini-3.6-flash",
     promptVersion: "continuity-summary-v1",
-    policyVersion: "continuity-v1",
+    policyVersion,
     createdAt: "2026-08-04T12:10:00.000Z",
     inputCharacters: 10,
     outputCharacters: JSON.stringify(summary).length,
@@ -76,6 +81,13 @@ describe("level-one compaction planning", () => {
       policyVersion: "continuity-v1-verification-small",
     });
     expect(planLevelOneCompaction("workspace:orchard" as never, sources, [])).toBeNull();
+  });
+
+  it("does not use coverage produced by another policy version", () => {
+    const sources = [source(1, "x".repeat(11_000)), source(2, "y".repeat(11_000))];
+    const foreignCoverage = ready(1, 1, "foreign", "continuity-v1-verification-small");
+    expect(planLevelOneCompaction("workspace:orchard" as never, sources, [foreignCoverage]))
+      .toMatchObject({ firstSourceSequence: 1, policyVersion: "continuity-v1" });
   });
 
   it("does not plan at or below 20,000 rendered units", () => {
@@ -126,6 +138,21 @@ describe("level-one compaction planning", () => {
 });
 
 describe("hierarchical compaction and publication validation", () => {
+  it("never merges child segments from different policy versions", () => {
+    const mixed = [
+      ready(1, 2, "mixed-a"),
+      ready(3, 4, "mixed-b", "continuity-v1-verification-small"),
+      ready(5, 6, "mixed-c"),
+      ready(7, 8, "mixed-d"),
+    ];
+    expect(planHigherLevelCompaction("workspace:orchard" as never, mixed)).toBeNull();
+    expect(planHigherLevelCompaction(
+      "workspace:orchard" as never,
+      mixed,
+      VERIFICATION_SMALL_CONTINUITY_POLICY,
+    )).toBeNull();
+  });
+
   it("merges exactly four adjacent complete children through a generic next-level plan", () => {
     const children = [ready(1, 2, "a"), ready(3, 4, "b"), ready(5, 6, "c"), ready(7, 8, "d")];
     expect(planHigherLevelCompaction("workspace:orchard" as never, children)).toMatchObject({

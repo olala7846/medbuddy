@@ -30,7 +30,7 @@ function event(sequence: number, body: string, overrides: Record<string, unknown
   });
 }
 
-function segment(input: { id: string; level: number; first: number; last: number; children?: string[]; summaryText?: string }) {
+function segment(input: { id: string; level: number; first: number; last: number; children?: string[]; summaryText?: string; policyVersion?: string }) {
   const summary = { overview: input.summaryText ?? `Fictional history ${input.first}-${input.last}.`, keyEvents: [], openLoops: [], caveats: [] };
   return CompactionSegmentSchema.parse({
     id: `compaction-segment:${input.id}`,
@@ -43,7 +43,7 @@ function segment(input: { id: string; level: number; first: number; last: number
     childSegmentIds: (input.children ?? []).map((id) => `compaction-segment:${id}`),
     modelId: "gemini-3.6-flash",
     promptVersion: "continuity-summary-v1",
-    policyVersion: "continuity-v1",
+    policyVersion: input.policyVersion ?? "continuity-v1",
     createdAt: "2026-08-04T12:05:00.000Z",
     inputCharacters: 100,
     outputCharacters: JSON.stringify(summary).length,
@@ -93,6 +93,32 @@ describe("effective conversation projection", () => {
 });
 
 describe("deterministic conversation context", () => {
+  it("renders historical segments only from the active policy version", () => {
+    const sources = [event(3, "Current fictional focal.")];
+    const assembled = assembleConversationContext({
+      workspaceId: "workspace:orchard" as never,
+      focalSourceEventId: sources[0]!.id,
+      sourceEvents: sources,
+      readySegments: [
+        segment({ id: "production", level: 1, first: 1, last: 1, summaryText: "PRODUCTION_ONLY" }),
+        segment({
+          id: "verification",
+          level: 1,
+          first: 2,
+          last: 2,
+          summaryText: "VERIFICATION_ONLY",
+          policyVersion: "continuity-v1-verification-small",
+        }),
+      ],
+      system: "SYSTEM SAFETY",
+      compactionPending: false,
+      policy: VERIFICATION_SMALL_CONTINUITY_POLICY,
+    });
+    expect(assembled.history).toContain("VERIFICATION_ONLY");
+    expect(assembled.history).not.toContain("PRODUCTION_ONLY");
+    expect(assembled.selectedSegments).toHaveLength(1);
+  });
+
   it("uses the verification-small pending ceiling only when explicitly selected", () => {
     const sources = [event(1, "a".repeat(900)), event(2, "b".repeat(900)), event(3, "focal")];
     const assembled = assembleConversationContext({

@@ -157,7 +157,7 @@ export function planLevelOneCompaction(
     if (segment.workspaceId !== workspaceId) throw new Error("Compaction coverage cannot cross a workspace boundary.");
   }
   const coverage = Math.max(0, ...readySegments
-    .filter((segment) => segment.level === 1)
+    .filter((segment) => segment.level === 1 && segment.policyVersion === policyVersion)
     .map((segment) => segment.lastSourceSequence));
   const eligibleSources = [...sourceEvents]
     .filter((event) => event.sourceSequence > coverage)
@@ -212,8 +212,9 @@ export function planHigherLevelCompaction(
   for (const segment of readySegments) {
     if (segment.workspaceId !== workspaceId) throw new Error("Higher-level planning cannot cross a workspace boundary.");
   }
-  const parented = new Set(readySegments.flatMap((segment) => segment.childSegmentIds));
-  const unparented = readySegments.filter((segment) => !parented.has(segment.id));
+  const policySegments = readySegments.filter((segment) => segment.policyVersion === policyVersion);
+  const parented = new Set(policySegments.flatMap((segment) => segment.childSegmentIds));
+  const unparented = policySegments.filter((segment) => !parented.has(segment.id));
   const levels = [...new Set(unparented.map((segment) => segment.level))].sort((left, right) => left - right);
   for (const level of levels) {
     const candidates = unparented

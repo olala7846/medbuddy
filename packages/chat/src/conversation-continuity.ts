@@ -134,11 +134,13 @@ function validateAndSelectFrontier(
   workspaceId: WorkspaceId,
   segments: readonly CompactionSegment[],
   beforeSequence: number,
+  policyVersion: string,
 ): CompactionSegment[] {
   for (const segment of segments) {
     if (segment.workspaceId !== workspaceId) throw new Error("Historical segments cannot cross a workspace boundary.");
   }
-  const ordered = [...segments].sort((left, right) =>
+  const policySegments = segments.filter((segment) => segment.policyVersion === policyVersion);
+  const ordered = [...policySegments].sort((left, right) =>
     left.level - right.level || left.firstSourceSequence - right.firstSourceSequence);
   for (let index = 0; index < ordered.length; index += 1) {
     const left = ordered[index]!;
@@ -155,7 +157,7 @@ function validateAndSelectFrontier(
     }
   }
 
-  const eligible = segments.filter((segment) => segment.lastSourceSequence < beforeSequence);
+  const eligible = policySegments.filter((segment) => segment.lastSourceSequence < beforeSequence);
   const childIds = new Set(eligible.flatMap((segment) => segment.childSegmentIds));
   const roots = eligible.filter((segment) => !childIds.has(segment.id));
   const selected: CompactionSegment[] = [];
@@ -272,7 +274,12 @@ export function assembleConversationContext(input: AssembleConversationContextIn
   if (recentConversation.length > recentLimit) throw new Error("Recent conversation exceeded its hard character ceiling.");
 
   const firstRecentSequence = Math.min(...selectedNewestFirst.map((entry) => entry.turn.sourceSequence));
-  const frontier = validateAndSelectFrontier(input.workspaceId, input.readySegments, firstRecentSequence);
+  const frontier = validateAndSelectFrontier(
+    input.workspaceId,
+    input.readySegments,
+    firstRecentSequence,
+    (input.policy ?? DEFAULT_CONTINUITY_POLICY).policyVersion,
+  );
   const selectedSegments: CompactionSegment[] = [];
   let history = "";
   const fixedWithoutHistory = [input.system, familyMap, agentActions, recentConversation];
