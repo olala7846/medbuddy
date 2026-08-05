@@ -18,6 +18,10 @@ import {
   runSyntheticContinuityVerification,
   syntheticContinuityCleanupManifest,
 } from "./support/continuity-verification-harness.js";
+import {
+  cleanupSyntheticContinuityTarget,
+  preflightSyntheticContinuityTarget,
+} from "./support/continuity-verification-lifecycle.js";
 
 const TARGET_ACKNOWLEDGEMENT = "I_ACKNOWLEDGE_FICTIONAL_TARGET_WRITES";
 const targetEnabled = process.env.MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION === TARGET_ACKNOWLEDGEMENT;
@@ -39,16 +43,15 @@ describeTarget("synthetic continuity verification (target Firestore + Vertex)", 
     const runNonce = randomUUID();
     const cleanup = syntheticContinuityCleanupManifest(runNonce);
     const manifestPath = join(tmpdir(), `medbuddy-continuity-verification-${runNonce}.json`);
-    await writeFile(manifestPath, JSON.stringify({ projectId, ...cleanup }), { flag: "wx", mode: 0o600 });
+    try {
+      await preflightSyntheticContinuityTarget(firestore, cleanup);
+      await writeFile(manifestPath, JSON.stringify({ projectId, ...cleanup }), { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      await firestore.terminate();
+      throw error;
+    }
     let cleanupVerified = false;
     try {
-      for (const workspaceId of cleanup.workspaceIds) {
-        expect((await firestore.collection("workspaces").doc(workspaceId).listCollections())).toEqual([]);
-      }
-      for (const receiptKey of cleanup.receiptKeys) {
-        expect((await firestore.collection("externalEventReceipts").doc(receiptKey).get()).exists).toBe(false);
-      }
-
       const client = new VertexRestClient(vertex);
       const telemetry: unknown[] = [];
       await runSyntheticContinuityVerification({
@@ -69,20 +72,7 @@ describeTarget("synthetic continuity verification (target Firestore + Vertex)", 
       expect(JSON.stringify(telemetry)).not.toContain("FICTIONAL_");
     } finally {
       try {
-        for (const workspaceId of cleanup.workspaceIds) {
-          await firestore.recursiveDelete(firestore.collection("workspaces").doc(workspaceId));
-        }
-        const batch = firestore.batch();
-        for (const receiptKey of cleanup.receiptKeys) {
-          batch.delete(firestore.collection("externalEventReceipts").doc(receiptKey));
-        }
-        await batch.commit();
-        const workspaceCollections = await Promise.all(cleanup.workspaceIds.map((workspaceId) =>
-          firestore.collection("workspaces").doc(workspaceId).listCollections()));
-        const receipts = await Promise.all(cleanup.receiptKeys.map((receiptKey) =>
-          firestore.collection("externalEventReceipts").doc(receiptKey).get()));
-        cleanupVerified = workspaceCollections.every((collections) => collections.length === 0) &&
-          receipts.every((receipt) => !receipt.exists);
+        cleanupVerified = await cleanupSyntheticContinuityTarget(firestore, cleanup);
       } finally {
         await firestore.terminate();
         if (cleanupVerified) await unlink(manifestPath);
