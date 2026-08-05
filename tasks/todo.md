@@ -83,17 +83,17 @@
 ## Implementer verification evidence (2026-08-04)
 
 - `npm run check`: passed.
-- `npm test`: 46 files and 346 tests passed; 3 files and 51 tests were
+- `npm test`: 46 files and 351 tests passed; 3 files and 51 tests were
   configuration-gated and skipped.
 - `npm run build --workspace @medbuddy/web`: passed, including the private
   `/api/internal/attachment` and `/api/internal/continuity` routes.
-- Full Firestore-emulator-enabled suite: 48 files and 379 tests passed; one
+- Full Firestore-emulator-enabled suite: 48 files and 384 tests passed; one
   live-provider file and 18 tests remained configuration-gated. The focused
   continuity contract passed 9 tests, including concurrent atomic attachment
   and compaction-attempt allocation, expired-lease takeover, publication
   watermark enforcement, failed-job reclaim, and stale-owner fencing after
-  transactional takeover. The focused contract plus worker suite passed 21
-  tests.
+  transactional takeover, successor requeue, and terminal active-pointer
+  clearance. The focused contract plus worker suite passed 21 tests.
 - The broader legacy concurrent-message emulator test now allows 20 seconds
   and asserts unique revisions without assuming concurrent submission order;
   the complete emulator-enabled rerun passed.

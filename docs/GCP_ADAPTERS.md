@@ -36,7 +36,7 @@ Do not use service-account keys: deploy with workload identity, a private
 uniform-access bucket, and a dedicated Cloud Tasks callback service account.
 
 On 2026-08-04 the complete Firestore-emulator-enabled suite passed 48 files and
-379 tests using Homebrew OpenJDK 26. The remaining skipped file is the
+384 tests using Homebrew OpenJDK 26. The remaining skipped file is the
 credential-gated live Vertex smoke, not an adapter test.
 
 ## Production composition status
