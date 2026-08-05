@@ -12,7 +12,8 @@
     "packages/*"
   ],
   "scripts": {
-    "check": "npm run typecheck && npm run lint && npm run check:boundaries",
+    "check": "npm run typecheck && npm run check:public-js && npm run lint && npm run check:boundaries",
+    "check:public-js": "tsc --project tsconfig.public-js.json",
     "check:boundaries": "node scripts/check-module-boundaries.mjs",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "lint": "eslint .",
