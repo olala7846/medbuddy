@@ -277,7 +277,12 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
         const stored = CompactionJobSchema.parse(record(existing.data()));
         if (stored.status === "FAILED") {
           if (!sameJobIdentity(stored, job)) throw new Error("Compaction job identity conflict.");
-          const reclaimed = CompactionJobSchema.parse({ ...job, status: "PENDING", attempts: 0 });
+          const reclaimed = CompactionJobSchema.parse({
+            ...job,
+            status: "PENDING",
+            attempts: 0,
+            claimGeneration: stored.claimGeneration,
+          });
           transaction.set(jobRef, reclaimed);
           transaction.set(stateRef, { activeJobId: reclaimed.id });
           return reclaimed;
@@ -319,6 +324,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
         ...job,
         status: "RUNNING",
         attempts: job.attempts + 1,
+        claimGeneration: job.claimGeneration + 1,
         attemptClaimedAt: claimedAt,
         attemptLeaseExpiresAt: new Date(Date.parse(claimedAt) + COMPACTION_ATTEMPT_LEASE_MS).toISOString(),
       });
@@ -349,10 +355,9 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       if (!existing.exists) throw new Error("Compaction job does not exist.");
       const stored = CompactionJobSchema.parse(record(existing.data()));
       if (fence !== undefined) {
-        if (fence.jobId !== stored.id || fence.attempts !== stored.attempts ||
-            job.attempts !== stored.attempts ||
-            (stored.status === "RUNNING" &&
-             (state.data()?.activeJobId !== stored.id || fence.attemptClaimedAt !== stored.attemptClaimedAt))) {
+        if (fence.jobId !== stored.id || fence.claimGeneration !== stored.claimGeneration ||
+            job.claimGeneration !== stored.claimGeneration ||
+            (stored.status === "RUNNING" && state.data()?.activeJobId !== stored.id)) {
           throw new Error("Compaction attempt fencing conflict.");
         }
       } else if (stored.attempts > 0) {
@@ -391,7 +396,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
         if (!owner?.exists) throw new Error("Compaction attempt fencing conflict.");
         const ownerJob = CompactionJobSchema.parse(record(owner.data()));
         if (ownerJob.status !== "RUNNING" || fence.jobId !== ownerJob.id ||
-            fence.attempts !== ownerJob.attempts || fence.attemptClaimedAt !== ownerJob.attemptClaimedAt ||
+            fence.claimGeneration !== ownerJob.claimGeneration ||
             (!existing.exists && activeJobId !== ownerJob.id)) {
           throw new Error("Compaction attempt fencing conflict.");
         }

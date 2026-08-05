@@ -189,7 +189,12 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       const existing = this.jobs.get(key);
       if (existing !== undefined && existing.status === "FAILED") {
         if (!sameJobIdentity(existing, job)) throw new Error("Compaction job identity conflict.");
-        const reclaimed = CompactionJobSchema.parse({ ...job, status: "PENDING", attempts: 0 });
+        const reclaimed = CompactionJobSchema.parse({
+          ...job,
+          status: "PENDING",
+          attempts: 0,
+          claimGeneration: existing.claimGeneration,
+        });
         this.jobs.set(key, clone(reclaimed));
         this.activeJobs.set(job.workspaceId, clone(reclaimed));
         return reclaimed;
@@ -219,6 +224,7 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
         ...active,
         status: "RUNNING",
         attempts: active.attempts + 1,
+        claimGeneration: active.claimGeneration + 1,
         attemptClaimedAt: claimedAt,
         attemptLeaseExpiresAt: new Date(Date.parse(claimedAt) + COMPACTION_ATTEMPT_LEASE_MS).toISOString(),
       });
@@ -244,10 +250,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       if (existing === undefined) throw new Error("Compaction job does not exist.");
       const active = this.activeJobs.get(job.workspaceId);
       if (fence !== undefined) {
-        if (fence.jobId !== existing.id || fence.attempts !== existing.attempts ||
-            job.attempts !== existing.attempts ||
-            (existing.status === "RUNNING" &&
-             (active?.id !== existing.id || fence.attemptClaimedAt !== existing.attemptClaimedAt))) {
+        if (fence.jobId !== existing.id || fence.claimGeneration !== existing.claimGeneration ||
+            job.claimGeneration !== existing.claimGeneration ||
+            (existing.status === "RUNNING" && active?.id !== existing.id)) {
           throw new Error("Compaction attempt fencing conflict.");
         }
       } else if (existing.attempts > 0) {
@@ -273,8 +278,7 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       const existing = this.segments.get(key);
       if (fence !== undefined) {
         const owner = this.jobs.get(this.key(segment.workspaceId, fence.jobId));
-        if (owner?.status !== "RUNNING" || owner.attempts !== fence.attempts ||
-            owner.attemptClaimedAt !== fence.attemptClaimedAt ||
+        if (owner?.status !== "RUNNING" || owner.claimGeneration !== fence.claimGeneration ||
             (existing === undefined && active?.id !== owner.id)) {
           throw new Error("Compaction attempt fencing conflict.");
         }

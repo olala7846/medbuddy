@@ -55,6 +55,7 @@ async function harness(options: {
     policyVersion: "continuity-v1",
     status: "PENDING",
     attempts: options.attempts ?? 0,
+    claimGeneration: options.attempts ?? 0,
     createdAt: now,
   });
   await continuity.claimCompactionJob(job);
@@ -232,8 +233,7 @@ describe("private continuity task", () => {
     void _lease;
     await continuity.updateCompactionJob({ ...released, status: "PENDING" }, {
       jobId: successor.job.id,
-      attempts: successor.job.attempts,
-      attemptClaimedAt: successor.job.attemptClaimedAt,
+      claimGeneration: successor.job.claimGeneration,
     });
 
     releaseGenerate();
@@ -262,8 +262,7 @@ describe("private continuity task", () => {
     void _lease;
     await continuity.updateCompactionJob({ ...released, status: "FAILED" }, {
       jobId: successor.job.id,
-      attempts: successor.job.attempts,
-      attemptClaimedAt: successor.job.attemptClaimedAt,
+      claimGeneration: successor.job.claimGeneration,
     });
 
     releaseGenerate();
@@ -271,6 +270,55 @@ describe("private continuity task", () => {
     await expect(continuity.listReadySegments(workspaceId as never)).resolves.toEqual([]);
     await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toBeNull();
   });
+
+  it.each(["PENDING", "FAILED"] as const)(
+    "fences a prior-cycle worker after reclaimed attempt one becomes %s",
+    async (successorStatus) => {
+      const { continuity, generateStarted, handler, job, releaseGenerate } = await harness({ blockGenerate: true });
+      const priorWorker = handler.handle({
+        authorization: "Bearer fictional-task-token",
+        body: { workspaceId, jobId },
+      });
+      await generateStarted;
+      const prior = await continuity.getActiveCompactionJob(workspaceId as never);
+      if (prior?.status !== "RUNNING") throw new Error("Expected prior-cycle ownership.");
+      const { attemptClaimedAt: _priorClaimedAt, attemptLeaseExpiresAt: _priorLease, ...priorReleased } = prior;
+      void _priorClaimedAt;
+      void _priorLease;
+      await continuity.updateCompactionJob({ ...priorReleased, status: "FAILED" }, {
+        jobId: prior.id,
+        claimGeneration: prior.claimGeneration,
+      });
+
+      await continuity.claimCompactionJob({ ...job, status: "PENDING", attempts: 0 });
+      const successor = await continuity.claimCompactionAttempt(
+        workspaceId as never,
+        jobId as never,
+        "2026-08-04T12:12:00.000Z",
+      );
+      if (successor.kind !== "CLAIMED") throw new Error("Expected reclaimed-cycle ownership.");
+      const { attemptClaimedAt: _successorClaimedAt, attemptLeaseExpiresAt: _successorLease, ...successorReleased } = successor.job;
+      void _successorClaimedAt;
+      void _successorLease;
+      await continuity.updateCompactionJob({ ...successorReleased, status: successorStatus }, {
+        jobId: successor.job.id,
+        claimGeneration: successor.job.claimGeneration,
+      });
+
+      releaseGenerate();
+      await expect(priorWorker).resolves.toEqual({ status: 500 });
+      await expect(continuity.listReadySegments(workspaceId as never)).resolves.toEqual([]);
+      if (successorStatus === "PENDING") {
+        await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toMatchObject({
+          status: "PENDING",
+          attempts: 1,
+          claimGeneration: successor.job.claimGeneration,
+        });
+      } else {
+        await expect(continuity.getActiveCompactionJob(workspaceId as never)).resolves.toBeNull();
+      }
+    },
+  );
 
   it("claims and dispatches the next backlog job after READY publication", async () => {
     const { continuity, dispatched, handler } = await harness({ lateSources: 5 });

@@ -156,8 +156,7 @@ export function describeContinuityRepositoryContract(
       if (attempt.kind !== "CLAIMED") throw new Error("Expected publication attempt ownership.");
       const fence = {
         jobId: attempt.job.id,
-        attempts: attempt.job.attempts,
-        attemptClaimedAt: attempt.job.attemptClaimedAt!,
+        claimGeneration: attempt.job.claimGeneration,
       };
 
       const segment = readySegment();
@@ -209,8 +208,7 @@ export function describeContinuityRepositoryContract(
       void _leaseExpiresAt;
       await continuity.updateCompactionJob({ ...released, status: "FAILED" }, {
         jobId: running.id,
-        attempts: running.attempts,
-        attemptClaimedAt: running.attemptClaimedAt!,
+        claimGeneration: running.claimGeneration,
       });
       await expect(continuity.claimCompactionJob(job as never)).resolves.toMatchObject({
         status: "PENDING",
@@ -296,13 +294,11 @@ export function describeContinuityRepositoryContract(
       if (first.kind !== "CLAIMED" || successor.kind !== "CLAIMED") throw new Error("Expected two fenced claims.");
       const firstFence = {
         jobId: first.job.id,
-        attempts: first.job.attempts,
-        attemptClaimedAt: first.job.attemptClaimedAt!,
+        claimGeneration: first.job.claimGeneration,
       };
       const successorFence = {
         jobId: successor.job.id,
-        attempts: successor.job.attempts,
-        attemptClaimedAt: successor.job.attemptClaimedAt!,
+        claimGeneration: successor.job.claimGeneration,
       };
       const { attemptClaimedAt: _firstClaimedAt, attemptLeaseExpiresAt: _firstLease, ...firstReleased } = first.job;
       void _firstClaimedAt;
@@ -320,7 +316,7 @@ export function describeContinuityRepositoryContract(
       await expect(continuity.getActiveCompactionJob(job.workspaceId as never)).resolves.toMatchObject({
         status: "RUNNING",
         attempts: 2,
-        attemptClaimedAt: successorFence.attemptClaimedAt,
+        claimGeneration: successorFence.claimGeneration,
       });
       await expect(continuity.listReadySegments(job.workspaceId as never)).resolves.toEqual([]);
 
@@ -356,8 +352,7 @@ export function describeContinuityRepositoryContract(
       void _thirdLease;
       await continuity.updateCompactionJob({ ...thirdReleased, status: "FAILED" }, {
         jobId: third.id,
-        attempts: third.attempts,
-        attemptClaimedAt: third.attemptClaimedAt!,
+        claimGeneration: third.claimGeneration,
       });
       await expect(continuity.updateCompactionJob(
         { ...firstReleased, status: "PENDING" },
@@ -374,6 +369,80 @@ export function describeContinuityRepositoryContract(
         job.id as never,
         "2026-08-04T12:02:02.000Z",
       )).rejects.toThrow(/active workspace job/i);
+    });
+
+    it("fences a prior-cycle owner after the deterministic failed job is reclaimed", async () => {
+      const { continuity } = createHarness();
+      const job = {
+        id: "compaction-job:fictional-reclaim-fencing",
+        workspaceId: "workspace:orchard",
+        level: 1,
+        firstSourceSequence: 1,
+        lastSourceSequence: 1,
+        orderedSourceDigest: "d".repeat(64),
+        childSegmentIds: [],
+        policyVersion: "continuity-v1",
+        status: "PENDING",
+        attempts: 0,
+        createdAt: acceptedAt,
+      } as const;
+      await continuity.claimCompactionJob(job as never);
+      const prior = await continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:00:01.000Z",
+      );
+      if (prior.kind !== "CLAIMED") throw new Error("Expected prior-cycle ownership.");
+      const priorFence = {
+        jobId: prior.job.id,
+        claimGeneration: prior.job.claimGeneration,
+      };
+      const { attemptClaimedAt: _priorClaimedAt, attemptLeaseExpiresAt: _priorLease, ...priorReleased } = prior.job;
+      void _priorClaimedAt;
+      void _priorLease;
+      await continuity.updateCompactionJob({ ...priorReleased, status: "FAILED" }, priorFence);
+
+      await continuity.claimCompactionJob(job as never);
+      const current = await continuity.claimCompactionAttempt(
+        job.workspaceId as never,
+        job.id as never,
+        "2026-08-04T12:02:01.000Z",
+      );
+      if (current.kind !== "CLAIMED") throw new Error("Expected reclaimed-cycle ownership.");
+      const currentFence = {
+        jobId: current.job.id,
+        claimGeneration: current.job.claimGeneration,
+      };
+      const { attemptClaimedAt: _currentClaimedAt, attemptLeaseExpiresAt: _currentLease, ...currentReleased } = current.job;
+      void _currentClaimedAt;
+      void _currentLease;
+      await continuity.updateCompactionJob({ ...currentReleased, status: "PENDING" }, currentFence);
+
+      await expect(continuity.updateCompactionJob(
+        { ...priorReleased, status: "PENDING" },
+        priorFence,
+      )).rejects.toThrow(/fenc/i);
+      await expect(continuity.updateCompactionJob(
+        { ...priorReleased, status: "FAILED" },
+        priorFence,
+      )).rejects.toThrow(/fenc/i);
+      await expect(continuity.publishSegment(readySegment(), undefined, priorFence)).rejects.toThrow(/fenc/i);
+      await expect(continuity.getActiveCompactionJob(job.workspaceId as never)).resolves.toMatchObject({
+        status: "PENDING",
+        attempts: 1,
+        claimGeneration: currentFence.claimGeneration,
+      });
+      await continuity.updateCompactionJob({ ...currentReleased, status: "FAILED" }, currentFence);
+      await expect(continuity.updateCompactionJob(
+        { ...priorReleased, status: "PENDING" },
+        priorFence,
+      )).rejects.toThrow(/fenc/i);
+      await expect(continuity.updateCompactionJob(
+        { ...priorReleased, status: "FAILED" },
+        priorFence,
+      )).rejects.toThrow(/fenc/i);
+      await expect(continuity.publishSegment(readySegment(), undefined, priorFence)).rejects.toThrow(/fenc/i);
+      await expect(continuity.getActiveCompactionJob(job.workspaceId as never)).resolves.toBeNull();
     });
   });
 }

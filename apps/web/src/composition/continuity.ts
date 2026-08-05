@@ -83,8 +83,7 @@ function releaseCompactionLease(job: Parameters<ContinuityRepository["updateComp
 function compactionAttemptFence(job: Parameters<ContinuityRepository["updateCompactionJob"]>[0]) {
   return CompactionAttemptFenceSchema.parse({
     jobId: job.id,
-    attempts: job.attempts,
-    attemptClaimedAt: job.attemptClaimedAt,
+    claimGeneration: job.claimGeneration,
   });
 }
 

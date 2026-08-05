@@ -171,6 +171,7 @@ export const CompactionJobSchema = z.object({
   policyVersion: PolicyVersionSchema,
   status: z.enum(["PENDING", "RUNNING", "FAILED"]),
   attempts: z.number().int().min(0).max(COMPACTION_MAX_ATTEMPTS),
+  claimGeneration: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
   attemptClaimedAt: TimestampSchema.optional(),
   attemptLeaseExpiresAt: TimestampSchema.optional(),
   createdAt: TimestampSchema,
@@ -182,6 +183,9 @@ export const CompactionJobSchema = z.object({
   if (hasLease && Date.parse(job.attemptLeaseExpiresAt!) <= Date.parse(job.attemptClaimedAt!)) {
     context.addIssue({ code: "custom", message: "Compaction attempt lease expiry must follow its claim timestamp." });
   }
+  if (job.claimGeneration < job.attempts) {
+    context.addIssue({ code: "custom", message: "Compaction claim generation cannot trail the retry count." });
+  }
 });
 
 export const CompactionAttemptClaimSchema = z.discriminatedUnion("kind", [
@@ -192,8 +196,7 @@ export const CompactionAttemptClaimSchema = z.discriminatedUnion("kind", [
 
 export const CompactionAttemptFenceSchema = z.object({
   jobId: CompactionJobIdSchema,
-  attempts: z.number().int().positive().max(COMPACTION_MAX_ATTEMPTS),
-  attemptClaimedAt: TimestampSchema.optional(),
+  claimGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
 }).strict();
 
 export const CompactionSegmentSchema = z.object({

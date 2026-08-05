@@ -304,9 +304,10 @@ existing Cloud Run application.
 - A running attempt holds a 60-second lease. One delivery can transactionally
   take over an expired lease, while unexpired duplicates remain model-free.
 - Every attempt-owned release, failure, publication, and active-job clear uses
-  the stored monotonic attempt generation as a transactional fence. The
-  generation remains authoritative after requeue or terminal active-pointer
-  clearance, so late owners cannot mutate a lease successor.
+  a separate stored monotonic claim generation as a transactional fence. It
+  remains authoritative after requeue, terminal active-pointer clearance, and
+  failed-job reclaim; unlike the three-attempt retry count, it never resets for
+  the same deterministic job ID.
 - Level-1 publication reloads and revalidates its mutation digest after Gemini,
   then atomically requires the observed source-sequence watermark.
 
