@@ -127,7 +127,7 @@ export function describeContinuityRepositoryContract(
       await continuity.putAttachment({ ...pending, state: "FAILED", attempts: 3 });
       await expect(continuity.getAttachment("workspace:meadow" as never, pending.id)).resolves.toBeNull();
       await expect(continuity.putAttachment({ ...pending, state: "AVAILABLE", attempts: 1 } as never)).rejects.toThrow();
-    });
+    }, 20_000);
 
     it("allows one active job and converges immutable ready publication", async () => {
       const { continuity } = createHarness();

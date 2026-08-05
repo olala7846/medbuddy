@@ -58,7 +58,7 @@
 - [x] Reload the source ledger after Gemini and enforce its validated watermark
   atomically at level-1 publication.
 - [x] Deny interrogative family-map authorization independently of punctuation.
-- [ ] Stabilize attachment emulator contention and correct deployment/audit docs.
+- [x] Stabilize attachment emulator contention and correct deployment/audit docs.
 - [ ] Rerun final-verifier remediation gates.
 
 ## Final gates
