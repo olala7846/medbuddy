@@ -7,7 +7,7 @@
     "types": ["node"]
   },
   "include": [
-    "packages/contracts/src/line-identity-derivation.mjs",
+    "apps/web/src/line/identity-derivation.mjs",
     "tests/types/line-identity-derivation.ts"
   ]
 }

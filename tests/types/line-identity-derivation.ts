@@ -2,7 +2,7 @@ import {
   deriveCanonicalLineIds,
   deriveSyntheticContinuityManifest,
   validateSyntheticContinuityManifest,
-} from "@medbuddy/contracts/line-identity-derivation";
+} from "@medbuddy/web/internal/line-identity-derivation";
 
 const ids = deriveCanonicalLineIds({
   channel: "LINE",

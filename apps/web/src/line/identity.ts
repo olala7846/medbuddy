@@ -8,7 +8,7 @@ import {
   WorkspaceIdSchema,
   type ExternalConversationIdentity,
 } from "@medbuddy/contracts";
-import { deriveCanonicalLineIds } from "@medbuddy/contracts/line-identity-derivation";
+import { deriveCanonicalLineIds } from "./identity-derivation.mjs";
 
 export function deriveLineConversationIds(identityValue: ExternalConversationIdentity) {
   const identity = ExternalConversationIdentitySchema.parse(identityValue);

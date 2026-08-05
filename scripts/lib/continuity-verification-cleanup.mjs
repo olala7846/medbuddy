@@ -1,4 +1,4 @@
-import { validateSyntheticContinuityManifest } from "@medbuddy/contracts/line-identity-derivation";
+import { validateSyntheticContinuityManifest } from "@medbuddy/web/internal/line-identity-derivation";
 
 export async function cleanupSyntheticContinuityManifest(input) {
   const canonical = validateSyntheticContinuityManifest(input.manifest);

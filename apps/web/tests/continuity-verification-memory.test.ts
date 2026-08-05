@@ -14,4 +14,30 @@ describe("synthetic continuity verification (in-memory)", () => {
       receipts: persistence.externalEvents,
     }, { fixtureUrl: SYNTHETIC_CONTINUITY_FIXTURE_URL });
   });
+
+  it("keeps real-model assertions structural without requiring verbatim canary reproduction", async () => {
+    const persistence = new InMemoryPersistence();
+    await runSyntheticContinuityVerification({
+      continuity: new InMemoryContinuityRepository(),
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      receipts: persistence.externalEvents,
+    }, {
+      fixtureUrl: SYNTHETIC_CONTINUITY_FIXTURE_URL,
+      runNonce: "structural-model",
+      modelAssertions: "STRUCTURAL",
+      generator: {
+        async generate() {
+          return {
+            summary: {
+              overview: "A derived fictional overview without copied marker text.",
+              keyEvents: [],
+              openLoops: ["A fictional follow-up remains open."],
+              caveats: ["Derived context remains non-authoritative."],
+            },
+          };
+        },
+      },
+    });
+  });
 });

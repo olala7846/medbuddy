@@ -61,6 +61,7 @@ describeTarget("synthetic continuity verification (target Firestore + Vertex)", 
         receipts: persistence.externalEvents,
       }, {
         runNonce,
+        modelAssertions: "STRUCTURAL",
         responder: new ConversationResponder(
           new CommittedSourceCardGrounding([]),
           new VertexConversationProvider(client),

@@ -1,4 +1,4 @@
-import { deriveSyntheticContinuityManifest } from "@medbuddy/contracts/line-identity-derivation";
+import { deriveSyntheticContinuityManifest } from "@medbuddy/web/internal/line-identity-derivation";
 import { describe, expect, it, vi } from "vitest";
 
 import { cleanupSyntheticContinuityManifest } from "../scripts/lib/continuity-verification-cleanup.mjs";

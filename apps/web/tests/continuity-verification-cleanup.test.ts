@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveSyntheticContinuityManifest,
   validateSyntheticContinuityManifest,
-} from "@medbuddy/contracts/line-identity-derivation";
+} from "@medbuddy/web/internal/line-identity-derivation";
 
 describe("synthetic continuity cleanup manifest", () => {
   it("requires the exact canonical ordered scope for its nonce and version", () => {

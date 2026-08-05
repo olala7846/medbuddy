@@ -36,7 +36,7 @@ function digest(parts) {
 }
 
 /**
- * Dependency-neutral canonical LINE identity coordinate derivation.
+ * Canonical LINE identity coordinate derivation owned by the HTTP adapter.
  * @param {CanonicalLineIdentity} identity
  * @returns {CanonicalLineIds}
  */
@@ -52,11 +52,7 @@ export function deriveCanonicalLineIds(identity) {
   };
 }
 
-/**
- * @param {string} groupId
- * @param {number} index
- * @returns {CanonicalLineIdentity}
- */
+/** @param {string} groupId @param {number} index @returns {CanonicalLineIdentity} */
 function syntheticIdentity(groupId, index) {
   return {
     channel: "LINE",
@@ -68,10 +64,7 @@ function syntheticIdentity(groupId, index) {
   };
 }
 
-/**
- * @param {string} runNonce
- * @returns {SyntheticContinuityManifest}
- */
+/** @param {string} runNonce @returns {SyntheticContinuityManifest} */
 export function deriveSyntheticContinuityManifest(runNonce) {
   if (typeof runNonce !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(runNonce)) {
     throw new Error("Synthetic continuity manifest run nonce is invalid.");
@@ -92,18 +85,10 @@ export function deriveSyntheticContinuityManifest(runNonce) {
     deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 6)).receiptKey,
     deriveCanonicalLineIds(syntheticIdentity(primaryGroupId, 7)).receiptKey,
   ]);
-  return {
-    version: SYNTHETIC_CONTINUITY_MANIFEST_VERSION,
-    runNonce,
-    workspaceIds,
-    receiptKeys,
-  };
+  return { version: SYNTHETIC_CONTINUITY_MANIFEST_VERSION, runNonce, workspaceIds, receiptKeys };
 }
 
-/**
- * @param {unknown} value
- * @returns {SyntheticContinuityManifest}
- */
+/** @param {unknown} value @returns {SyntheticContinuityManifest} */
 export function validateSyntheticContinuityManifest(value) {
   if (value === null || typeof value !== "object") throw new Error("Cleanup manifest is invalid.");
   if (!("version" in value) || value.version !== SYNTHETIC_CONTINUITY_MANIFEST_VERSION) {

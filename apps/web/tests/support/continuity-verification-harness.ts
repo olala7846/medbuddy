@@ -1,5 +1,10 @@
 import {
   ContinuityThreadConversationService,
+  orderedSourceDigest,
+  projectCompactionRange,
+  renderBoundedCompactionInput,
+  renderProjectedTurn,
+  sourceEventsForCompactionRange,
   ThreadConversationService,
 } from "@medbuddy/chat";
 import type {
@@ -28,7 +33,7 @@ import {
   LineOperationalLogEntrySchema,
   type LineOperationalLogEntry,
 } from "../../src/line/index.js";
-import { deriveSyntheticContinuityManifest } from "@medbuddy/contracts/line-identity-derivation";
+import { deriveSyntheticContinuityManifest } from "../../src/line/identity-derivation.mjs";
 import {
   loadSyntheticContinuityFixture,
   SYNTHETIC_CONTINUITY_FIXTURE_URL,
@@ -105,6 +110,7 @@ export async function runSyntheticContinuityVerification(
   options: {
     runNonce?: string;
     fixtureUrl?: URL;
+    modelAssertions?: "DETERMINISTIC" | "STRUCTURAL";
     responder?: ConversationResponder;
     generator?: CompactionSummaryPort;
   } = {},
@@ -292,6 +298,51 @@ export async function runSyntheticContinuityVerification(
       status: "READY",
     });
     expect(segments[0]!.outputCharacters).toBe(JSON.stringify(segments[0]!.summary).length);
+    const currentSources = await dependencies.continuity.listSourceEvents(primaryWorkspace);
+    const expectedProjection = projectCompactionRange(
+      primaryWorkspace,
+      currentSources,
+      active.firstSourceSequence,
+      active.lastSourceSequence,
+    );
+    const expectedRenderedInput = renderBoundedCompactionInput(
+      expectedProjection.map(renderProjectedTurn).join("\n\n"),
+    );
+    expect(generatedInputs[0]).toEqual({
+      allowedSourceSequences: expectedProjection.map((turn) => turn.sourceSequence),
+      renderedInput: expectedRenderedInput,
+    });
+    const rangeSources = sourceEventsForCompactionRange(
+      currentSources,
+      active.firstSourceSequence,
+      active.lastSourceSequence,
+    );
+    expect(segments[0]).toMatchObject({
+      workspaceId: primaryWorkspace,
+      firstSourceSequence: active.firstSourceSequence,
+      lastSourceSequence: active.lastSourceSequence,
+      sourceCount: rangeSources.length,
+      orderedSourceDigest: orderedSourceDigest(active.policyVersion, rangeSources),
+      policyVersion: active.policyVersion,
+      inputCharacters: expectedRenderedInput.length,
+    });
+    const completedJob = await dependencies.continuity.getCompactionJob(primaryWorkspace, active.id);
+    expect(completedJob).toMatchObject({
+      id: active.id,
+      workspaceId: primaryWorkspace,
+      level: active.level,
+      firstSourceSequence: active.firstSourceSequence,
+      lastSourceSequence: active.lastSourceSequence,
+      orderedSourceDigest: active.orderedSourceDigest,
+      childSegmentIds: active.childSegmentIds,
+      policyVersion: active.policyVersion,
+      status: "COMPLETED",
+      attempts: 1,
+      claimGeneration: 1,
+      createdAt: active.createdAt,
+    });
+    expect(completedJob).not.toHaveProperty("attemptClaimedAt");
+    expect(completedJob).not.toHaveProperty("attemptLeaseExpiresAt");
   }
 
   if (active === null || segments.length === 0) throw new Error("Fixture did not execute its compaction lifecycle.");
@@ -300,7 +351,10 @@ export async function runSyntheticContinuityVerification(
 
   const finalContext = requests.at(-1)!.context.assembledContext!;
   expect(finalContext.history).toContain("BEGIN DERIVED NON-AUTHORITATIVE HISTORY");
-  expect(finalContext.history).toContain(EARLY_CANARY);
+  expect(finalContext.history).toContain(JSON.stringify(segments[0]!.summary));
+  if ((options.modelAssertions ?? "DETERMINISTIC") === "DETERMINISTIC") {
+    expect(finalContext.history).toContain(EARLY_CANARY);
+  }
   expect(finalContext.recentConversation).toContain(CORRECTION_CANARY);
   expect(finalContext.recentConversation).toContain(finalFocalText);
   expect(finalContext.recentConversation.match(/What is the latest fictional plan\?/g)).toHaveLength(1);

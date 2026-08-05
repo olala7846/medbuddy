@@ -5,7 +5,6 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./line-identity-derivation": "./src/line-identity-derivation.mjs",
     "./adapter-contract-tests": "./tests/adapter-contract.ts",
     "./continuity-adapter-contract-tests": "./tests/continuity-adapter-contract.ts",
     "./workspace-family-map-adapter-contract-tests": "./tests/workspace-family-map-adapter-contract.ts",
