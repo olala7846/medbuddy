@@ -222,9 +222,109 @@ describe("capability-scoped conversation tool dispatcher", () => {
 
     expect(familyMapAttempts).toBe(2);
     expect(readAttempts).toBe(0);
-    expect(provider.requests[0]).toMatchObject({
-      toolDeclarations: expect.arrayContaining([queryDeclaration]),
+    expect(provider.requests[0]).not.toHaveProperty("toolDeclarations");
+  });
+
+  it("does not execute a generic tool on a family-map-authorized turn", async () => {
+    const explicitRequest = ConversationRequestSchema.parse({
+      ...request,
+      context: {
+        ...request.context,
+        messages: [{ ...focalMessage, body: "Mei is Kai's mother." }],
+      },
     });
+    let readExecutions = 0;
+    let familyMapExecutions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: { query: "preferences" },
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(explicitRequest, {
+      modelTools: [queryCapability(async () => {
+        readExecutions += 1;
+        return { complete: true, matches: [] };
+      })],
+      updateWorkspaceFamilyMap: {
+        async update() {
+          familyMapExecutions += 1;
+          throw new Error("The malformed provider call must not execute a write.");
+        },
+      },
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(readExecutions).toBe(0);
+    expect(familyMapExecutions).toBe(0);
+  });
+
+  it("keeps conflict retry and final acknowledgment family-map exclusive", async () => {
+    const explicitRequest = ConversationRequestSchema.parse({
+      ...request,
+      context: {
+        ...request.context,
+        messages: [{ ...focalMessage, body: "Mei is Kai's mother." }],
+      },
+    });
+    const vertexRequests: VertexGenerationRequest[] = [];
+    const client: VertexModelClient = {
+      async generate(input) {
+        vertexRequests.push(input);
+        if (vertexRequests.length === 1) return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 0, content: "first" } },
+        }] } }] };
+        if (vertexRequests.length === 2) return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 2, content: "current plus correction" } },
+        }] } }] };
+        return { candidates: [{ content: { role: "model", parts: [{ text: "Okay—I updated the relationship." }] } }] };
+      },
+    };
+    let familyMapAttempts = 0;
+    let readAttempts = 0;
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      new VertexConversationProvider(client),
+    );
+
+    await expect(responder.respond(explicitRequest, {
+      updateWorkspaceFamilyMap: {
+        async update(input) {
+          familyMapAttempts += 1;
+          return familyMapAttempts === 1
+            ? {
+                kind: "REVISION_CONFLICT" as const,
+                familyMap: { workspaceId: focalMessage.workspaceId, content: "current", revision: 2 },
+              }
+            : {
+                kind: "UPDATED" as const,
+                familyMap: { workspaceId: focalMessage.workspaceId, content: input.content, revision: 3 },
+              };
+        },
+      },
+      modelTools: [queryCapability(async () => {
+        readAttempts += 1;
+        return { complete: true, matches: [] };
+      })],
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: "Okay—I updated the relationship.",
+      retryable: false,
+      toolCalls: 2,
+    });
+
+    expect(familyMapAttempts).toBe(2);
+    expect(readAttempts).toBe(0);
+    expect(vertexRequests.map((vertexRequest) => vertexRequest.toolConfig)).toEqual([
+      { functionCallingConfig: { mode: "AUTO" } },
+      { functionCallingConfig: { mode: "ANY" } },
+      { functionCallingConfig: { mode: "NONE" } },
+    ]);
+    for (const vertexRequest of vertexRequests) {
+      expect(vertexRequest.tools).toEqual([{ functionDeclarations: [
+        expect.objectContaining({ name: "update_workspace_family_map" }),
+      ] }]);
+    }
   });
 
   it("does not render an oversized tool result into another model step", async () => {

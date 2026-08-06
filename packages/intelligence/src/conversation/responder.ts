@@ -315,15 +315,18 @@ export class ConversationResponder implements ConversationResponderPort {
         toolCalls: 0,
       };
     }
-    const boundModelTools = bindModelTools(tools);
-    if (boundModelTools === null) return technicalFailure();
+    const suppliedModelTools = bindModelTools(tools);
+    if (suppliedModelTools === null) return technicalFailure();
+    const focalAllowsFamilyMapUpdate = focalAuthorizesFamilyMapUpdate(focalMessage.body);
+    const boundModelTools = focalAllowsFamilyMapUpdate
+      ? new Map<string, ConversationToolCapability>()
+      : suppliedModelTools;
     const toolDeclarations = [...boundModelTools.values()].map(
       (capability) => capability.declaration,
     );
 
     try {
       const deadline = Date.now() + this.turnTimeoutMs;
-      const focalAllowsFamilyMapUpdate = focalAuthorizesFamilyMapUpdate(focalMessage.body);
       const focalRequiresFamilyMapTool = focalRequiresFamilyMapUpdate(focalMessage.body);
       let toolCalls = 0;
       let familyMapToolCalls = 0;

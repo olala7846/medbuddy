@@ -381,6 +381,9 @@ describe("Vertex adapters", () => {
     const recordingClient: VertexModelClient = {
       async generate(input) {
         requests.push(input);
+        if (requests.length > 1) {
+          return { candidates: [{ content: { role: "model", parts: [{ text: "Okay—I updated the map." }] } }] };
+        }
         return { candidates: [{ content: { role: "model", parts: [{
           functionCall: {
             name: "update_workspace_family_map",
@@ -457,6 +460,33 @@ describe("Vertex adapters", () => {
         thinkingConfig: { thinkingLevel: "LOW" },
       },
     });
+  });
+
+  it("rejects a call outside the restricted ANY allow-list", async () => {
+    const invalidClient: VertexModelClient = {
+      async generate() {
+        return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: { name: "query_memory", args: { query: "preferences" } },
+        }] } }] };
+      },
+    };
+    const provider = new VertexConversationProvider(invalidClient);
+
+    await expect(provider.respond({
+      focalMessage,
+      context: conversationInput.context,
+      familyMapUpdatesAllowed: true,
+      familyMapUpdateRequired: true,
+      toolDeclarations: [{
+        name: "query_memory",
+        description: "Read bounded synthetic workspace memory.",
+        parameters: {
+          type: "OBJECT",
+          properties: { query: { type: "STRING" } },
+          required: ["query"],
+        },
+      }],
+    })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
   });
 
   it.each([

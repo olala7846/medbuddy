@@ -56,6 +56,13 @@ const VertexConversationResponseSchema = z.object({
   })).min(1),
 });
 
+const VertexToolConfigSchema = z.object({
+  functionCallingConfig: z.object({
+    mode: z.enum(["AUTO", "ANY", "NONE"]),
+    allowedFunctionNames: z.array(z.string()).optional(),
+  }).strict(),
+}).strict();
+
 const vertexScope = "https://www.googleapis.com/auth/cloud-platform";
 
 class VertexMalformedResponseError extends Error {}
@@ -471,6 +478,24 @@ function parseConversationStep(response: unknown, allowedToolNames: ReadonlySet<
   }
 }
 
+function effectiveToolNames(request: VertexGenerationRequest): ReadonlySet<string> {
+  const declarations = new Set(
+    (request.tools?.[0] as { functionDeclarations?: readonly { name?: unknown }[] } | undefined)
+      ?.functionDeclarations
+      ?.flatMap((declaration) => typeof declaration.name === "string" ? [declaration.name] : [])
+      ?? [],
+  );
+  const toolConfig = VertexToolConfigSchema.safeParse(request.toolConfig);
+  if (!toolConfig.success) throw new ConversationProviderError("MALFORMED_TRANSPORT");
+  const { allowedFunctionNames, mode } = toolConfig.data.functionCallingConfig;
+  if (mode === "NONE") return new Set();
+  if (mode !== "ANY" || allowedFunctionNames === undefined) return declarations;
+  if (allowedFunctionNames.some((name) => !declarations.has(name))) {
+    throw new ConversationProviderError("MALFORMED_TRANSPORT");
+  }
+  return new Set(allowedFunctionNames);
+}
+
 function textCaptureRequest(input: TextCaptureRequest): VertexGenerationRequest {
   return {
     systemInstruction: [
@@ -504,16 +529,10 @@ export class VertexConversationProvider implements ConversationProvider {
   async respond(input: Parameters<ConversationProvider["respond"]>[0]): Promise<unknown> {
     try {
       const request = conversationRequest(input);
-      const allowedToolNames = new Set(
-        (request.tools?.[0] as { functionDeclarations?: readonly { name?: unknown }[] } | undefined)
-          ?.functionDeclarations
-          ?.flatMap((declaration) => typeof declaration.name === "string" ? [declaration.name] : [])
-          ?? [],
-      );
       const output = parseConversationStep(await this.client.generate(
         request,
         { workspaceId: input.focalMessage.workspaceId },
-      ), allowedToolNames);
+      ), effectiveToolNames(request));
       const instruction = ConversationInstructionSchema.safeParse(output);
       if (!instruction.success) {
         throw new ConversationProviderError("MALFORMED_TRANSPORT");
