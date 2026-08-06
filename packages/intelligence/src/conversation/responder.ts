@@ -1,9 +1,10 @@
 import {
   ConversationTurnRequestSchema,
   type ConversationContext,
-  type ConversationToolCapability,
   type ConversationToolDeclaration,
   type ConversationToolExecutionContext,
+  type ConversationToolJsonObject,
+  type ConversationToolResultDisposition,
   ConversationToolDeclarationSchema,
   ConversationToolResultDispositionSchema,
   type ConversationTurnRequest,
@@ -119,6 +120,21 @@ const CONVERSATION_TOOL_DECLARATION_MAX_UTF16 = 16_000;
 const CONVERSATION_TOOL_VALUE_MAX_DEPTH = 32;
 const CONVERSATION_TOOL_VALUE_MAX_NODES = 1_024;
 
+type BoundSafeParse = (
+  value: unknown,
+) => z.ZodSafeParseResult<ConversationToolJsonObject>;
+
+type BoundConversationToolCapability = Readonly<{
+  declaration: ConversationToolDeclaration;
+  parseInput: BoundSafeParse;
+  parseOutput: BoundSafeParse;
+  classifyResult(output: ConversationToolJsonObject): ConversationToolResultDisposition;
+  execute(
+    input: ConversationToolJsonObject,
+    context: ConversationToolExecutionContext,
+  ): Promise<unknown>;
+}>;
+
 function hasBoundedPlainJsonValue(
   value: unknown,
   bounds: { maxDepth: number; maxNodes: number; maxUtf16: number },
@@ -201,11 +217,11 @@ function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
 
 function bindModelTools(
   tools: ConversationTurnTools | undefined,
-): Map<string, ConversationToolCapability> | null {
+): Map<string, BoundConversationToolCapability> | null {
   try {
     const capabilities = tools?.modelTools ?? [];
     if (capabilities.length > MAX_MODEL_TOOL_CAPABILITIES) return null;
-    const bound = new Map<string, ConversationToolCapability>();
+    const bound = new Map<string, BoundConversationToolCapability>();
     for (const capability of capabilities) {
       if (!hasBoundedPlainJsonDeclaration(capability.declaration.parameters)) return null;
       const declaration = ConversationToolDeclarationSchema.safeParse(capability.declaration);
@@ -219,13 +235,24 @@ function bindModelTools(
         || typeof capability.classifyResult !== "function"
         || typeof capability.execute !== "function"
       ) return null;
-      bound.set(declaration.data.name, {
+      const inputSchema = capability.inputSchema;
+      const outputSchema = capability.outputSchema;
+      const parseInput = inputSchema.safeParse.bind(inputSchema) as BoundSafeParse;
+      const parseOutput = outputSchema.safeParse.bind(outputSchema) as BoundSafeParse;
+      const classifyResult = capability.classifyResult.bind(capability) as (
+        output: ConversationToolJsonObject,
+      ) => ConversationToolResultDisposition;
+      const execute = capability.execute.bind(capability) as (
+        input: ConversationToolJsonObject,
+        context: ConversationToolExecutionContext,
+      ) => Promise<unknown>;
+      bound.set(declaration.data.name, Object.freeze({
         declaration: declaration.data,
-        inputSchema: capability.inputSchema,
-        outputSchema: capability.outputSchema,
-        classifyResult: (output) => capability.classifyResult(output),
-        execute: (input, context) => capability.execute(input, context),
-      });
+        parseInput,
+        parseOutput,
+        classifyResult,
+        execute,
+      }));
     }
     return bound;
   } catch {
@@ -283,7 +310,7 @@ function isBoundedPlainJsonObject(value: unknown, maxUtf16: number): value is Re
 
 type CanonicalJsonObjectSnapshot = {
   readonly serialized: string;
-  readonly value: Record<string, unknown>;
+  readonly value: ConversationToolJsonObject;
 };
 
 function canonicalJsonObjectSnapshot(
@@ -301,24 +328,24 @@ function canonicalJsonObjectSnapshot(
       !isBoundedPlainJsonObject(snapshot, maxUtf16)
       || containsReservedTrustedScopeKey(snapshot)
     ) return null;
-    return { serialized, value: snapshot };
+    return { serialized, value: snapshot as ConversationToolJsonObject };
   } catch {
     return null;
   }
 }
 
-function cloneCanonicalSnapshot(snapshot: CanonicalJsonObjectSnapshot): Record<string, unknown> {
-  return JSON.parse(snapshot.serialized) as Record<string, unknown>;
+function cloneCanonicalSnapshot(snapshot: CanonicalJsonObjectSnapshot): ConversationToolJsonObject {
+  return JSON.parse(snapshot.serialized) as ConversationToolJsonObject;
 }
 
 function remainsValidAfterCallback(
   snapshot: CanonicalJsonObjectSnapshot,
-  schema: z.ZodType,
+  parse: BoundSafeParse,
   maxUtf16: number,
 ): boolean {
   if (canonicalJsonObjectSnapshot(snapshot.value, maxUtf16) === null) return false;
   try {
-    const reparsed = schema.safeParse(cloneCanonicalSnapshot(snapshot));
+    const reparsed = parse(cloneCanonicalSnapshot(snapshot));
     return reparsed.success
       && canonicalJsonObjectSnapshot(reparsed.data, maxUtf16) !== null;
   } catch {
@@ -511,7 +538,7 @@ export class ConversationResponder implements ConversationResponderPort {
         toolCalls: 0,
       };
     }
-    let suppliedModelTools: Map<string, ConversationToolCapability> | null;
+    let suppliedModelTools: Map<string, BoundConversationToolCapability> | null;
     try {
       suppliedModelTools = bindModelTools(tools);
     } catch {
@@ -519,7 +546,7 @@ export class ConversationResponder implements ConversationResponderPort {
     }
     if (suppliedModelTools === null) return technicalFailure();
     const boundModelTools = focalAllowsFamilyMapUpdate
-      ? new Map<string, ConversationToolCapability>()
+      ? new Map<string, BoundConversationToolCapability>()
       : suppliedModelTools;
     const toolDeclarations = [...boundModelTools.values()].map(
       (capability) => capability.declaration,
@@ -600,7 +627,7 @@ export class ConversationResponder implements ConversationResponderPort {
             this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
             return technicalFailure(toolCalls || undefined);
           }
-          const parsedInput = capability.inputSchema.safeParse(
+          const parsedInput = capability.parseInput(
             cloneCanonicalSnapshot(rawInputSnapshot),
           );
           const inputSnapshot = parsedInput.success
@@ -626,7 +653,14 @@ export class ConversationResponder implements ConversationResponderPort {
           } catch {
             return technicalFailure(toolCalls);
           }
-          const parsedResult = capability.outputSchema.safeParse(rawResult);
+          const rawOutputSnapshot = canonicalJsonObjectSnapshot(
+            rawResult,
+            CONVERSATION_TOOL_RESULT_MAX_UTF16,
+          );
+          if (rawOutputSnapshot === null) return technicalFailure(toolCalls);
+          const parsedResult = capability.parseOutput(
+            cloneCanonicalSnapshot(rawOutputSnapshot),
+          );
           const outputSnapshot = parsedResult.success
             ? canonicalJsonObjectSnapshot(parsedResult.data, CONVERSATION_TOOL_RESULT_MAX_UTF16)
             : null;
@@ -642,12 +676,12 @@ export class ConversationResponder implements ConversationResponderPort {
           if (
             !remainsValidAfterCallback(
               inputSnapshot,
-              capability.inputSchema,
+              capability.parseInput,
               CONVERSATION_TOOL_INPUT_MAX_UTF16,
             )
             || !remainsValidAfterCallback(
               outputSnapshot,
-              capability.outputSchema,
+              capability.parseOutput,
               CONVERSATION_TOOL_RESULT_MAX_UTF16,
             )
           ) return technicalFailure(toolCalls);

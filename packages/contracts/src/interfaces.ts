@@ -195,8 +195,23 @@ export type ConversationToolResultDisposition = z.infer<
   typeof ConversationToolResultDispositionSchema
 >;
 
+export type ConversationToolJsonValue =
+  | null
+  | string
+  | number
+  | boolean
+  | ConversationToolJsonValue[]
+  | ConversationToolJsonObject;
+
+export type ConversationToolJsonObject = {
+  [key: string]: ConversationToolJsonValue;
+};
+
 /** A trusted composition-bound model capability with deterministic input validation. */
-export interface ConversationToolCapability<Input = unknown, Output = unknown> {
+export interface ConversationToolCapability<
+  Input extends ConversationToolJsonObject = ConversationToolJsonObject,
+  Output extends ConversationToolJsonObject = ConversationToolJsonObject,
+> {
   readonly declaration: ConversationToolDeclaration;
   readonly inputSchema: z.ZodType<Input>;
   readonly outputSchema: z.ZodType<Output>;

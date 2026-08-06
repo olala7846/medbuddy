@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { ConversationRequestSchema, MessageSchema } from "@medbuddy/contracts";
+import {
+  ConversationRequestSchema,
+  MessageSchema,
+  type ConversationToolJsonObject,
+} from "@medbuddy/contracts";
 
 import {
   ConversationResponder,
@@ -53,6 +57,8 @@ const queryDeclaration = {
 } as const;
 
 type SyntheticExecutionContext = { deadlineMs: number; signal: AbortSignal };
+
+const permissiveJsonObjectSchema = z.custom<ConversationToolJsonObject>(() => true);
 
 function queryCapability(
   execute: (input: { query: string }, context: SyntheticExecutionContext) => Promise<unknown>,
@@ -366,7 +372,7 @@ describe("capability-scoped conversation tool dispatcher", () => {
     await expect(responder.respond(workspaceARequest, {
       modelTools: [{
         declaration: queryDeclaration,
-        inputSchema: z.object({ query: z.string() }).passthrough(),
+        inputSchema: permissiveJsonObjectSchema,
         outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
         classifyResult: () => ({ kind: "CONTINUE" }),
         async execute() {
@@ -401,7 +407,7 @@ describe("capability-scoped conversation tool dispatcher", () => {
         inputSchema: z.preprocess((input) => {
           schemaCallbacks += 1;
           return input;
-        }, z.object({ query: z.string() }).passthrough()),
+        }, permissiveJsonObjectSchema),
         outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
         classifyResult: () => ({ kind: "CONTINUE" }),
         async execute() {
@@ -554,7 +560,7 @@ describe("capability-scoped conversation tool dispatcher", () => {
         inputSchema: z.preprocess((input) => {
           schemaCallbacks += 1;
           return input;
-        }, z.unknown()),
+        }, permissiveJsonObjectSchema),
         outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
         classifyResult: () => ({ kind: "CONTINUE" }),
         async execute() {
@@ -594,7 +600,7 @@ describe("capability-scoped conversation tool dispatcher", () => {
           inputSchema: z.preprocess((input) => {
             schemaCallbacks += 1;
             return input;
-          }, z.unknown()),
+          }, permissiveJsonObjectSchema),
           outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
           classifyResult: () => ({ kind: "CONTINUE" }),
           async execute() {
@@ -1005,8 +1011,179 @@ describe("capability-scoped conversation tool dispatcher", () => {
     expect(provider.requests[1]?.toolResult).not.toHaveProperty("call.workspaceId");
   });
 
+  it("captures the input parser identity before provider code can replace it", async () => {
+    let providerCalls = 0;
+    let replacementCalls = 0;
+    const capability = queryCapability(async () => ({ complete: true, matches: [] }));
+    const provider = {
+      async respond() {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          Object.defineProperty(capability.inputSchema, "safeParse", {
+            configurable: true,
+            value() {
+              replacementCalls += 1;
+              return { success: false };
+            },
+          });
+          return { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } };
+        }
+        return { kind: "REPLY", text: "The original input parser was used." };
+      },
+    };
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, { modelTools: [capability] })).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: "The original input parser was used.",
+      retryable: false,
+      toolCalls: 1,
+    });
+    expect(replacementCalls).toBe(0);
+  });
+
+  it("captures the output parser identity before provider code can replace it", async () => {
+    let providerCalls = 0;
+    let replacementCalls = 0;
+    const capability = queryCapability(async () => ({ complete: true, matches: [] }));
+    const provider = {
+      async respond() {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          Object.defineProperty(capability.outputSchema, "safeParse", {
+            configurable: true,
+            value() {
+              replacementCalls += 1;
+              return { success: false };
+            },
+          });
+          return { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } };
+        }
+        return { kind: "REPLY", text: "The original output parser was used." };
+      },
+    };
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, { modelTools: [capability] })).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: "The original output parser was used.",
+      retryable: false,
+      toolCalls: 1,
+    });
+    expect(replacementCalls).toBe(0);
+  });
+
+  it("captures the executor identity before provider code can replace it", async () => {
+    let providerCalls = 0;
+    let originalCalls = 0;
+    let replacementCalls = 0;
+    const capability = queryCapability(async () => {
+      originalCalls += 1;
+      return { complete: true, matches: [] };
+    });
+    const provider = {
+      async respond() {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          capability.execute = async () => {
+            replacementCalls += 1;
+            return { complete: true, matches: ["replacement"] };
+          };
+          return { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } };
+        }
+        return { kind: "REPLY", text: "The original executor was used." };
+      },
+    };
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, { modelTools: [capability] })).resolves.toMatchObject({
+      kind: "RESPONDED",
+      responseText: "The original executor was used.",
+      toolCalls: 1,
+    });
+    expect(originalCalls).toBe(1);
+    expect(replacementCalls).toBe(0);
+  });
+
+  it("captures the classifier identity before executor code can replace it", async () => {
+    let providerCalls = 0;
+    let originalClassifierCalls = 0;
+    let replacementCalls = 0;
+    const capability = queryCapability(async () => {
+      Object.defineProperty(capability, "classifyResult", {
+        configurable: true,
+        value() {
+          replacementCalls += 1;
+          return { kind: "TERMINAL_FAILURE", responseText: "Replacement classifier ran." };
+        },
+      });
+      return { complete: true, matches: [] };
+    });
+    Object.defineProperty(capability, "classifyResult", {
+      configurable: true,
+      value() {
+        originalClassifierCalls += 1;
+        return { kind: "CONTINUE" };
+      },
+    });
+    const provider = {
+      async respond() {
+        providerCalls += 1;
+        return providerCalls === 1
+          ? { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } }
+          : { kind: "REPLY", text: "The original classifier was used." };
+      },
+    };
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, { modelTools: [capability] })).resolves.toMatchObject({
+      kind: "RESPONDED",
+      responseText: "The original classifier was used.",
+      toolCalls: 1,
+    });
+    expect(originalClassifierCalls).toBe(1);
+    expect(replacementCalls).toBe(0);
+  });
+
+  it.each([
+    ["reserved scope", { complete: true, matches: [], "workspace-id": "workspace:b" }],
+    ["oversized content", { complete: true, matches: ["x".repeat(9_000)] }],
+  ])("rejects raw %s output before invoking the output schema callback", async (_label, rawOutput) => {
+    let schemaCallbacks = 0;
+    let classifierCalls = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: { query: "preferences" },
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).strict(),
+        outputSchema: z.preprocess((output) => {
+          schemaCallbacks += 1;
+          return output;
+        }, permissiveJsonObjectSchema),
+        classifyResult() {
+          classifierCalls += 1;
+          return { kind: "CONTINUE" };
+        },
+        async execute() {
+          return rawOutput;
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+
+    expect(schemaCallbacks).toBe(0);
+    expect(classifierCalls).toBe(0);
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it("rejects an enumerable output accessor without invoking its getter or classifier", async () => {
     let getterCalls = 0;
+    let schemaCallbacks = 0;
     let classifierCalls = 0;
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
       { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
@@ -1018,7 +1195,10 @@ describe("capability-scoped conversation tool dispatcher", () => {
       modelTools: [{
         declaration: queryDeclaration,
         inputSchema: z.object({ query: z.string() }).strict(),
-        outputSchema: z.unknown(),
+        outputSchema: z.preprocess((output) => {
+          schemaCallbacks += 1;
+          return output;
+        }, permissiveJsonObjectSchema),
         classifyResult() {
           classifierCalls += 1;
           return { kind: "CONTINUE" };
@@ -1038,19 +1218,20 @@ describe("capability-scoped conversation tool dispatcher", () => {
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
 
     expect(getterCalls).toBe(0);
+    expect(schemaCallbacks).toBe(0);
     expect(classifierCalls).toBe(0);
     expect(provider.requests).toHaveLength(1);
   });
 
   it.each([
-    ["null", null, z.unknown()],
-    ["primitive", "not an object", z.unknown()],
-    ["array", [], z.unknown()],
+    ["null", null, permissiveJsonObjectSchema],
+    ["primitive", "not an object", permissiveJsonObjectSchema],
+    ["array", [], permissiveJsonObjectSchema],
     ["malformed object", { complete: "yes", matches: [] }, z.object({
       complete: z.boolean(),
       matches: z.array(z.string()),
     })],
-    ["non-JSON object", { complete: true, value: undefined }, z.unknown()],
+    ["non-JSON object", { complete: true, value: undefined }, permissiveJsonObjectSchema],
   ])("rejects a %s tool result before another model step", async (_label, result, outputSchema) => {
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
       { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
