@@ -85,11 +85,11 @@ export const ModelVisibleDynamicMemoryRecordSchema = DynamicMemoryRecordSchema.o
 
 export const ProposeMemoryInputSchema = z.object({
   payload: DynamicMemoryPayloadSchema,
-  tags: z.array(MemoryTagSchema).max(DYNAMIC_MEMORY_TAG_MAX_COUNT).optional(),
+  tags: z.array(MemoryTagSchema).max(DYNAMIC_MEMORY_TAG_MAX_COUNT).default([]),
 }).strict();
 
 export const QueryMemoryInputSchema = z.object({
-  subjectLabels: z.array(MemorySubjectLabelSchema).min(1).max(DYNAMIC_MEMORY_LABEL_MAX_COUNT).optional(),
+  subjectLabels: z.array(MemorySubjectLabelSchema).max(DYNAMIC_MEMORY_LABEL_MAX_COUNT).default([]),
 }).strict();
 
 export const CreateDynamicMemoryResultSchema = z.discriminatedUnion("kind", [

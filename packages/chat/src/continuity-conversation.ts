@@ -21,6 +21,8 @@ import {
 
 import { assembleConversationContext } from "./conversation-continuity.js";
 import { planHigherLevelCompaction, planLevelOneCompaction } from "./compaction.js";
+import type { DynamicMemoryService } from "./dynamic-memory.js";
+import { createActiveMemoryCapabilities } from "./memory-tools.js";
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -35,6 +37,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
     continuity: ContinuityRepository;
     messages: MessageRepository;
     familyMaps: WorkspaceFamilyMapRepository;
+    memory?: DynamicMemoryService;
     responder: ConversationResponder;
     systemInstructions: string;
     policy?: ContinuityPolicy;
@@ -151,6 +154,13 @@ export class ContinuityThreadConversationService implements ContinuityConversati
           updatedAt: input.acceptedAt,
         }),
       },
+      ...(this.dependencies.memory === undefined ? {} : {
+        modelTools: createActiveMemoryCapabilities({
+          service: this.dependencies.memory,
+          workspaceId: input.workspaceId,
+          focalSource: accepted.event,
+        }),
+      }),
     });
     if (response.kind === "TECHNICAL_FAILURE" || response.responseText === undefined) {
       return { kind: "TECHNICAL_FAILURE", sourceEventId: accepted.event.id };

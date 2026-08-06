@@ -12,7 +12,10 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function sameIdentity(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {
-  const withoutRecordedAt = ({ recordedAt: _recordedAt, ...memory }: DynamicMemoryRecord) => memory;
+  const withoutRecordedAt = ({ recordedAt, ...memory }: DynamicMemoryRecord) => {
+    void recordedAt;
+    return memory;
+  };
   return JSON.stringify(withoutRecordedAt(left)) === JSON.stringify(withoutRecordedAt(right));
 }
 

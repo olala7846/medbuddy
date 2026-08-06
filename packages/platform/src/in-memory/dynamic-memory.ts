@@ -13,7 +13,10 @@ function clone<Value>(value: Value): Value {
 }
 
 function sameIdentity(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {
-  const withoutRecordedAt = ({ recordedAt: _recordedAt, ...record }: DynamicMemoryRecord) => record;
+  const withoutRecordedAt = ({ recordedAt, ...record }: DynamicMemoryRecord) => {
+    void recordedAt;
+    return record;
+  };
   return JSON.stringify(withoutRecordedAt(left)) === JSON.stringify(withoutRecordedAt(right));
 }
 
