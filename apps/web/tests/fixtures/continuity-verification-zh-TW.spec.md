@@ -128,7 +128,11 @@ but the facts and ordering below are the independent source of truth.
    sleep observation in recent evidence.
 5. The final mentioned question isolates the family-graph experiment by asking
    for three concise relationships, distinguishing directly stated edges from
-   inferred parents-in-law and grandparent/grandchild relationships.
+   inferred parents-in-law and grandparent/grandchild relationships. It defines
+   the evidence labels without revealing an answer: an introduction's explicit
+   relationship is direct, while a relationship requiring two or more explicit
+   edges is inferred. It requests a terse three-line semantic format so all
+   required assertions fit within the live responder's output budget.
 
 ## Project structure and code style
 

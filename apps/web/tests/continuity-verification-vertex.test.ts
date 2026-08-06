@@ -70,9 +70,14 @@ function expectLabeledRelationshipLine(
   evidenceKind: RegExp,
 ): void {
   const lines = response.split(/\r?\n|。/u).map((line) => line.trim()).filter(Boolean);
-  expect(lines.some((line) => names.every((name) => line.includes(name)) &&
-    relationship.test(line) && evidenceKind.test(line) &&
-    !/不是|並非|否認|無法確認|不確定/u.test(line)), response).toBe(true);
+  expect(lines.some((line) => {
+    const contrastsEvidenceKinds = /(?:不是|並非)[^。；]*(?:直接|推論|推得|間接)[^。；]*(?:而是|但)/u
+      .test(line);
+    const negatesClaim = /否認|無法確認|不確定/u.test(line) ||
+      (/(?:不是|並非)/u.test(line) && !contrastsEvidenceKinds);
+    return names.every((name) => line.includes(name)) &&
+      relationship.test(line) && evidenceKind.test(line) && !negatesClaim;
+  }), response).toBe(true);
 }
 
 async function createCounterfactualFixture(): Promise<{ path: string; url: URL }> {
@@ -96,6 +101,18 @@ describe("continuity family-eval reply normalization", () => {
 
   it("requires an affirmative, correctly gendered in-law relationship", () => {
     expectLabeledRelationshipLine("芷蘭與若晴是推論出的婆媳關係。", ["芷蘭", "若晴"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論/u);
+    expectLabeledRelationshipLine(
+      "芷蘭與若晴不是直接說明，而是推論出的婆媳關係。",
+      ["芷蘭", "若晴"],
+      /婆媳|婆婆|媳婦|兒媳|姻親/u,
+      /推論/u,
+    );
+    expectLabeledRelationshipLine(
+      "柏岳與承遠並非推論，而是直接說明的父子關係。",
+      ["柏岳", "承遠"],
+      /父子|父親|爸爸|兒子|之父|之子/u,
+      /直接/u,
+    );
     expect(() => expectLabeledRelationshipLine(
       "芷蘭與若晴並非推論出的婆媳關係。",
       ["芷蘭", "若晴"],
