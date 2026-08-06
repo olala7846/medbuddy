@@ -255,6 +255,7 @@ export async function runSyntheticContinuityVerification(
   const completedJobs: CompactionJob[] = [];
   let expectedCompactedContentWasVerified = false;
   let segments: readonly CompactionSegment[] = [];
+  const modelAssertions = options.modelAssertions ?? "DETERMINISTIC";
 
   for (const step of steps) {
     if (step.action === "SEND") {
@@ -448,15 +449,17 @@ export async function runSyntheticContinuityVerification(
   expect(renderedHistoryRanges).toEqual(eligiblePersistedRanges);
   expect(Math.max(...renderedHistoryRanges.map((range) => range.lastSourceSequence)))
     .toBeLessThan(firstRecentSequence);
-  if ((options.modelAssertions ?? "DETERMINISTIC") === "DETERMINISTIC") {
+  if (modelAssertions === "DETERMINISTIC") {
     expect(finalContext.history).toContain(EARLY_CANARY);
   }
   if (options.expectedCompactedContent !== undefined) {
     expect(finalContext.history).toContain(options.expectedCompactedContent.summaryMarker);
   }
-  expect(finalContext.recentConversation).toContain(CORRECTION_CANARY);
-  for (const expected of options.expectedRecentContent ?? []) {
-    expect(countOccurrences(finalContext.recentConversation, expected), expected).toBe(1);
+  if (modelAssertions === "DETERMINISTIC") {
+    expect(finalContext.recentConversation).toContain(CORRECTION_CANARY);
+    for (const expected of options.expectedRecentContent ?? []) {
+      expect(countOccurrences(finalContext.recentConversation, expected), expected).toBe(1);
+    }
   }
   expect(finalContext.recentConversation).toContain(finalFocalText);
   expect(countOccurrences(finalContext.recentConversation, finalFocalText)).toBe(1);

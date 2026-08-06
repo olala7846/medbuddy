@@ -76,4 +76,36 @@ describe("synthetic continuity verification (in-memory)", () => {
       },
     });
   });
+
+  it("assigns exact recent placement to deterministic verification, not structural evaluation", async () => {
+    const runWithAssertions = async (modelAssertions: "DETERMINISTIC" | "STRUCTURAL") => {
+      const persistence = new InMemoryPersistence();
+      let responseCount = 0;
+      return runSyntheticContinuityVerification({
+        continuity: new InMemoryContinuityRepository(),
+        messages: persistence.messages,
+        familyMaps: persistence.familyMaps,
+        receipts: persistence.externalEvents,
+      }, {
+        fixtureUrl: SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
+        runNonce: `placement-ownership-${modelAssertions.toLowerCase()}`,
+        modelAssertions,
+        expectedCorrection: TRADITIONAL_CHINESE_CORRECTION,
+        expectedRecentContent: TRADITIONAL_CHINESE_RECENT_CONTENT,
+        responder: {
+          async respond() {
+            responseCount += 1;
+            return {
+              kind: "RESPONDED" as const,
+              responseText: responseCount === 1 ? "虛構回覆".repeat(500) : "虛構最終回覆",
+              retryable: false,
+            };
+          },
+        },
+      });
+    };
+
+    await expect(runWithAssertions("STRUCTURAL")).resolves.toBeDefined();
+    await expect(runWithAssertions("DETERMINISTIC")).rejects.toThrow(/FICTIONAL_NEWER_CORRECTION/u);
+  });
 });
