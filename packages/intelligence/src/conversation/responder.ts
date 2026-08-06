@@ -1,6 +1,12 @@
 import {
   ConversationTurnRequestSchema,
   type ConversationContext,
+  type ConversationToolDeclaration,
+  type ConversationToolExecutionContext,
+  type ConversationToolJsonObject,
+  type ConversationToolResultDisposition,
+  ConversationToolDeclarationSchema,
+  ConversationToolResultDispositionSchema,
   type ConversationTurnRequest,
   type ConversationResponder as ConversationResponderPort,
   type ConversationResult,
@@ -41,6 +47,12 @@ export const ConversationInstructionSchema = z.union([
     input: UpdateWorkspaceFamilyMapInputSchema,
     continuation: z.unknown().optional(),
   }).strict(),
+  z.object({
+    kind: z.literal("CALL_TOOL"),
+    name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u),
+    input: z.unknown(),
+    continuation: z.unknown().optional(),
+  }).strict(),
 ]);
 
 type ConversationInstruction = z.infer<typeof ConversationInstructionSchema>;
@@ -62,6 +74,8 @@ export interface ConversationProvider {
     toolHistory?: readonly unknown[];
     familyMapUpdatesAllowed?: boolean;
     familyMapUpdateRequired?: boolean;
+    toolExecutionAllowed?: boolean;
+    toolDeclarations?: readonly ConversationToolDeclaration[];
   }): Promise<unknown>;
 }
 
@@ -93,6 +107,251 @@ export const FAMILY_MAP_UPDATE_FAILURE_TEXT =
   "I couldn’t save that family-map change. Please try again.";
 export const AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT =
   "Which observed member do you mean? Please name them before I update this chat’s family map.";
+export const CONVERSATION_MAX_MODEL_STEPS = 3;
+export const CONVERSATION_MAX_TOOL_CALLS = 2;
+export const CONVERSATION_TOOL_INPUT_MAX_UTF16 = 8_000;
+export const CONVERSATION_TOOL_RESULT_MAX_UTF16 = 8_000;
+
+const FAMILY_MAP_TOOL_NAME = "update_workspace_family_map";
+const MAX_MODEL_TOOL_CAPABILITIES = 8;
+const CONVERSATION_TOOL_DECLARATION_MAX_DEPTH = 16;
+const CONVERSATION_TOOL_DECLARATION_MAX_NODES = 512;
+const CONVERSATION_TOOL_DECLARATION_MAX_UTF16 = 16_000;
+const CONVERSATION_TOOL_VALUE_MAX_DEPTH = 32;
+const CONVERSATION_TOOL_VALUE_MAX_NODES = 1_024;
+
+type BoundSafeParse = (
+  value: unknown,
+) => z.ZodSafeParseResult<ConversationToolJsonObject>;
+
+type BoundConversationToolCapability = Readonly<{
+  declaration: ConversationToolDeclaration;
+  parseInput: BoundSafeParse;
+  parseOutput: BoundSafeParse;
+  classifyResult(output: ConversationToolJsonObject): ConversationToolResultDisposition;
+  execute(
+    input: ConversationToolJsonObject,
+    context: ConversationToolExecutionContext,
+  ): Promise<unknown>;
+}>;
+
+function hasBoundedPlainJsonValue(
+  value: unknown,
+  bounds: { maxDepth: number; maxNodes: number; maxUtf16: number },
+): boolean {
+  const pending: Array<{ value: unknown; depth: number; leaving?: boolean }> = [{ value, depth: 0 }];
+  const ancestors = new Set<object>();
+  let nodeCount = 0;
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (current.leaving === true) {
+      ancestors.delete(current.value as object);
+      continue;
+    }
+    nodeCount += 1;
+    if (
+      nodeCount > bounds.maxNodes
+      || current.depth > bounds.maxDepth
+    ) return false;
+    if (
+      current.value === null
+      || typeof current.value === "string"
+      || typeof current.value === "boolean"
+    ) continue;
+    if (typeof current.value === "number") {
+      if (!Number.isFinite(current.value)) return false;
+      continue;
+    }
+    if (typeof current.value !== "object" || ancestors.has(current.value)) return false;
+    ancestors.add(current.value);
+    pending.push({ ...current, leaving: true });
+    if (Array.isArray(current.value)) {
+      if (
+        Object.getPrototypeOf(current.value) !== Array.prototype
+        || current.value.length > bounds.maxNodes - nodeCount
+      ) return false;
+      const expectedKeys = new Set(["length"]);
+      for (let index = 0; index < current.value.length; index += 1) {
+        expectedKeys.add(String(index));
+      }
+      const keys = Reflect.ownKeys(current.value);
+      if (
+        keys.length !== current.value.length + 1
+        || keys.some((key) => typeof key !== "string" || !expectedKeys.has(key))
+      ) return false;
+      for (let index = 0; index < current.value.length; index += 1) {
+        const key = String(index);
+        const descriptor = Object.getOwnPropertyDescriptor(current.value, key);
+        if (descriptor?.enumerable !== true || !("value" in descriptor)) return false;
+        pending.push({ value: descriptor.value, depth: current.depth + 1 });
+      }
+      continue;
+    }
+    const prototype = Object.getPrototypeOf(current.value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const keys = Reflect.ownKeys(current.value);
+    if (keys.length > bounds.maxNodes - nodeCount) return false;
+    for (const key of keys) {
+      if (typeof key !== "string") return false;
+      const descriptor = Object.getOwnPropertyDescriptor(current.value, key);
+      if (descriptor?.enumerable !== true || !("value" in descriptor)) return false;
+      pending.push({ value: descriptor.value, depth: current.depth + 1 });
+    }
+  }
+  try {
+    const rendered = JSON.stringify(value);
+    return rendered !== undefined
+      && rendered.length <= bounds.maxUtf16;
+  } catch {
+    return false;
+  }
+}
+
+function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
+  return hasBoundedPlainJsonValue(value, {
+    maxDepth: CONVERSATION_TOOL_DECLARATION_MAX_DEPTH,
+    maxNodes: CONVERSATION_TOOL_DECLARATION_MAX_NODES,
+    maxUtf16: CONVERSATION_TOOL_DECLARATION_MAX_UTF16,
+  });
+}
+
+function bindModelTools(
+  tools: ConversationTurnTools | undefined,
+): Map<string, BoundConversationToolCapability> | null {
+  try {
+    const capabilities = tools?.modelTools ?? [];
+    if (capabilities.length > MAX_MODEL_TOOL_CAPABILITIES) return null;
+    const bound = new Map<string, BoundConversationToolCapability>();
+    for (const capability of capabilities) {
+      if (!hasBoundedPlainJsonDeclaration(capability.declaration.parameters)) return null;
+      const declaration = ConversationToolDeclarationSchema.safeParse(capability.declaration);
+      if (
+        !declaration.success
+        || declaration.data.name === FAMILY_MAP_TOOL_NAME
+        || bound.has(declaration.data.name)
+        || containsReservedTrustedScopeKey(capability.declaration.parameters)
+        || typeof capability.inputSchema?.safeParse !== "function"
+        || typeof capability.outputSchema?.safeParse !== "function"
+        || typeof capability.classifyResult !== "function"
+        || typeof capability.execute !== "function"
+      ) return null;
+      const inputSchema = capability.inputSchema;
+      const outputSchema = capability.outputSchema;
+      const parseInput = inputSchema.safeParse.bind(inputSchema) as BoundSafeParse;
+      const parseOutput = outputSchema.safeParse.bind(outputSchema) as BoundSafeParse;
+      const classifyResult = capability.classifyResult.bind(capability) as (
+        output: ConversationToolJsonObject,
+      ) => ConversationToolResultDisposition;
+      const execute = capability.execute.bind(capability) as (
+        input: ConversationToolJsonObject,
+        context: ConversationToolExecutionContext,
+      ) => Promise<unknown>;
+      bound.set(declaration.data.name, Object.freeze({
+        declaration: declaration.data,
+        parseInput,
+        parseOutput,
+        classifyResult,
+        execute,
+      }));
+    }
+    return bound;
+  } catch {
+    return null;
+  }
+}
+
+const RESERVED_TRUSTED_SCOPE_KEYS = new Set([
+  "workspaceid",
+  "actormemberid",
+  "sourcemessageid",
+]);
+
+function isReservedTrustedScopeKey(key: string): boolean {
+  return RESERVED_TRUSTED_SCOPE_KEYS.has(key.replace(/[^a-z0-9]/giu, "").toLowerCase());
+}
+
+function containsReservedTrustedScopeKey(value: unknown, ancestors = new Set<object>()): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if (ancestors.has(value)) return true;
+  ancestors.add(value);
+  const reserved = Reflect.ownKeys(value).some((key) => {
+    if (typeof key !== "string") return true;
+    const nested = (value as Record<string, unknown>)[key];
+    if (isReservedTrustedScopeKey(key)) return true;
+    if (key === "$ref" && typeof nested === "string") {
+      return nested.split("/").some((segment) => isReservedTrustedScopeKey(segment));
+    }
+    return containsReservedTrustedScopeKey(nested, ancestors);
+  });
+  ancestors.delete(value);
+  return reserved;
+}
+
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+    && hasBoundedPlainJsonValue(value, {
+      maxDepth: CONVERSATION_TOOL_VALUE_MAX_DEPTH,
+      maxNodes: CONVERSATION_TOOL_VALUE_MAX_NODES,
+      maxUtf16: Number.MAX_SAFE_INTEGER,
+    });
+}
+
+function isBoundedPlainJsonObject(value: unknown, maxUtf16: number): value is Record<string, unknown> {
+  if (!isPlainJsonObject(value)) return false;
+  try {
+    return JSON.stringify(value).length <= maxUtf16;
+  } catch {
+    return false;
+  }
+}
+
+type CanonicalJsonObjectSnapshot = {
+  readonly serialized: string;
+  readonly value: ConversationToolJsonObject;
+};
+
+function canonicalJsonObjectSnapshot(
+  value: unknown,
+  maxUtf16: number,
+): CanonicalJsonObjectSnapshot | null {
+  if (
+    !isBoundedPlainJsonObject(value, maxUtf16)
+    || containsReservedTrustedScopeKey(value)
+  ) return null;
+  try {
+    const serialized = JSON.stringify(value);
+    const snapshot: unknown = JSON.parse(serialized);
+    if (
+      !isBoundedPlainJsonObject(snapshot, maxUtf16)
+      || containsReservedTrustedScopeKey(snapshot)
+    ) return null;
+    return { serialized, value: snapshot as ConversationToolJsonObject };
+  } catch {
+    return null;
+  }
+}
+
+function cloneCanonicalSnapshot(snapshot: CanonicalJsonObjectSnapshot): ConversationToolJsonObject {
+  return JSON.parse(snapshot.serialized) as ConversationToolJsonObject;
+}
+
+function remainsValidAfterCallback(
+  snapshot: CanonicalJsonObjectSnapshot,
+  parse: BoundSafeParse,
+  maxUtf16: number,
+): boolean {
+  if (canonicalJsonObjectSnapshot(snapshot.value, maxUtf16) === null) return false;
+  try {
+    const reparsed = parse(cloneCanonicalSnapshot(snapshot));
+    return reparsed.success
+      && canonicalJsonObjectSnapshot(reparsed.data, maxUtf16) !== null;
+  } catch {
+    return false;
+  }
+}
 
 function needsRelationshipTargetClarification(
   focalMessage: Message,
@@ -270,17 +529,39 @@ export class ConversationResponder implements ConversationResponderPort {
         toolCalls: 0,
       };
     }
+    const focalAllowsFamilyMapUpdate = focalAuthorizesFamilyMapUpdate(focalMessage.body);
+    if (focalAllowsFamilyMapUpdate && tools?.updateWorkspaceFamilyMap === undefined) {
+      return {
+        kind: "RESPONDED",
+        responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
+        retryable: false,
+        toolCalls: 0,
+      };
+    }
+    let suppliedModelTools: Map<string, BoundConversationToolCapability> | null;
+    try {
+      suppliedModelTools = bindModelTools(tools);
+    } catch {
+      return technicalFailure();
+    }
+    if (suppliedModelTools === null) return technicalFailure();
+    const boundModelTools = focalAllowsFamilyMapUpdate
+      ? new Map<string, BoundConversationToolCapability>()
+      : suppliedModelTools;
+    const toolDeclarations = [...boundModelTools.values()].map(
+      (capability) => capability.declaration,
+    );
 
     try {
       const deadline = Date.now() + this.turnTimeoutMs;
-      const focalAllowsFamilyMapUpdate = focalAuthorizesFamilyMapUpdate(focalMessage.body);
       const focalRequiresFamilyMapTool = focalRequiresFamilyMapUpdate(focalMessage.body);
       let toolCalls = 0;
+      let familyMapToolCalls = 0;
       let retryAfterConflict = false;
       let terminalToolFailure = false;
       let toolResult: unknown;
       const toolHistory: unknown[] = [];
-      for (let modelStep = 0; modelStep < 3; modelStep += 1) {
+      for (let modelStep = 0; modelStep < CONVERSATION_MAX_MODEL_STEPS; modelStep += 1) {
         let output: unknown;
         try {
           output = await this.beforeDeadline(() => this.provider.respond({
@@ -288,8 +569,12 @@ export class ConversationResponder implements ConversationResponderPort {
             context: request.data.context,
             toolResult,
             toolHistory: [...toolHistory],
-            familyMapUpdatesAllowed: focalAllowsFamilyMapUpdate && (toolCalls === 0 || retryAfterConflict),
+            familyMapUpdatesAllowed: focalAllowsFamilyMapUpdate
+              && tools?.updateWorkspaceFamilyMap !== undefined
+              && (familyMapToolCalls === 0 || retryAfterConflict),
             familyMapUpdateRequired: focalRequiresFamilyMapTool,
+            toolExecutionAllowed: toolCalls < CONVERSATION_MAX_TOOL_CALLS,
+            ...(toolDeclarations.length === 0 ? {} : { toolDeclarations }),
           }), deadline);
         } catch (error) {
           if (!terminalToolFailure) throw error;
@@ -315,16 +600,122 @@ export class ConversationResponder implements ConversationResponderPort {
           this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return technicalFailure(toolCalls || undefined);
         }
-        if (instruction.data.kind !== "UPDATE_WORKSPACE_FAMILY_MAP") {
+        if (
+          instruction.data.kind !== "UPDATE_WORKSPACE_FAMILY_MAP"
+          && instruction.data.kind !== "CALL_TOOL"
+        ) {
           const response = await this.respondToInstruction(instruction.data);
           this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return toolCalls === 0 ? response : { ...response, toolCalls };
         }
-        if (!focalAllowsFamilyMapUpdate || tools === undefined || terminalToolFailure || (toolCalls > 0 && !retryAfterConflict)) {
+
+        if (instruction.data.kind === "CALL_TOOL") {
+          const capability = boundModelTools.get(instruction.data.name);
+          const rawInput = instruction.data.input;
+          if (
+            capability === undefined
+            || toolCalls >= CONVERSATION_MAX_TOOL_CALLS
+          ) {
+            this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+            return technicalFailure(toolCalls || undefined);
+          }
+          const rawInputSnapshot = canonicalJsonObjectSnapshot(
+            rawInput,
+            CONVERSATION_TOOL_INPUT_MAX_UTF16,
+          );
+          if (rawInputSnapshot === null) {
+            this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+            return technicalFailure(toolCalls || undefined);
+          }
+          const parsedInput = capability.parseInput(
+            cloneCanonicalSnapshot(rawInputSnapshot),
+          );
+          const inputSnapshot = parsedInput.success
+            ? canonicalJsonObjectSnapshot(parsedInput.data, CONVERSATION_TOOL_INPUT_MAX_UTF16)
+            : null;
+          if (!parsedInput.success || inputSnapshot === null) {
+            this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+            return technicalFailure(toolCalls || undefined);
+          }
+          toolCalls += 1;
+          let rawResult: unknown;
+          const controller = new AbortController();
+          const executionContext: ConversationToolExecutionContext = {
+            deadlineMs: deadline,
+            signal: controller.signal,
+          };
+          try {
+            rawResult = await this.beforeDeadline(
+              () => capability.execute(cloneCanonicalSnapshot(inputSnapshot), executionContext),
+              deadline,
+              () => controller.abort(),
+            );
+          } catch {
+            return technicalFailure(toolCalls);
+          }
+          const rawOutputSnapshot = canonicalJsonObjectSnapshot(
+            rawResult,
+            CONVERSATION_TOOL_RESULT_MAX_UTF16,
+          );
+          if (rawOutputSnapshot === null) return technicalFailure(toolCalls);
+          const parsedResult = capability.parseOutput(
+            cloneCanonicalSnapshot(rawOutputSnapshot),
+          );
+          const outputSnapshot = parsedResult.success
+            ? canonicalJsonObjectSnapshot(parsedResult.data, CONVERSATION_TOOL_RESULT_MAX_UTF16)
+            : null;
+          if (!parsedResult.success || outputSnapshot === null) return technicalFailure(toolCalls);
+          let disposition: ReturnType<typeof ConversationToolResultDispositionSchema.safeParse>;
+          try {
+            disposition = ConversationToolResultDispositionSchema.safeParse(
+              capability.classifyResult(cloneCanonicalSnapshot(outputSnapshot)),
+            );
+          } catch {
+            return technicalFailure(toolCalls);
+          }
+          if (
+            !remainsValidAfterCallback(
+              inputSnapshot,
+              capability.parseInput,
+              CONVERSATION_TOOL_INPUT_MAX_UTF16,
+            )
+            || !remainsValidAfterCallback(
+              outputSnapshot,
+              capability.parseOutput,
+              CONVERSATION_TOOL_RESULT_MAX_UTF16,
+            )
+          ) return technicalFailure(toolCalls);
+          if (!disposition.success) return technicalFailure(toolCalls);
+          if (disposition.data.kind === "TERMINAL_FAILURE") {
+            return {
+              kind: "RESPONDED",
+              responseText: disposition.data.responseText,
+              retryable: false,
+              toolCalls,
+            };
+          }
+          toolResult = {
+            name: instruction.data.name,
+            call: inputSnapshot.value,
+            result: outputSnapshot.value,
+            continuation: instruction.data.continuation,
+          };
+          toolHistory.push(toolResult);
+          continue;
+        }
+
+        if (
+          !focalAllowsFamilyMapUpdate
+          || tools?.updateWorkspaceFamilyMap === undefined
+          || terminalToolFailure
+          || familyMapToolCalls > 0 && !retryAfterConflict
+          || toolCalls >= CONVERSATION_MAX_TOOL_CALLS
+        ) {
           this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return technicalFailure(toolCalls || undefined);
         }
         toolCalls += 1;
+        familyMapToolCalls += 1;
         const updateInput = instruction.data.input;
         this.log({
           event: "family_map_tool_requested",
@@ -334,13 +725,13 @@ export class ConversationResponder implements ConversationResponderPort {
           modelStepCount: modelStep + 1,
         });
         const result = await this.beforeDeadline(
-          () => tools.updateWorkspaceFamilyMap.update(updateInput),
+          () => tools.updateWorkspaceFamilyMap!.update(updateInput),
           deadline,
         );
         if (result.kind === "REJECTED" || result.kind === "TECHNICAL_FAILURE") {
           terminalToolFailure = true;
           retryAfterConflict = false;
-          toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+          toolResult = { name: FAMILY_MAP_TOOL_NAME, call: updateInput, result, continuation: instruction.data.continuation };
           toolHistory.push(toolResult);
           this.log({
             event: result.kind === "REJECTED" ? "family_map_rejected" : "family_map_failed",
@@ -353,15 +744,15 @@ export class ConversationResponder implements ConversationResponderPort {
           continue;
         }
         if (result.kind === "REVISION_CONFLICT") {
-          if (toolCalls > 1) return technicalFailure(toolCalls);
+          if (familyMapToolCalls > 1) return technicalFailure(toolCalls);
           retryAfterConflict = true;
-          toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+          toolResult = { name: FAMILY_MAP_TOOL_NAME, call: updateInput, result, continuation: instruction.data.continuation };
           toolHistory.push(toolResult);
           this.log({ event: "family_map_revision_conflict", priorRevision: updateInput.expectedRevision, resultingRevision: result.familyMap.revision, toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           continue;
         }
         retryAfterConflict = false;
-        toolResult = { call: updateInput, result, continuation: instruction.data.continuation };
+        toolResult = { name: FAMILY_MAP_TOOL_NAME, call: updateInput, result, continuation: instruction.data.continuation };
         toolHistory.push(toolResult);
         this.log({
           event: result.kind === "UPDATED" ? "family_map_updated" : "family_map_no_change",
@@ -372,7 +763,11 @@ export class ConversationResponder implements ConversationResponderPort {
           modelStepCount: modelStep + 1,
         });
       }
-      this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: 3 });
+      this.log({
+        event: "conversation_tool_loop_exhausted",
+        toolAttemptCount: toolCalls,
+        modelStepCount: CONVERSATION_MAX_MODEL_STEPS,
+      });
       return technicalFailure(toolCalls);
     } catch {
       return technicalFailure();
@@ -383,16 +778,26 @@ export class ConversationResponder implements ConversationResponderPort {
     this.telemetry?.write(entry);
   }
 
-  private async beforeDeadline<Value>(operation: () => Promise<Value>, deadline: number): Promise<Value> {
+  private async beforeDeadline<Value>(
+    operation: () => Promise<Value>,
+    deadline: number,
+    onTimeout?: () => void,
+  ): Promise<Value> {
     const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) throw new ConversationProviderError("PROVIDER_TIMEOUT");
+    if (remainingMs <= 0) {
+      onTimeout?.();
+      throw new ConversationProviderError("PROVIDER_TIMEOUT");
+    }
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
         operation(),
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(
-            () => reject(new ConversationProviderError("PROVIDER_TIMEOUT")),
+            () => {
+              onTimeout?.();
+              reject(new ConversationProviderError("PROVIDER_TIMEOUT"));
+            },
             remainingMs,
           );
         }),

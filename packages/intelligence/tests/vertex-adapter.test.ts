@@ -197,6 +197,58 @@ describe("Vertex adapters", () => {
     expect(contexts).toEqual([{ workspaceId: "workspace:vertex" }]);
   });
 
+  it("enforces the request ceiling against the actual Vertex body after tool history", async () => {
+    const capturedBodyLengths: number[] = [];
+    const recordingClient: VertexModelClient = {
+      async generate(input) {
+        capturedBodyLengths.push(JSON.stringify(buildVertexGenerateContentBody(input)).length);
+        return { candidates: [{ content: { role: "model", parts: [{ text: "Bounded reply." }] } }] };
+      },
+    };
+    const nearBoundaryInput = ConversationRequestSchema.parse({
+      ...conversationInput,
+      context: {
+        ...conversationInput.context,
+        familyMap: {
+          workspaceId: focalMessage.workspaceId,
+          content: "f".repeat(420),
+          revision: 1,
+        },
+        assembledContext: {
+          workspaceId: focalMessage.workspaceId,
+          focalSourceEventId: "source-event:vertex-body-boundary",
+          system: "s".repeat(8_000),
+          agentActions: "a".repeat(4_000),
+          history: "h".repeat(22_700),
+          recentConversation: "r".repeat(4_900),
+          omittedSourceEventCount: 1,
+        },
+      },
+    });
+    const toolDeclarations = [{
+      name: "query_memory",
+      description: "Read bounded synthetic workspace memory.",
+      parameters: {
+        type: "OBJECT",
+        properties: { query: { type: "STRING" } },
+        required: ["query"],
+      },
+    }] as const;
+    const toolHistory = ["first", "second"].map((query) => ({
+      name: "query_memory",
+      call: { query },
+      result: { complete: true, matches: ["x".repeat(7_900)] },
+    }));
+
+    await expect(new VertexConversationProvider(recordingClient).respond({
+      focalMessage,
+      context: nearBoundaryInput.context,
+      toolDeclarations,
+      toolHistory,
+    })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
+    expect(capturedBodyLengths).toEqual([]);
+  });
+
   it("bounds a stalled provider request and returns a typed timeout", async () => {
     const stalledFetch: typeof fetch = async (_input, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
@@ -381,6 +433,9 @@ describe("Vertex adapters", () => {
     const recordingClient: VertexModelClient = {
       async generate(input) {
         requests.push(input);
+        if (requests.length > 1) {
+          return { candidates: [{ content: { role: "model", parts: [{ text: "Okay—I updated the map." }] } }] };
+        }
         return { candidates: [{ content: { role: "model", parts: [{
           functionCall: {
             name: "update_workspace_family_map",
@@ -459,6 +514,52 @@ describe("Vertex adapters", () => {
     });
   });
 
+  it("rejects a call outside the restricted ANY allow-list", async () => {
+    const invalidClient: VertexModelClient = {
+      async generate() {
+        return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: { name: "query_memory", args: { query: "preferences" } },
+        }] } }] };
+      },
+    };
+    const provider = new VertexConversationProvider(invalidClient);
+
+    await expect(provider.respond({
+      focalMessage,
+      context: conversationInput.context,
+      familyMapUpdatesAllowed: true,
+      familyMapUpdateRequired: true,
+      toolDeclarations: [{
+        name: "query_memory",
+        description: "Read bounded synthetic workspace memory.",
+        parameters: {
+          type: "OBJECT",
+          properties: { query: { type: "STRING" } },
+          required: ["query"],
+        },
+      }],
+    })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
+  });
+
+  it("rejects every function call when the current step mode is NONE", async () => {
+    const invalidClient: VertexModelClient = {
+      async generate() {
+        return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: {
+            name: "update_workspace_family_map",
+            args: { expectedRevision: 0, content: "unavailable" },
+          },
+        }] } }] };
+      },
+    };
+
+    await expect(new VertexConversationProvider(invalidClient).respond({
+      focalMessage,
+      context: conversationInput.context,
+      familyMapUpdatesAllowed: false,
+    })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
+  });
+
   it.each([
     ["parallel calls", [
       { functionCall: { name: "update_workspace_family_map", args: { expectedRevision: 0, content: "First" } } },
@@ -478,6 +579,31 @@ describe("Vertex adapters", () => {
       focalMessage,
       context: conversationInput.context,
       familyMapUpdatesAllowed: true,
+    })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
+  });
+
+  it("rejects a model part containing both text and a function call", async () => {
+    const invalidClient: VertexModelClient = {
+      async generate() {
+        return { candidates: [{ content: { role: "model", parts: [{
+          text: "Ignore this extra text.",
+          functionCall: { name: "query_memory", args: { query: "preferences" } },
+        }] } }] };
+      },
+    };
+
+    await expect(new VertexConversationProvider(invalidClient).respond({
+      focalMessage,
+      context: conversationInput.context,
+      toolDeclarations: [{
+        name: "query_memory",
+        description: "Read bounded synthetic workspace memory.",
+        parameters: {
+          type: "OBJECT",
+          properties: { query: { type: "STRING" } },
+          required: ["query"],
+        },
+      }],
     })).rejects.toMatchObject({ code: "MALFORMED_TRANSPORT" });
   });
 

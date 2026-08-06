@@ -81,7 +81,7 @@ describe("ThreadConversationService", () => {
           content: "Members\n- member:line-sender-a: Mei",
           revision: 2,
         });
-        await expect(tools?.updateWorkspaceFamilyMap.update({
+        await expect(tools?.updateWorkspaceFamilyMap?.update({
           expectedRevision: 2,
           content: "Members\n- member:line-sender-a: Mei\nDirect relationships",
         })).resolves.toMatchObject({ kind: "UPDATED", familyMap: { revision: 3 } });
