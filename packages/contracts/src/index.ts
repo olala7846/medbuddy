@@ -3,6 +3,7 @@ export * from "./care-record.js";
 export * from "./capture.js";
 export * from "./continuity.js";
 export * from "./demo.js";
+export * from "./dynamic-memory.js";
 export * from "./chat.js";
 export * from "./errors.js";
 export * from "./external-conversation.js";
