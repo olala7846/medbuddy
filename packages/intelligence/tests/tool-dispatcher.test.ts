@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { ConversationRequestSchema, MessageSchema } from "@medbuddy/contracts";
@@ -51,15 +51,27 @@ const queryDeclaration = {
   },
 } as const;
 
-function queryCapability(execute: (input: { query: string }) => Promise<unknown>) {
+type SyntheticExecutionContext = { deadlineMs: number; signal: AbortSignal };
+
+function queryCapability(
+  execute: (input: { query: string }, context: SyntheticExecutionContext) => Promise<unknown>,
+) {
   return {
     declaration: queryDeclaration,
     inputSchema: z.object({ query: z.string().trim().min(1).max(100) }).strict(),
+    outputSchema: z.object({
+      complete: z.boolean(),
+      matches: z.array(z.string()),
+    }),
     execute,
   };
 }
 
 describe("capability-scoped conversation tool dispatcher", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("declares and calls an authorized read tool while family-map writes are disallowed", async () => {
     const vertexRequests: VertexGenerationRequest[] = [];
     let modelStep = 0;
@@ -137,6 +149,39 @@ describe("capability-scoped conversation tool dispatcher", () => {
     expect(provider.requests[0]).toMatchObject({ toolDeclarations: [queryDeclaration] });
   });
 
+  it("uses the normalized declaration and rejects a model-visible workspaceId parameter", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, { kind: "ACKNOWLEDGE" }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => ({ complete: true, matches: [] })),
+        declaration: { ...queryDeclaration, description: "  Read normalized memory.  " },
+      }],
+    })).resolves.toMatchObject({ kind: "RESPONDED" });
+    expect(provider.requests[0]).toMatchObject({
+      toolDeclarations: [{ ...queryDeclaration, description: "Read normalized memory." }],
+    });
+
+    provider.requests.length = 0;
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => ({ complete: true, matches: [] })),
+        declaration: {
+          ...queryDeclaration,
+          parameters: {
+            ...queryDeclaration.parameters,
+            properties: {
+              ...queryDeclaration.parameters.properties,
+              workspaceId: { type: "STRING" },
+            },
+          },
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+    expect(provider.requests).toHaveLength(0);
+  });
+
   it("rejects the unavailable family-map tool while a read capability remains bound", async () => {
     let readExecutions = 0;
     let familyMapExecutions = 0;
@@ -160,6 +205,32 @@ describe("capability-scoped conversation tool dispatcher", () => {
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
 
     expect(readExecutions).toBe(0);
+    expect(familyMapExecutions).toBe(0);
+  });
+
+  it("rejects a family-map attempt after an allowed generic read on a neutral turn", async () => {
+    let readExecutions = 0;
+    let familyMapExecutions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "UPDATE_WORKSPACE_FAMILY_MAP", input: { expectedRevision: 0, content: "unavailable" } },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [queryCapability(async () => {
+        readExecutions += 1;
+        return { complete: true, matches: [] };
+      })],
+      updateWorkspaceFamilyMap: {
+        async update() {
+          familyMapExecutions += 1;
+          throw new Error("A neutral turn must not grant the family-map capability.");
+        },
+      },
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+
+    expect(readExecutions).toBe(1);
     expect(familyMapExecutions).toBe(0);
   });
 
@@ -346,6 +417,79 @@ describe("capability-scoped conversation tool dispatcher", () => {
     expect(provider.requests).toHaveLength(1);
   });
 
+  it("normalizes a tool result through its output schema before the next model step", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "REPLY", text: "I found the normalized result." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [queryCapability(async () => ({
+        complete: true,
+        matches: ["Fictional preference."],
+        executorOnlyField: "must not enter model history",
+      }))],
+    })).resolves.toMatchObject({ kind: "RESPONDED", toolCalls: 1 });
+
+    expect(provider.requests[1]?.toolResult).toMatchObject({
+      result: { complete: true, matches: ["Fictional preference."] },
+    });
+    expect(provider.requests[1]?.toolResult).not.toHaveProperty("result.executorOnlyField");
+  });
+
+  it.each([
+    ["null", null, z.unknown()],
+    ["primitive", "not an object", z.unknown()],
+    ["array", [], z.unknown()],
+    ["malformed object", { complete: "yes", matches: [] }, z.object({
+      complete: z.boolean(),
+      matches: z.array(z.string()),
+    })],
+    ["non-JSON object", { complete: true, value: undefined }, z.unknown()],
+  ])("rejects a %s tool result before another model step", async (_label, result, outputSchema) => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "REPLY", text: "This step must not be reached." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).strict(),
+        outputSchema,
+        async execute() { return result; },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("rejects a capability without an output schema before execution", async () => {
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: { query: "preferences" },
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).strict(),
+        async execute() {
+          executions += 1;
+          return { complete: true, matches: [] };
+        },
+      } as never],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(executions).toBe(0);
+    expect(provider.requests).toHaveLength(0);
+  });
+
   it("executes at most two tool calls in the three-step model loop", async () => {
     let executions = 0;
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
@@ -438,5 +582,45 @@ describe("capability-scoped conversation tool dispatcher", () => {
     })).resolves.toMatchObject({ kind: "TECHNICAL_FAILURE", retryable: true });
 
     expect(executionStarted).toBe(true);
+  });
+
+  it("aborts a timed-out capability before it can perform a late mutation", async () => {
+    vi.useFakeTimers();
+    const expectedDeadlineMs = Date.now() + 10;
+    let executionContext: SyntheticExecutionContext | undefined;
+    let lateMutation = false;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: { query: "preferences" },
+    }]]));
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      provider,
+      10,
+    );
+
+    const response = responder.respond(request, {
+      modelTools: [queryCapability(async (_input, context) => {
+        executionContext = context;
+        return new Promise((resolve, reject) => {
+          const mutationTimer = setTimeout(() => {
+            lateMutation = true;
+            resolve({ complete: true, matches: [] });
+          }, 50);
+          context?.signal.addEventListener("abort", () => {
+            clearTimeout(mutationTimer);
+            reject(new DOMException("aborted", "AbortError"));
+          }, { once: true });
+        });
+      })],
+    });
+    await vi.advanceTimersByTimeAsync(10);
+
+    await expect(response).resolves.toMatchObject({ kind: "TECHNICAL_FAILURE", retryable: true });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(executionContext?.deadlineMs).toBe(expectedDeadlineMs);
+    expect(executionContext?.signal.aborted).toBe(true);
+    expect(lateMutation).toBe(false);
   });
 });

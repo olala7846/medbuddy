@@ -3,6 +3,7 @@ import {
   type ConversationContext,
   type ConversationToolCapability,
   type ConversationToolDeclaration,
+  type ConversationToolExecutionContext,
   ConversationToolDeclarationSchema,
   type ConversationTurnRequest,
   type ConversationResponder as ConversationResponderPort,
@@ -122,12 +123,56 @@ function bindModelTools(
       !declaration.success
       || declaration.data.name === FAMILY_MAP_TOOL_NAME
       || bound.has(declaration.data.name)
+      || advertisesWorkspaceId(declaration.data.parameters)
       || typeof capability.inputSchema?.safeParse !== "function"
+      || typeof capability.outputSchema?.safeParse !== "function"
       || typeof capability.execute !== "function"
     ) return null;
-    bound.set(declaration.data.name, capability);
+    bound.set(declaration.data.name, {
+      declaration: declaration.data,
+      inputSchema: capability.inputSchema,
+      outputSchema: capability.outputSchema,
+      execute: (input, context) => capability.execute(input, context),
+    });
   }
   return bound;
+}
+
+function advertisesWorkspaceId(parameters: Record<string, unknown>): boolean {
+  const properties = parameters.properties;
+  return typeof properties === "object"
+    && properties !== null
+    && !Array.isArray(properties)
+    && Object.hasOwn(properties, "workspaceId");
+}
+
+function isJsonValue(value: unknown, ancestors: Set<object>): boolean {
+  if (
+    value === null
+    || typeof value === "string"
+    || typeof value === "boolean"
+  ) return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object") return false;
+  if (ancestors.has(value)) return false;
+  ancestors.add(value);
+  const valid = Array.isArray(value)
+    ? value.every((item) => isJsonValue(item, ancestors))
+    : (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+      && Reflect.ownKeys(value).every((key) =>
+        typeof key === "string"
+        && Object.prototype.propertyIsEnumerable.call(value, key)
+        && isJsonValue((value as Record<string, unknown>)[key], ancestors));
+  ancestors.delete(value);
+  return valid;
+}
+
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object"
+    && value !== null
+    && !Array.isArray(value)
+    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+    && isJsonValue(value, new Set());
 }
 
 function hasBoundedToolResult(result: unknown): boolean {
@@ -393,20 +438,31 @@ export class ConversationResponder implements ConversationResponderPort {
             return technicalFailure(toolCalls || undefined);
           }
           toolCalls += 1;
-          let result: unknown;
+          let rawResult: unknown;
+          const controller = new AbortController();
+          const executionContext: ConversationToolExecutionContext = {
+            deadlineMs: deadline,
+            signal: controller.signal,
+          };
           try {
-            result = await this.beforeDeadline(
-              () => capability.execute(parsedInput.data),
+            rawResult = await this.beforeDeadline(
+              () => capability.execute(parsedInput.data, executionContext),
               deadline,
+              () => controller.abort(),
             );
           } catch {
             return technicalFailure(toolCalls);
           }
-          if (!hasBoundedToolResult(result)) return technicalFailure(toolCalls);
+          const parsedResult = capability.outputSchema.safeParse(rawResult);
+          if (
+            !parsedResult.success
+            || !isPlainJsonObject(parsedResult.data)
+            || !hasBoundedToolResult(parsedResult.data)
+          ) return technicalFailure(toolCalls);
           toolResult = {
             name: instruction.data.name,
             call: parsedInput.data,
-            result,
+            result: parsedResult.data,
             continuation: instruction.data.continuation,
           };
           toolHistory.push(toolResult);
@@ -487,16 +543,26 @@ export class ConversationResponder implements ConversationResponderPort {
     this.telemetry?.write(entry);
   }
 
-  private async beforeDeadline<Value>(operation: () => Promise<Value>, deadline: number): Promise<Value> {
+  private async beforeDeadline<Value>(
+    operation: () => Promise<Value>,
+    deadline: number,
+    onTimeout?: () => void,
+  ): Promise<Value> {
     const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) throw new ConversationProviderError("PROVIDER_TIMEOUT");
+    if (remainingMs <= 0) {
+      onTimeout?.();
+      throw new ConversationProviderError("PROVIDER_TIMEOUT");
+    }
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
         operation(),
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(
-            () => reject(new ConversationProviderError("PROVIDER_TIMEOUT")),
+            () => {
+              onTimeout?.();
+              reject(new ConversationProviderError("PROVIDER_TIMEOUT"));
+            },
             remainingMs,
           );
         }),

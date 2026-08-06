@@ -78,11 +78,19 @@ export const ConversationToolDeclarationSchema = z.object({
 
 export type ConversationToolDeclaration = z.infer<typeof ConversationToolDeclarationSchema>;
 
+export interface ConversationToolExecutionContext {
+  /** Absolute Unix epoch deadline for the complete conversation turn. */
+  readonly deadlineMs: number;
+  /** Aborted when the turn deadline expires during capability execution. */
+  readonly signal: AbortSignal;
+}
+
 /** A trusted composition-bound model capability with deterministic input validation. */
-export interface ConversationToolCapability<Input = unknown> {
+export interface ConversationToolCapability<Input = unknown, Output = unknown> {
   readonly declaration: ConversationToolDeclaration;
   readonly inputSchema: z.ZodType<Input>;
-  execute(input: Input): Promise<unknown>;
+  readonly outputSchema: z.ZodType<Output>;
+  execute(input: Input, context: ConversationToolExecutionContext): Promise<unknown>;
 }
 
 export interface ConversationTurnTools {
