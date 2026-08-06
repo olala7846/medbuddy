@@ -70,10 +70,108 @@ export interface ConversationResult {
   toolCalls?: number;
 }
 
+const ConversationToolParameterDescriptionSchema = z.string().trim().min(1).max(1_000).optional();
+
+export type ConversationToolParameterSchema =
+  | {
+    type: "STRING";
+    description?: string | undefined;
+    enum?: readonly string[] | undefined;
+  }
+  | {
+    type: "INTEGER";
+    description?: string | undefined;
+    enum?: readonly number[] | undefined;
+  }
+  | {
+    type: "NUMBER";
+    description?: string | undefined;
+    enum?: readonly number[] | undefined;
+  }
+  | {
+    type: "BOOLEAN";
+    description?: string | undefined;
+    enum?: readonly boolean[] | undefined;
+  }
+  | {
+    type: "ARRAY";
+    description?: string | undefined;
+    items: ConversationToolParameterSchema;
+  }
+  | ConversationToolObjectParameterSchema;
+
+export type ConversationToolObjectParameterSchema = {
+  type: "OBJECT";
+  description?: string | undefined;
+  properties: Readonly<Record<string, ConversationToolParameterSchema>>;
+  required?: readonly string[] | undefined;
+};
+
+const ConversationToolParameterSchema: z.ZodType<ConversationToolParameterSchema> = z.lazy(() =>
+  z.union([
+    z.object({
+      type: z.literal("STRING"),
+      description: ConversationToolParameterDescriptionSchema,
+      enum: z.array(z.string()).min(1).max(100).optional(),
+    }).strict(),
+    z.object({
+      type: z.literal("INTEGER"),
+      description: ConversationToolParameterDescriptionSchema,
+      enum: z.array(z.number().int().finite()).min(1).max(100).optional(),
+    }).strict(),
+    z.object({
+      type: z.literal("NUMBER"),
+      description: ConversationToolParameterDescriptionSchema,
+      enum: z.array(z.number().finite()).min(1).max(100).optional(),
+    }).strict(),
+    z.object({
+      type: z.literal("BOOLEAN"),
+      description: ConversationToolParameterDescriptionSchema,
+      enum: z.array(z.boolean()).min(1).max(2).optional(),
+    }).strict(),
+    z.object({
+      type: z.literal("ARRAY"),
+      description: ConversationToolParameterDescriptionSchema,
+      items: ConversationToolParameterSchema,
+    }).strict(),
+    ConversationToolObjectParameterSchemaRuntime,
+  ]),
+);
+
+const ConversationToolObjectParameterSchemaRuntime: z.ZodType<ConversationToolObjectParameterSchema> = z.object({
+  type: z.literal("OBJECT"),
+  description: ConversationToolParameterDescriptionSchema,
+  properties: z.record(
+    z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u),
+    ConversationToolParameterSchema,
+  ),
+  required: z.array(z.string()).max(100).optional(),
+}).strict().superRefine((schema, issueContext) => {
+  if (schema.required === undefined) return;
+  const seen = new Set<string>();
+  for (const [index, name] of schema.required.entries()) {
+    if (!Object.hasOwn(schema.properties, name)) {
+      issueContext.addIssue({
+        code: "custom",
+        message: "Required tool parameter must be declared in properties.",
+        path: ["required", index],
+      });
+    }
+    if (seen.has(name)) {
+      issueContext.addIssue({
+        code: "custom",
+        message: "Required tool parameters must be unique.",
+        path: ["required", index],
+      });
+    }
+    seen.add(name);
+  }
+});
+
 export const ConversationToolDeclarationSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u),
   description: z.string().trim().min(1).max(1_000),
-  parameters: z.record(z.string(), z.unknown()),
+  parameters: ConversationToolObjectParameterSchemaRuntime,
 }).strict();
 
 export type ConversationToolDeclaration = z.infer<typeof ConversationToolDeclarationSchema>;
@@ -85,11 +183,24 @@ export interface ConversationToolExecutionContext {
   readonly signal: AbortSignal;
 }
 
+export const ConversationToolResultDispositionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("CONTINUE") }).strict(),
+  z.object({
+    kind: z.literal("TERMINAL_FAILURE"),
+    responseText: z.string().trim().min(1).max(5_000),
+  }).strict(),
+]);
+
+export type ConversationToolResultDisposition = z.infer<
+  typeof ConversationToolResultDispositionSchema
+>;
+
 /** A trusted composition-bound model capability with deterministic input validation. */
 export interface ConversationToolCapability<Input = unknown, Output = unknown> {
   readonly declaration: ConversationToolDeclaration;
   readonly inputSchema: z.ZodType<Input>;
   readonly outputSchema: z.ZodType<Output>;
+  classifyResult(output: Output): ConversationToolResultDisposition;
   execute(input: Input, context: ConversationToolExecutionContext): Promise<unknown>;
 }
 

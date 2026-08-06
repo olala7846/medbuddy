@@ -5,6 +5,7 @@ import { ConversationRequestSchema, MessageSchema } from "@medbuddy/contracts";
 
 import {
   ConversationResponder,
+  FAMILY_MAP_UPDATE_FAILURE_TEXT,
   FixedConversationProvider,
   VertexConversationProvider,
   type VertexGenerationRequest,
@@ -63,6 +64,7 @@ function queryCapability(
       complete: z.boolean(),
       matches: z.array(z.string()),
     }),
+    classifyResult: () => ({ kind: "CONTINUE" as const }),
     execute,
   };
 }
@@ -70,6 +72,33 @@ function queryCapability(
 describe("capability-scoped conversation tool dispatcher", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it.each([
+    ["provider prose", { kind: "REPLY", text: "I saved that relationship." }],
+    ["a provider tool call", {
+      kind: "UPDATE_WORKSPACE_FAMILY_MAP",
+      input: { expectedRevision: 0, content: "unavailable" },
+    }],
+  ])("fails an authorized family-map turn locally when its binding is absent despite %s", async (_label, output) => {
+    const explicitRequest = ConversationRequestSchema.parse({
+      ...request,
+      context: {
+        ...request.context,
+        messages: [{ ...focalMessage, body: "Mei is Kai's mother." }],
+      },
+    });
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, output]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(explicitRequest)).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
+      retryable: false,
+      toolCalls: 0,
+    });
+
+    expect(provider.requests).toHaveLength(0);
   });
 
   it("declares and calls an authorized read tool while family-map writes are disallowed", async () => {
@@ -180,6 +209,207 @@ describe("capability-scoped conversation tool dispatcher", () => {
       }],
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
     expect(provider.requests).toHaveLength(0);
+  });
+
+  it.each([
+    ["a non-object root", { type: "ARRAY", items: { type: "STRING" } }],
+    ["an unsupported scalar", { type: "OBJECT", properties: { value: { type: "NULL" } } }],
+    ["an array without items", { type: "OBJECT", properties: { values: { type: "ARRAY" } } }],
+    ["a required key absent from properties", {
+      type: "OBJECT",
+      properties: { query: { type: "STRING" } },
+      required: ["missing"],
+    }],
+    ["a nested trusted field", {
+      type: "OBJECT",
+      properties: {
+        filter: {
+          type: "OBJECT",
+          properties: { workspace_id: { type: "STRING" } },
+        },
+      },
+    }],
+    ["a trusted field in an unsupported definition", {
+      type: "OBJECT",
+      properties: {},
+      $defs: { scope: { type: "OBJECT", properties: { actorMemberId: { type: "STRING" } } } },
+    }],
+    ["a trusted reference target", {
+      type: "OBJECT",
+      properties: { scope: { $ref: "#/$defs/source_message_id" } },
+    }],
+  ])("rejects a declaration with %s", async (_label, parameters) => {
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, { kind: "ACKNOWLEDGE" }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => {
+          executions += 1;
+          return { complete: true, matches: [] };
+        }),
+        declaration: { ...queryDeclaration, parameters },
+      } as never],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(executions).toBe(0);
+    expect(provider.requests).toHaveLength(0);
+  });
+
+  it("accepts the bounded recursive declaration subset needed by query and proposal tools", async () => {
+    const declaration = {
+      name: "query_memory",
+      description: "Read bounded synthetic workspace memory.",
+      parameters: {
+        type: "OBJECT",
+        properties: {
+          filter: {
+            type: "OBJECT",
+            properties: {
+              tags: { type: "ARRAY", items: { type: "STRING", enum: ["preference", "routine"] } },
+              limit: { type: "INTEGER" },
+              threshold: { type: "NUMBER" },
+              includeArchived: { type: "BOOLEAN" },
+            },
+            required: ["tags"],
+          },
+        },
+        required: ["filter"],
+      },
+    } as const;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, { kind: "ACKNOWLEDGE" }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{ ...queryCapability(async () => ({ complete: true, matches: [] })), declaration }],
+    })).resolves.toMatchObject({ kind: "RESPONDED" });
+
+    expect(provider.requests[0]?.toolDeclarations).toEqual([declaration]);
+  });
+
+  it.each([
+    ["a root workspaceId", { query: "preferences", workspaceId: "workspace:b" }],
+    ["a nested workspace_id", { query: "preferences", filter: { workspace_id: "workspace:b" } }],
+    ["a nested actorMemberId", { query: "preferences", filter: { actorMemberId: "member:b" } }],
+    ["a nested source_message_id", { query: "preferences", filter: { source_message_id: "message:b" } }],
+  ])("rejects raw generic input containing %s on a workspace:a turn", async (_label, toolInput) => {
+    const workspaceARequest = ConversationRequestSchema.parse({
+      ...request,
+      actor: { ...request.actor, workspaceId: "workspace:a" },
+      context: {
+        ...request.context,
+        workspaceId: "workspace:a",
+        familyMap: { ...request.context.familyMap, workspaceId: "workspace:a" },
+        messages: [{ ...focalMessage, workspaceId: "workspace:a" }],
+      },
+    });
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: toolInput,
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(workspaceARequest, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).passthrough(),
+        outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
+        classifyResult: () => ({ kind: "CONTINUE" }),
+        async execute() {
+          executions += 1;
+          return { complete: true, matches: [] };
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(executions).toBe(0);
+  });
+
+  it("rejects trusted scope inserted by generic input parsing", async () => {
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: { query: "preferences" },
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).transform((input) => ({
+          ...input,
+          scope: { actor_member_id: "member:b" },
+        })),
+        outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
+        classifyResult: () => ({ kind: "CONTINUE" }),
+        async execute() {
+          executions += 1;
+          return { complete: true, matches: [] };
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(executions).toBe(0);
+  });
+
+  it.each([
+    ["a primitive", "preferences"],
+    ["an array", [{ query: "preferences" }]],
+    ["an oversized object", { query: "x".repeat(9_000) }],
+  ])("rejects %s as raw generic input", async (_label, toolInput) => {
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: toolInput,
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.any(),
+        outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
+        classifyResult: () => ({ kind: "CONTINUE" }),
+        async execute() {
+          executions += 1;
+          return { complete: true, matches: [] };
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(executions).toBe(0);
+  });
+
+  it("rejects cyclic raw generic input", async () => {
+    const cyclicInput: Record<string, unknown> = { query: "preferences" };
+    cyclicInput.self = cyclicInput;
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: cyclicInput,
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.any(),
+        outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
+        classifyResult: () => ({ kind: "CONTINUE" }),
+        async execute() {
+          executions += 1;
+          return { complete: true, matches: [] };
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(executions).toBe(0);
   });
 
   it("rejects the unavailable family-map tool while a read capability remains bound", async () => {
@@ -438,6 +668,68 @@ describe("capability-scoped conversation tool dispatcher", () => {
     expect(provider.requests[1]?.toolResult).not.toHaveProperty("result.executorOnlyField");
   });
 
+  it("returns an application-owned terminal capability failure without accepting later model success", async () => {
+    const failureText = "I couldn’t remember that right now. Please try again.";
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "propose_memory", input: { text: "fictional preference" } },
+      { kind: "REPLY", text: "I remembered that preference." },
+    ]]]));
+    let executions = 0;
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: {
+          name: "propose_memory",
+          description: "Propose a bounded synthetic memory item.",
+          parameters: {
+            type: "OBJECT",
+            properties: { text: { type: "STRING" } },
+            required: ["text"],
+          },
+        },
+        inputSchema: z.object({ text: z.string() }).strict(),
+        outputSchema: z.object({ kind: z.enum(["PROPOSED", "TECHNICAL_FAILURE"]) }).strict(),
+        classifyResult(output: { kind: "PROPOSED" | "TECHNICAL_FAILURE" }) {
+          return output.kind === "TECHNICAL_FAILURE"
+            ? { kind: "TERMINAL_FAILURE" as const, responseText: failureText }
+            : { kind: "CONTINUE" as const };
+        },
+        async execute() {
+          executions += 1;
+          return { kind: "TECHNICAL_FAILURE" };
+        },
+      }],
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: failureText,
+      retryable: false,
+      toolCalls: 1,
+    });
+
+    expect(executions).toBe(1);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("allows an incomplete query result to continue to a bounded model reply", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "REPLY", text: "I found only part of the fictional history." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [queryCapability(async () => ({ complete: false, matches: [] }))],
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: "I found only part of the fictional history.",
+      retryable: false,
+      toolCalls: 1,
+    });
+
+    expect(provider.requests).toHaveLength(2);
+  });
+
   it.each([
     ["null", null, z.unknown()],
     ["primitive", "not an object", z.unknown()],
@@ -459,6 +751,7 @@ describe("capability-scoped conversation tool dispatcher", () => {
         declaration: queryDeclaration,
         inputSchema: z.object({ query: z.string() }).strict(),
         outputSchema,
+        classifyResult: () => ({ kind: "CONTINUE" }),
         async execute() { return result; },
       }],
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
@@ -479,6 +772,7 @@ describe("capability-scoped conversation tool dispatcher", () => {
       modelTools: [{
         declaration: queryDeclaration,
         inputSchema: z.object({ query: z.string() }).strict(),
+        classifyResult: () => ({ kind: "CONTINUE" }),
         async execute() {
           executions += 1;
           return { complete: true, matches: [] };
@@ -507,6 +801,42 @@ describe("capability-scoped conversation tool dispatcher", () => {
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 2 });
 
     expect(executions).toBe(2);
+  });
+
+  it("advertises AUTO, AUTO, then NONE as generic tool execution budget is exhausted", async () => {
+    const vertexRequests: VertexGenerationRequest[] = [];
+    const client: VertexModelClient = {
+      async generate(input) {
+        vertexRequests.push(input);
+        return { candidates: [{ content: { role: "model", parts: [{
+          functionCall: {
+            name: "query_memory",
+            args: { query: `attempt-${vertexRequests.length}` },
+          },
+        }] } }] };
+      },
+    };
+    let executions = 0;
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      new VertexConversationProvider(client),
+    );
+
+    await expect(responder.respond(request, {
+      modelTools: [queryCapability(async () => {
+        executions += 1;
+        return { complete: true, matches: [] };
+      })],
+    })).resolves.toMatchObject({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(executions).toBe(2);
+    expect(vertexRequests).toHaveLength(3);
+    expect(vertexRequests.map((vertexRequest) => vertexRequest.toolConfig)).toEqual([
+      { functionCallingConfig: { mode: "AUTO" } },
+      { functionCallingConfig: { mode: "AUTO" } },
+      { functionCallingConfig: { mode: "NONE" } },
+    ]);
+    expect(vertexRequests[2]?.tools).toEqual(vertexRequests[0]?.tools);
   });
 
   it("enforces the serialized Vertex request ceiling again after aggregate tool history", async () => {

@@ -352,7 +352,9 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
     ),
     ...suppliedDeclarations.data,
   ];
-  const familyMapToolMode = familyMapToolRequired
+  const familyMapToolMode = input.toolExecutionAllowed === false
+    ? "NONE"
+    : familyMapToolRequired
     ? "ANY"
     : suppliedDeclarations.data.length > 0 || input.familyMapUpdatesAllowed === true
       ? "AUTO"

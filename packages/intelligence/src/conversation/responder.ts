@@ -5,6 +5,7 @@ import {
   type ConversationToolDeclaration,
   type ConversationToolExecutionContext,
   ConversationToolDeclarationSchema,
+  ConversationToolResultDispositionSchema,
   type ConversationTurnRequest,
   type ConversationResponder as ConversationResponderPort,
   type ConversationResult,
@@ -72,6 +73,7 @@ export interface ConversationProvider {
     toolHistory?: readonly unknown[];
     familyMapUpdatesAllowed?: boolean;
     familyMapUpdateRequired?: boolean;
+    toolExecutionAllowed?: boolean;
     toolDeclarations?: readonly ConversationToolDeclaration[];
   }): Promise<unknown>;
 }
@@ -106,6 +108,7 @@ export const AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT =
   "Which observed member do you mean? Please name them before I update this chat’s family map.";
 export const CONVERSATION_MAX_MODEL_STEPS = 3;
 export const CONVERSATION_MAX_TOOL_CALLS = 2;
+export const CONVERSATION_TOOL_INPUT_MAX_UTF16 = 8_000;
 export const CONVERSATION_TOOL_RESULT_MAX_UTF16 = 8_000;
 
 const FAMILY_MAP_TOOL_NAME = "update_workspace_family_map";
@@ -123,27 +126,48 @@ function bindModelTools(
       !declaration.success
       || declaration.data.name === FAMILY_MAP_TOOL_NAME
       || bound.has(declaration.data.name)
-      || advertisesWorkspaceId(declaration.data.parameters)
+      || containsReservedTrustedScopeKey(capability.declaration.parameters)
       || typeof capability.inputSchema?.safeParse !== "function"
       || typeof capability.outputSchema?.safeParse !== "function"
+      || typeof capability.classifyResult !== "function"
       || typeof capability.execute !== "function"
     ) return null;
     bound.set(declaration.data.name, {
       declaration: declaration.data,
       inputSchema: capability.inputSchema,
       outputSchema: capability.outputSchema,
+      classifyResult: (output) => capability.classifyResult(output),
       execute: (input, context) => capability.execute(input, context),
     });
   }
   return bound;
 }
 
-function advertisesWorkspaceId(parameters: Record<string, unknown>): boolean {
-  const properties = parameters.properties;
-  return typeof properties === "object"
-    && properties !== null
-    && !Array.isArray(properties)
-    && Object.hasOwn(properties, "workspaceId");
+const RESERVED_TRUSTED_SCOPE_KEYS = new Set([
+  "workspaceid",
+  "actormemberid",
+  "sourcemessageid",
+]);
+
+function isReservedTrustedScopeKey(key: string): boolean {
+  return RESERVED_TRUSTED_SCOPE_KEYS.has(key.replaceAll("_", "").toLowerCase());
+}
+
+function containsReservedTrustedScopeKey(value: unknown, ancestors = new Set<object>()): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if (ancestors.has(value)) return true;
+  ancestors.add(value);
+  const reserved = Reflect.ownKeys(value).some((key) => {
+    if (typeof key !== "string") return true;
+    const nested = (value as Record<string, unknown>)[key];
+    if (isReservedTrustedScopeKey(key)) return true;
+    if (key === "$ref" && typeof nested === "string") {
+      return nested.split("/").some((segment) => isReservedTrustedScopeKey(segment));
+    }
+    return containsReservedTrustedScopeKey(nested, ancestors);
+  });
+  ancestors.delete(value);
+  return reserved;
 }
 
 function isJsonValue(value: unknown, ancestors: Set<object>): boolean {
@@ -173,6 +197,15 @@ function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
     && !Array.isArray(value)
     && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
     && isJsonValue(value, new Set());
+}
+
+function isBoundedPlainJsonObject(value: unknown, maxUtf16: number): value is Record<string, unknown> {
+  if (!isPlainJsonObject(value)) return false;
+  try {
+    return JSON.stringify(value).length <= maxUtf16;
+  } catch {
+    return false;
+  }
 }
 
 function hasBoundedToolResult(result: unknown): boolean {
@@ -360,9 +393,17 @@ export class ConversationResponder implements ConversationResponderPort {
         toolCalls: 0,
       };
     }
+    const focalAllowsFamilyMapUpdate = focalAuthorizesFamilyMapUpdate(focalMessage.body);
+    if (focalAllowsFamilyMapUpdate && tools?.updateWorkspaceFamilyMap === undefined) {
+      return {
+        kind: "RESPONDED",
+        responseText: FAMILY_MAP_UPDATE_FAILURE_TEXT,
+        retryable: false,
+        toolCalls: 0,
+      };
+    }
     const suppliedModelTools = bindModelTools(tools);
     if (suppliedModelTools === null) return technicalFailure();
-    const focalAllowsFamilyMapUpdate = focalAuthorizesFamilyMapUpdate(focalMessage.body);
     const boundModelTools = focalAllowsFamilyMapUpdate
       ? new Map<string, ConversationToolCapability>()
       : suppliedModelTools;
@@ -391,6 +432,7 @@ export class ConversationResponder implements ConversationResponderPort {
               && tools?.updateWorkspaceFamilyMap !== undefined
               && (familyMapToolCalls === 0 || retryAfterConflict),
             familyMapUpdateRequired: focalRequiresFamilyMapTool,
+            toolExecutionAllowed: toolCalls < CONVERSATION_MAX_TOOL_CALLS,
             ...(toolDeclarations.length === 0 ? {} : { toolDeclarations }),
           }), deadline);
         } catch (error) {
@@ -428,10 +470,15 @@ export class ConversationResponder implements ConversationResponderPort {
 
         if (instruction.data.kind === "CALL_TOOL") {
           const capability = boundModelTools.get(instruction.data.name);
-          const parsedInput = capability?.inputSchema.safeParse(instruction.data.input);
+          const rawInput = instruction.data.input;
+          const parsedInput = capability?.inputSchema.safeParse(rawInput);
           if (
             capability === undefined
+            || !isBoundedPlainJsonObject(rawInput, CONVERSATION_TOOL_INPUT_MAX_UTF16)
+            || containsReservedTrustedScopeKey(rawInput)
             || parsedInput?.success !== true
+            || !isBoundedPlainJsonObject(parsedInput.data, CONVERSATION_TOOL_INPUT_MAX_UTF16)
+            || containsReservedTrustedScopeKey(parsedInput.data)
             || toolCalls >= CONVERSATION_MAX_TOOL_CALLS
           ) {
             this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
@@ -459,6 +506,23 @@ export class ConversationResponder implements ConversationResponderPort {
             || !isPlainJsonObject(parsedResult.data)
             || !hasBoundedToolResult(parsedResult.data)
           ) return technicalFailure(toolCalls);
+          let disposition: ReturnType<typeof ConversationToolResultDispositionSchema.safeParse>;
+          try {
+            disposition = ConversationToolResultDispositionSchema.safeParse(
+              capability.classifyResult(parsedResult.data),
+            );
+          } catch {
+            return technicalFailure(toolCalls);
+          }
+          if (!disposition.success) return technicalFailure(toolCalls);
+          if (disposition.data.kind === "TERMINAL_FAILURE") {
+            return {
+              kind: "RESPONDED",
+              responseText: disposition.data.responseText,
+              retryable: false,
+              toolCalls,
+            };
+          }
           toolResult = {
             name: instruction.data.name,
             call: parsedInput.data,

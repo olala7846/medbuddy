@@ -233,7 +233,7 @@ describe("Vertex adapters", () => {
         properties: { query: { type: "STRING" } },
         required: ["query"],
       },
-    }];
+    }] as const;
     const toolHistory = ["first", "second"].map((query) => ({
       name: "query_memory",
       call: { query },
