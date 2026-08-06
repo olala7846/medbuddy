@@ -27,7 +27,7 @@ const OpenRouterRequestSchema = z.object({
 }).strict();
 
 const OpenRouterResponseSchema = z.object({
-  model: z.string().min(1),
+  model: z.literal(OPENROUTER_COMPACTION_MODEL_ID),
   provider: z.string().min(1),
   choices: z.array(z.object({
     message: z.object({

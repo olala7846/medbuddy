@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   ModelProviderError,
+  type VertexGenerationRequest,
+} from "../src/index.js";
+import {
   OPENROUTER_COMPACTION_MODEL_ID,
   OpenRouterCompactionClient,
   loadOpenRouterCompactionConfiguration,
-  type VertexGenerationRequest,
-} from "../src/index.js";
+} from "../src/adapters/openrouter-compaction.js";
 
 const request: VertexGenerationRequest = {
   systemInstruction: "Summarize fictional evidence only.",
@@ -149,5 +151,25 @@ describe("OpenRouter compaction adapter", () => {
     });
 
     await expect(client.generate(request)).rejects.toEqual(new ModelProviderError("PROVIDER_ERROR"));
+  });
+
+  it("fails closed when the provider reports a different model", async () => {
+    const client = new OpenRouterCompactionClient({
+      apiKey: "fictional-openrouter-key",
+      request: async () => new Response(JSON.stringify({
+        model: "deepseek/deepseek-v4-flash",
+        provider: "fictional-provider",
+        choices: [{ message: { content: "{}" } }],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2,
+          cost: 0.000001,
+        },
+      }), { status: 200 }),
+    });
+
+    await expect(client.generate(request)).rejects.toEqual(new ModelProviderError("PROVIDER_ERROR"));
+    expect(client.getLastMetrics()).toBeNull();
   });
 });

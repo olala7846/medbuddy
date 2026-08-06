@@ -36,6 +36,5 @@ export * from "./conversation/responder.js";
 export * from "./conversation/compaction.js";
 export * from "./conversation/tools.js";
 export * from "./adapters/fixed-model.js";
-export * from "./adapters/openrouter-compaction.js";
 export * from "./adapters/vertex.js";
 export * from "./adapters/langsmith-vertex.js";

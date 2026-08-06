@@ -55,35 +55,39 @@ same tokenizer.
 
 | Case | Gemini result | Gemini latency | Gemini estimated cost | DeepSeek result | DeepSeek latency | DeepSeek charged cost |
 | --- | --- | ---: | ---: | --- | ---: | ---: |
-| Correction and logistics | Pass | 2,436 ms | $0.000886 | Pass | 39,035 ms | $0.000531 |
-| Health attribution and safety | Pass | 2,112 ms | $0.000679 | Pass | 4,058 ms | $0.000089 |
-| Hierarchical re-compaction | Pass | 2,076 ms | $0.000614 | Pass | 4,115 ms | $0.000089 |
-| Traditional Chinese correction | Pass | 2,422 ms | $0.000991 | Pass | 10,824 ms | $0.000256 |
-| **Total** | **4/4** | **9,046 ms** | **$0.003170** | **4/4** | **58,032 ms** | **$0.000966** |
+| Correction and logistics | Pass | 2,436 ms | $0.000886 | Pass | 27,961 ms | $0.000246 |
+| Health attribution and safety | Pass | 2,112 ms | $0.000679 | Pass | 4,850 ms | $0.000137 |
+| Hierarchical re-compaction | Pass | 2,076 ms | $0.000614 | Pass | 16,452 ms | $0.000242 |
+| Traditional Chinese correction | Pass | 2,946 ms | $0.001388 | **Fail: returned English only** | 9,567 ms | $0.000375 |
+| **Total** | **4/4** | **9,570 ms** | **$0.003567** | **3/4** | **58,830 ms** | **$0.000999** |
 
-The candidate was approximately **69.5% cheaper** for this matrix and
-approximately **6.4 times slower** in aggregate. OpenRouter routed the clean
-comparison run to DeepInfra; exploratory runs also used other eligible
-providers, so provider-dependent variance remains a deployment consideration.
+The candidate was approximately **72.0% cheaper** for these requests and
+approximately **6.1 times slower** in aggregate, but it failed a required
+language-continuity assertion. OpenRouter routed the candidate requests across
+DeepInfra, Fireworks, and Parasail during the smoke evaluation, so
+provider-dependent variance remains a deployment consideration.
 
 ## Decision
 
-The narrow compatibility and cost claim is supported: DeepSeek V4 Flash 0731
-at maximum reasoning passed the current fictional compaction gates at a
-materially lower charged cost.
+The cost claim is supported, but the compatibility claim is not. DeepSeek V4
+Flash 0731 at maximum reasoning retained the correction, uncertainty,
+attribution, and pharmacist-verification meaning of the Traditional Chinese
+case, but translated the entire summary into English. The Gemini control
+preserved Traditional Chinese.
 
-The stronger claim that it is better is **not yet established**. Four cases and
-one clean comparison run are too small to establish quality superiority, and
-the latency regression is substantial. Do not replace the production
-compaction model yet.
+The stronger claim that DeepSeek is better is **not established**. The smoke
+sample is too small to establish reliability or quality superiority, the
+language-continuity gate failed, and the latency regression is substantial.
+Do not replace the production compaction model.
 
-The next useful verification is a repeated fictional corpus with p50/p95
-latency, structured-output failure rate, routing distribution, and correction,
-attribution, uncertainty, multilingual, and hierarchical-compaction scores.
-Only after that gate should the project consider a shadow or staged compaction
-rollout. Testing DeepSeek as a replacement for `gemini-3.6-flash` conversation
-generation remains a separate Phase C because that path has tools and broader
-behavioral requirements.
+The next useful verification is to add an explicit output-language requirement
+to a versioned compaction prompt, re-baseline both models, and then run a
+repeated fictional corpus with p50/p95 latency, structured-output failure rate,
+routing distribution, and correction, attribution, uncertainty, multilingual,
+and hierarchical-compaction scores. Only after that gate should the project
+consider a shadow or staged compaction rollout. Testing DeepSeek as a
+replacement for `gemini-3.6-flash` conversation generation remains a separate
+Phase C because that path has tools and broader behavioral requirements.
 
 ## Remaining effort estimate
 
