@@ -10,7 +10,7 @@ and [Issue #94](https://github.com/olala7846/medbuddy/issues/94)
 
 ## Decision
 
-Do not replace the current `gemini-3.5-flash-lite` compaction model yet.
+Keep the current `gemini-3.5-flash-lite` compaction model.
 
 `openai/gpt-5.6-luna-20260709` at medium reasoning is the strongest OpenRouter
 compaction candidate tested so far: it passed all repeated fictional cases,
@@ -21,6 +21,13 @@ The production decision remains blocked because OpenRouter returned no Luna
 endpoint compatible with per-request Zero Data Retention (ZDR). The quality and
 cost measurements below therefore used an explicit fictional-only non-ZDR
 override. They do not authorize real family or health data.
+
+For MedBuddy, the enforced data-handling boundary is more important than the
+observed cost reduction. The savings do not justify sending production family
+or health data through a route that cannot satisfy ZDR. There is no urgency to
+switch: compaction remains deferred, Gemini is the operationally known default,
+and future Gemini or open-weight candidates can be evaluated against
+the same fictional corpus when they become available.
 
 Rolling conversation continuity also remains deferred by the current product
 direction until the live LINE path proves useful.
@@ -77,6 +84,29 @@ OpenRouter's machine-readable price and promotional display changed during the
 evaluation. Comparisons therefore use the charged `usage.cost` returned for
 each Luna request rather than a marketing-page estimate. Gemini cost uses the
 recorded token counts and Vertex global standard pricing.
+
+### Latency attribution was not isolated
+
+The recorded latency is end-to-end wall time. Both candidates were called from
+the local evaluation environment; the Gemini control did not run wholly inside
+Google's data center. Luna's measurement additionally includes the request to
+OpenRouter, routing and possible queueing, the upstream OpenAI request, medium
+reasoning, generation, and the return path.
+
+Luna medium's observed disadvantage was approximately 4.35 seconds per
+four-case matrix, or 1.09 seconds per request. The current telemetry cannot
+separate OpenRouter gateway overhead from upstream queueing and model inference,
+so it does not establish that either the gateway or Luna itself caused most of
+the difference. This uncertainty does not change the decision: latency remains
+a real trade-off, and ZDR is already a production blocker.
+
+If latency attribution becomes decision-relevant, repeat identical fictional
+requests from the same GCP worker and retain content-free OpenRouter generation
+metadata such as provider, generation time, total latency, and fetch count.
+Use wall time minus provider-reported generation time as an approximate gateway
+and network residual, and report p50/p95 for both candidates. Do not add this
+measurement work while the production decision is already blocked and
+compaction remains deferred.
 
 ## Compatibility learning
 
@@ -152,11 +182,15 @@ Reopen the replacement decision only when:
 - p95 latency is acceptable for the asynchronous worker; and
 - rollback to Gemini has been tested.
 
+Until those gates are met, retain Gemini rather than optimizing cost alone.
+
 ## Source references
 
 - [OpenRouter GPT-5.6 Luna model card](https://openrouter.ai/openai/gpt-5.6-luna-20260709)
 - [OpenRouter reasoning controls](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
 - [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
 - [OpenRouter zero data retention](https://openrouter.ai/docs/guides/features/zdr)
+- [OpenRouter generation metadata](https://openrouter.ai/docs/api/api-reference/generations/get-request-&-usage-metadata-for-a-generation)
+- [OpenRouter latency and performance](https://openrouter.ai/docs/guides/best-practices/latency-and-performance)
 - [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [Vertex AI generative model pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)
