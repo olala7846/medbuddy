@@ -58,6 +58,8 @@ export type GeneratedCompactionSummary = {
 /** Provider output reached Vertex successfully but violated the summary contract. */
 export class CompactionSummaryContractError extends Error {}
 
+const MAX_COMPACTION_GENERATION_ATTEMPTS = 2;
+
 const SYSTEM_INSTRUCTION = [
   "Summarize only the delimited conversation evidence into JSON with exactly four fields: overview, keyEvents, openLoops, caveats.",
   "Each keyEvents item must use keyEvents[].text, optional attribution and sourceSequence, and an optional verbatimExcerpt object containing text and sourceSequence; never use a description field or a string excerpt.",
@@ -85,6 +87,43 @@ function compactionResponseJsonSchema(level: number): Record<string, unknown> {
   delete keyEventProperties.sourceSequence;
   delete keyEventProperties.verbatimExcerpt;
   return schema;
+}
+
+function decodeCompactionResponse(
+  response: unknown,
+  input: z.infer<typeof CompactionSummaryRequestSchema>,
+): GeneratedCompactionSummary {
+  const transport = VertexSummaryResponseSchema.safeParse(response);
+  const text = transport.success ? transport.data.candidates[0]?.content.parts[0]?.text : undefined;
+  if (text === undefined) throw new CompactionSummaryContractError("Malformed compaction provider response.");
+  const usageMetadata = transport.success ? transport.data.usageMetadata : undefined;
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(text) as unknown;
+  } catch {
+    throw new CompactionSummaryContractError("Malformed compaction provider response.");
+  }
+  const parsed = SegmentSummarySchema.safeParse(decoded);
+  if (!parsed.success) throw new CompactionSummaryContractError("Invalid compaction summary.");
+  const allowed = new Set(input.allowedSourceSequences);
+  for (const event of parsed.data.keyEvents) {
+    if (event.sourceSequence !== undefined && !allowed.has(event.sourceSequence)) {
+      throw new CompactionSummaryContractError("Compaction summary references an unavailable source sequence.");
+    }
+    if (event.verbatimExcerpt !== undefined && !allowed.has(event.verbatimExcerpt.sourceSequence)) {
+      throw new CompactionSummaryContractError("Compaction summary excerpt references an unavailable source sequence.");
+    }
+  }
+  return {
+    summary: parsed.data,
+    ...(usageMetadata === undefined ? {} : {
+      usage: {
+        inputTokens: usageMetadata.promptTokenCount,
+        outputTokens: usageMetadata.candidatesTokenCount,
+      },
+    }),
+  };
 }
 
 export class CompactionSummaryGenerator {
@@ -116,37 +155,17 @@ export class CompactionSummaryGenerator {
         }],
       }],
     };
-    const response = await this.client.generate(request, { workspaceId: input.workspaceId });
-    const transport = VertexSummaryResponseSchema.safeParse(response);
-    const text = transport.success ? transport.data.candidates[0]?.content.parts[0]?.text : undefined;
-    if (text === undefined) throw new CompactionSummaryContractError("Malformed compaction provider response.");
-    const usageMetadata = transport.success ? transport.data.usageMetadata : undefined;
-
-    let decoded: unknown;
-    try {
-      decoded = JSON.parse(text) as unknown;
-    } catch {
-      throw new CompactionSummaryContractError("Malformed compaction provider response.");
-    }
-    const parsed = SegmentSummarySchema.safeParse(decoded);
-    if (!parsed.success) throw new CompactionSummaryContractError("Invalid compaction summary.");
-    const allowed = new Set(input.allowedSourceSequences);
-    for (const event of parsed.data.keyEvents) {
-      if (event.sourceSequence !== undefined && !allowed.has(event.sourceSequence)) {
-        throw new CompactionSummaryContractError("Compaction summary references an unavailable source sequence.");
-      }
-      if (event.verbatimExcerpt !== undefined && !allowed.has(event.verbatimExcerpt.sourceSequence)) {
-        throw new CompactionSummaryContractError("Compaction summary excerpt references an unavailable source sequence.");
+    for (let attempt = 1; attempt <= MAX_COMPACTION_GENERATION_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await this.client.generate(request, { workspaceId: input.workspaceId });
+        return decodeCompactionResponse(response, input);
+      } catch (error) {
+        if (!(error instanceof CompactionSummaryContractError) ||
+            attempt === MAX_COMPACTION_GENERATION_ATTEMPTS) {
+          throw error;
+        }
       }
     }
-    return {
-      summary: parsed.data,
-      ...(usageMetadata === undefined ? {} : {
-        usage: {
-          inputTokens: usageMetadata.promptTokenCount,
-          outputTokens: usageMetadata.candidatesTokenCount,
-        },
-      }),
-    };
+    throw new Error("Unreachable compaction generation attempt state.");
   }
 }
