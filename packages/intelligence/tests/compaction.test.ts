@@ -187,13 +187,14 @@ describe("compaction summary generation", () => {
 
   it("stops after one retry when provider results remain malformed", async () => {
     const client = new SequencedClient([
-      { candidates: [] },
+      response({ ...validSummary, keyEvents: [{ text: "First bad reference.", sourceSequence: 3 }] }),
       response({ ...validSummary, keyEvents: [{ text: "Bad reference.", sourceSequence: 3 }] }),
       response(validSummary),
     ]);
 
-    await expect(new CompactionSummaryGenerator(client).generate(request))
-      .rejects.toBeInstanceOf(CompactionSummaryContractError);
+    const error = await new CompactionSummaryGenerator(client).generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(CompactionSummaryContractError);
+    expect(error).toMatchObject({ usage: { inputTokens: 240, outputTokens: 80 } });
     expect(client.requests).toHaveLength(2);
   });
 });

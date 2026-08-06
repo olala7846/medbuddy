@@ -300,6 +300,7 @@ export class ContinuityCompactionWorker {
         code: schemaInvalid ? "SCHEMA_INVALID" : exhausted ? "EXHAUSTED" : "RETRYABLE",
         level: claimedJob.level,
         attempt,
+        ...(schemaInvalid && error.usage !== undefined ? error.usage : {}),
         durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
       });
       if (stale) await this.scheduleNext(input.workspaceId);

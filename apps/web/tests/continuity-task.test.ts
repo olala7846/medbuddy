@@ -118,7 +118,12 @@ async function harness(options: {
         calls.push(input);
         markStarted();
         if (options.blockGenerate) await generateGate;
-        if (options.contractFail) throw new CompactionSummaryContractError("Invalid fictional compaction summary.");
+        if (options.contractFail) {
+          throw new CompactionSummaryContractError(
+            "Invalid fictional compaction summary.",
+            { inputTokens: 240, outputTokens: 80 },
+          );
+        }
         if (options.fail) throw new Error("fictional provider failure");
         return { summary, usage: { inputTokens: 120, outputTokens: 40 } };
       },
@@ -202,6 +207,8 @@ describe("private continuity task", () => {
       event: "continuity_job_failed",
       code: "SCHEMA_INVALID",
       attempt: 1,
+      inputTokens: 240,
+      outputTokens: 80,
     }));
     expect(logs.every((entry) => !JSON.stringify(entry).includes(workspaceId))).toBe(true);
   });

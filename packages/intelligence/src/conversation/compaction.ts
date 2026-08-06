@@ -181,16 +181,17 @@ export class CompactionSummaryGenerator {
           },
         };
       } catch (error) {
-        if (!(error instanceof CompactionSummaryContractError) ||
-            attempt === MAX_COMPACTION_GENERATION_ATTEMPTS) {
-          throw error;
+        if (!(error instanceof CompactionSummaryContractError)) throw error;
+        const totalUsage = error.usage === undefined
+          ? accumulatedUsage
+          : {
+              inputTokens: (accumulatedUsage?.inputTokens ?? 0) + error.usage.inputTokens,
+              outputTokens: (accumulatedUsage?.outputTokens ?? 0) + error.usage.outputTokens,
+            };
+        if (attempt === MAX_COMPACTION_GENERATION_ATTEMPTS) {
+          throw new CompactionSummaryContractError(error.message, totalUsage);
         }
-        if (error.usage !== undefined) {
-          accumulatedUsage = {
-            inputTokens: (accumulatedUsage?.inputTokens ?? 0) + error.usage.inputTokens,
-            outputTokens: (accumulatedUsage?.outputTokens ?? 0) + error.usage.outputTokens,
-          };
-        }
+        accumulatedUsage = totalUsage;
       }
     }
     throw new Error("Unreachable compaction generation attempt state.");
