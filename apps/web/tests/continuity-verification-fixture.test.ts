@@ -54,14 +54,24 @@ describe("synthetic continuity JSONL fixture", () => {
       [...primary].map((step) => step.event.timestamp).sort((left, right) => left - right),
     );
 
-    for (const relationship of [
-      "野原鶴是我的太太",
-      "銀之介是我的先生",
+    const introductionByStep = new Map(primary
+      .filter((step) => step.step === "group-purpose" || step.step.startsWith("intro-"))
+      .map((step) => [step.step, step.event.message.text]));
+    expect(Object.fromEntries(introductionByStep)).toEqual({
+      "group-purpose": "大家好，我是廣志。我開這個群組，是想讓我們六個人一起幫銀之介整理看診和每天的身體狀況；我先把要記的事情說清楚，之後大家再分工。",
+      "intro-grandpa": "我是銀之介，廣志是我的兒子。之後我的量測和不舒服，我會盡量自己說清楚。",
+      "intro-grandma": "我是野原鶴，銀之介是我的先生，廣志是我的兒子。我平常和銀之介住一起，可以幫忙量血壓。",
+      "intro-mother": "我是美冴，廣志是我的先生，小新和小葵是我們的孩子。我平常可以幫忙核對大家貼上來的紀錄。",
+      "intro-child-one": "我是小新。我放學後也會來看訊息，有需要時可以幫忙確認白天發生的事情。",
+      "intro-child-two": "我是小葵。我會把陪銀之介散步時看到的情況告訴大家，也會說明是我親眼看到還是聽別人轉述。",
+    });
+    const introductions = [...introductionByStep.values()].join("\n");
+    for (const redundantOrDerivedRelationship of [
       "銀之介和野原鶴是我的父母",
-      "廣志是我的先生",
-      "廣志和美冴是我的爸爸媽媽",
+      "銀之介和野原鶴是我的公公婆婆",
       "銀之介和野原鶴是我的爺爺奶奶",
-    ]) expect(conversation).toContain(relationship);
+      "廣志和美冴是我的爸爸媽媽",
+    ]) expect(introductions).not.toContain(redundantOrDerivedRelationship);
     expect(conversation).toContain("第一次回診");
     expect(conversation).toContain("今天由我陪爸爸看診");
     expect(conversation).toContain("第二次回診");
@@ -71,6 +81,8 @@ describe("synthetic continuity JSONL fixture", () => {
     expect(conversation).toContain("昨晚睡得不好");
     expect(conversation).toContain("剛才那筆血壓我輸入錯了");
     expect(conversation).toContain("更正後是 125/78");
+    expect(primary.find((step) => step.step === "final-mentioned-question")?.event.message.text)
+      .toContain("推得我們六個人的關係");
     const wrongReading = primary.find((step) => step.step === "day-five-wrong-reading");
     const correction = primary.find((step) => step.step === "newer-correction");
     expect(wrongReading?.event.message.text).toContain("血壓是 152/88");

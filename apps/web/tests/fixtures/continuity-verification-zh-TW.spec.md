@@ -32,8 +32,23 @@ messages in this evaluation.
 | 小葵 | 廣志 and 美冴's child; 銀之介 and 野原鶴's grandchild. |
 
 Only direct relationships explicitly stated in the conversation are candidates
-for future family-map persistence. Derived relationships may be evaluated in a
-response but must not be written as extra family-map edges automatically.
+for future family-map persistence. The introductions intentionally state eight
+unique direct edges rather than restating every pairwise relationship:
+
+1. 銀之介—廣志 (parent and child)
+2. 野原鶴—銀之介 (spouses)
+3. 野原鶴—廣志 (parent and child)
+4. 美冴—廣志 (spouses)
+5. 美冴—小新 (parent and child)
+6. 廣志—小新 (parent and child)
+7. 美冴—小葵 (parent and child)
+8. 廣志—小葵 (parent and child)
+
+The shared phrase “小新和小葵是我們的孩子” explicitly supplies the four
+parent-child edges involving 廣志 and 美冴. Relationships such as parents-in-law,
+grandparents, and grandchildren are derived from this sparse graph. They may be
+evaluated in a response but must not be written as extra family-map edges
+automatically.
 
 ## Scenario chronology
 
@@ -45,8 +60,10 @@ but the facts and ordering below are the independent source of truth.
 
 1. 廣志 creates the group to coordinate support for 銀之介.
 2. The six people introduce themselves gradually, in their own messages.
-3. Their messages explicitly establish the direct relationships in the cast
-   table rather than relying on outside knowledge or surname inference.
+3. Three introductions establish the eight direct edges above. Other people
+   identify themselves without redundantly restating parents or grandparents.
+   The graph must remain sufficient to derive the complete cast relationships
+   without outside knowledge or surname inference.
 4. 銀之介 agrees that the group may help record his appointments, medication
    confirmations, blood-pressure readings, dizziness, and sleep observations.
 
@@ -106,12 +123,17 @@ but the facts and ordering below are the independent source of truth.
    occurred.
 3. 銀之介 records the most recent sleep observation, which may differ from the
    previous night's report.
-4. The final mentioned question asks MedBuddy to distinguish:
-   - what was reported from Appointment 1;
-   - what was reported from Appointment 2;
-   - the latest medication confirmation;
-   - the most recent dizziness observation; and
-   - the most recent sleep observation.
+4. Deterministic context assertions keep Appointment 2, the latest medication
+   confirmation, the most recent dizziness observation, and the most recent
+   sleep observation in recent evidence.
+5. The final mentioned question isolates the family-graph experiment by asking
+   for three concise relationships, distinguishing directly stated edges from
+   inferred parents-in-law and grandparent/grandchild relationships. It defines
+   the evidence labels without revealing an answer: an introduction's explicit
+   relationship is direct, while a relationship requiring two or more explicit
+   edges is inferred. It supplies a three-line, answer-free fill-in template so
+   the responder can return every required name group before its bounded output
+   budget is consumed by optional elaboration.
 
 ## Project structure and code style
 
@@ -134,13 +156,23 @@ compaction jobs and segments, deterministic queue drain, and assembled context.
 ```bash
 npm run verify:continuity:memory
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8787 npm run verify:continuity:emulator
+MEDBUDDY_VERTEX_ENABLED=true MEDBUDDY_VERTEX_PROJECT=your-project npm run eval:continuity-family
 npm test
 npm run check
 npm run build
 ```
 
-The real LINE service, webhook registration, Cloud Tasks, target Firestore, and
-real Vertex are not used by this change.
+The deterministic paths do not use the real LINE service, webhook registration,
+Cloud Tasks, target Firestore, or real Vertex. The opt-in Vertex evaluation uses
+fictional content and in-memory persistence; it makes model calls but performs no
+target Firestore writes and no family-map writes. To prevent outside character
+knowledge from satisfying the eval, it creates a temporary counterfactual view of
+the same provider-shaped fixture with six unrelated fictional aliases before
+signing and sending the events. The committed fixture remains unchanged. Semantic
+scoring unwraps nested or fenced `REPLY` envelopes, rejects nested `CALL` output,
+and requires each requested relationship on the same response line before an
+affirmative `｜直接：` or `｜推論：` label. Negated claims, non-answer labels,
+and wrong-gender relationships do not score.
 
 ## Boundaries
 
@@ -170,8 +202,8 @@ real Vertex are not used by this change.
 
 ## Success criteria
 
-1. The fixture contains all six participants and at least one explicit direct
-   relationship statement from each family branch.
+1. The introductions contain all six participants and exactly the eight approved
+   unique direct edges, without redundant parent, in-law, or grandparent claims.
 2. The story spans at least nine days and contains two completed, distinguishable
    appointments with facts before, between, and after them.
 3. Every health observation is attributed to a sender and fictional time; every
@@ -186,6 +218,9 @@ real Vertex are not used by this change.
    context/evaluation identifies the corrected value as current.
 8. The English fixture continues to pass unchanged.
 9. Full tests, checks, and production build pass with no generated-file changes.
+10. The opt-in live Vertex evaluation measures whether the requested direct,
+    in-law, and grandparent relationships appear while the family map remains
+    empty. A failed run is experiment evidence, not a deterministic-suite failure.
 
 ## Approved implementation plan
 

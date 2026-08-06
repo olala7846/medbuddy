@@ -22,6 +22,19 @@ class RecordingClient implements VertexModelClient {
   }
 }
 
+class SequencedClient implements VertexModelClient {
+  readonly requests: VertexGenerationRequest[] = [];
+  readonly contexts: Array<VertexInvocationContext | undefined> = [];
+
+  constructor(private readonly outputs: readonly unknown[]) {}
+
+  async generate(input: VertexGenerationRequest, context?: VertexInvocationContext): Promise<unknown> {
+    this.requests.push(input);
+    this.contexts.push(context);
+    return this.outputs[this.requests.length - 1];
+  }
+}
+
 function response(summary: unknown) {
   return {
     candidates: [{ content: { parts: [{ text: JSON.stringify(summary) }] } }],
@@ -147,10 +160,41 @@ describe("compaction summary generation", () => {
     }))).generate(request)).rejects.toThrow(/source/i);
   });
 
-  it("rejects malformed provider transport without a refinement call", async () => {
+  it("rejects malformed provider transport after one bounded retry", async () => {
     const client = new RecordingClient({ candidates: [] });
     await expect(new CompactionSummaryGenerator(client).generate(request))
       .rejects.toBeInstanceOf(CompactionSummaryContractError);
-    expect(client.requests).toHaveLength(1);
+    expect(client.requests).toHaveLength(2);
+  });
+
+  it("retries one malformed provider result before publishing a valid summary", async () => {
+    const client = new SequencedClient([
+      response({ ...validSummary, keyEvents: [{ text: "Bad reference.", sourceSequence: 3 }] }),
+      response(validSummary),
+    ]);
+
+    await expect(new CompactionSummaryGenerator(client).generate(request)).resolves.toEqual({
+      summary: validSummary,
+      usage: { inputTokens: 240, outputTokens: 80 },
+    });
+    expect(client.requests).toHaveLength(2);
+    expect(client.requests[1]).toEqual(client.requests[0]);
+    expect(client.contexts).toEqual([
+      { workspaceId: "workspace:orchard" },
+      { workspaceId: "workspace:orchard" },
+    ]);
+  });
+
+  it("stops after one retry when provider results remain malformed", async () => {
+    const client = new SequencedClient([
+      response({ ...validSummary, keyEvents: [{ text: "First bad reference.", sourceSequence: 3 }] }),
+      response({ ...validSummary, keyEvents: [{ text: "Bad reference.", sourceSequence: 3 }] }),
+      response(validSummary),
+    ]);
+
+    const error = await new CompactionSummaryGenerator(client).generate(request).catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(CompactionSummaryContractError);
+    expect(error).toMatchObject({ usage: { inputTokens: 240, outputTokens: 80 } });
+    expect(client.requests).toHaveLength(2);
   });
 });

@@ -192,6 +192,7 @@ describe("Vertex adapters", () => {
     );
     expect(requests[0]?.generationConfig).toEqual({
       maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS,
+      thinkingConfig: { thinkingLevel: "LOW" },
     });
     expect(contexts).toEqual([{ workspaceId: "workspace:vertex" }]);
   });
@@ -337,7 +338,10 @@ describe("Vertex adapters", () => {
       systemInstruction: expect.stringContaining("general conversational assistant"),
       tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
       toolConfig: { functionCallingConfig: { mode: "AUTO" } },
-      generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
+      generationConfig: {
+        maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS,
+        thinkingConfig: { thinkingLevel: "LOW" },
+      },
       contents: [
         { role: "model", parts: [{ text: "A prior fictional reply." }] },
         { role: "user", parts: [{ text: "[member:vertex]\nA fictional follow-up." }] },
@@ -448,7 +452,10 @@ describe("Vertex adapters", () => {
     expect(requests[1]).toMatchObject({
       tools: [{ functionDeclarations: [expect.objectContaining({ name: "update_workspace_family_map" })] }],
       toolConfig: { functionCallingConfig: { mode: "NONE" } },
-      generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
+      generationConfig: {
+        maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS,
+        thinkingConfig: { thinkingLevel: "LOW" },
+      },
     });
   });
 

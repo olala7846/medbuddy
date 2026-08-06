@@ -68,6 +68,9 @@ export type VertexGenerationRequest = {
   generationConfig?: {
     maxOutputTokens?: number;
     responseMimeType?: string;
+    thinkingConfig?: {
+      thinkingLevel: "LOW" | "HIGH";
+    };
     responseFormat?: readonly {
       text: {
         mimeType: "APPLICATION_JSON" | "TEXT_PLAIN";
@@ -356,7 +359,10 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
     toolConfig: {
       functionCallingConfig: { mode: familyMapToolMode },
     },
-    generationConfig: { maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS },
+    generationConfig: {
+      maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS,
+      thinkingConfig: { thinkingLevel: "LOW" },
+    },
   };
   if (JSON.stringify(request).length > CONVERSATION_PROVIDER_REQUEST_MAX_UTF16) {
     throw new ConversationProviderError("MALFORMED_TRANSPORT");
