@@ -54,6 +54,12 @@ benchmark.
 | GPT-5.6 Luna medium | 12/12 across three runs | $0.000895 charged | 12.23–15.03 seconds; 13.92-second mean | Unavailable |
 | GPT-5.6 Luna high | 4/4 | $0.000988 charged | 13.65 seconds | Unavailable |
 
+The content-free per-run measurements were:
+
+- medium: $0.0008972 / 15.028 seconds, $0.0009032 / 12.227 seconds, and
+  $0.0008852 / 14.496 seconds; and
+- high: $0.0009884 / 13.647 seconds.
+
 Against the recorded successful Gemini control, Luna medium was approximately
 **74.9% cheaper** and **1.45 times slower** on mean aggregate latency. High was
 approximately **10.4% more expensive than medium** with no observed rubric
@@ -61,7 +67,7 @@ benefit. The small latency difference between medium and high is not meaningful
 from one high run.
 
 Two fresh Gemini observations of the Traditional Chinese case failed the
-language/safety gate by switching entirely to English; the earlier recorded
+language-continuity gate by switching entirely to English; the earlier recorded
 Gemini control had passed. Luna medium preserved Traditional Chinese in all
 three repetitions, and high preserved it in its one run. This suggests Luna may
 be more reliable for the current Chinese fixture, but the sample is too small
