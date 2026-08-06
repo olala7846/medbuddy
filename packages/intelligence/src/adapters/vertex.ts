@@ -1,4 +1,5 @@
 import {
+  ConversationToolDeclarationSchema,
   ReadableLabelExtractionResponseSchema,
   TextExtractionResponseSchema,
   UpdateWorkspaceFamilyMapInputSchema,
@@ -8,6 +9,8 @@ import { GoogleAuth } from "google-auth-library";
 import { z } from "zod";
 
 import {
+  CONVERSATION_MAX_TOOL_CALLS,
+  CONVERSATION_TOOL_RESULT_MAX_UTF16,
   ConversationProviderError,
   type ConversationProvider,
 } from "../conversation/responder.js";
@@ -238,8 +241,10 @@ function parseModelJson(response: unknown): unknown {
   }
 }
 
+const FAMILY_MAP_TOOL_NAME = "update_workspace_family_map";
+
 const familyMapFunctionDeclaration = {
-  name: "update_workspace_family_map",
+  name: FAMILY_MAP_TOOL_NAME,
   description: "Replace the complete human-readable family map for this chat after an explicit name, direct relationship, correction, or forget statement. Store explicitly named workspace people, including named relatives who are not LINE participants, and only explicit direct family or non-clinical caregiver relationships. Preserve all still-correct entries and use the required Participants, Named relatives, and Direct relationships headings.",
   parameters: {
     type: "OBJECT",
@@ -294,30 +299,81 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
         }],
       }];
   const ToolExchangeSchema = z.object({
-    call: UpdateWorkspaceFamilyMapInputSchema,
+    name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u).optional(),
+    call: z.unknown(),
     result: z.unknown(),
     continuation: VertexModelContentSchema.optional(),
-  });
-  const history = z.array(ToolExchangeSchema).safeParse(input.toolHistory);
+  }).strict();
+  const history = z.array(ToolExchangeSchema)
+    .max(CONVERSATION_MAX_TOOL_CALLS)
+    .safeParse(input.toolHistory);
   const prior = ToolExchangeSchema.safeParse(input.toolResult);
-  const exchanges = history.success
-    ? history.data
+  if (input.toolHistory !== undefined && !history.success) {
+    throw new ConversationProviderError("MALFORMED_TRANSPORT");
+  }
+  if (input.toolResult !== undefined && !prior.success) {
+    throw new ConversationProviderError("MALFORMED_TRANSPORT");
+  }
+  const exchanges = input.toolHistory !== undefined
+    ? history.data ?? []
     : prior.success
       ? [prior.data]
       : [];
-  const lastToolResult = z.object({ kind: z.string() }).safeParse(exchanges.at(-1)?.result);
-  const retryRequiresFamilyMapTool = lastToolResult.success
+  const lastExchange = exchanges.at(-1);
+  const lastToolResult = z.object({ kind: z.string() }).safeParse(lastExchange?.result);
+  const retryRequiresFamilyMapTool = (lastExchange?.name ?? FAMILY_MAP_TOOL_NAME) === FAMILY_MAP_TOOL_NAME
+    && lastToolResult.success
     && lastToolResult.data.kind === "REVISION_CONFLICT";
-  const familyMapToolMode = input.familyMapUpdatesAllowed !== true
-    ? "NONE"
-    : input.familyMapUpdateRequired === true || retryRequiresFamilyMapTool
-      ? "ANY"
-      : "AUTO";
+  const suppliedDeclarations = z.array(ConversationToolDeclarationSchema)
+    .max(8)
+    .safeParse(input.toolDeclarations ?? []);
+  if (!suppliedDeclarations.success) throw new ConversationProviderError("MALFORMED_TRANSPORT");
+  const declarationNames = new Set<string>();
+  for (const declaration of suppliedDeclarations.data) {
+    if (declaration.name === FAMILY_MAP_TOOL_NAME || declarationNames.has(declaration.name)) {
+      throw new ConversationProviderError("MALFORMED_TRANSPORT");
+    }
+    declarationNames.add(declaration.name);
+  }
+  const familyMapToolRequired = input.familyMapUpdatesAllowed === true
+    && (input.familyMapUpdateRequired === true || retryRequiresFamilyMapTool);
+  const declarations = [
+    ...(
+      input.familyMapUpdatesAllowed === true || suppliedDeclarations.data.length === 0
+        ? [familyMapFunctionDeclaration]
+        : []
+    ),
+    ...suppliedDeclarations.data,
+  ];
+  const familyMapToolMode = familyMapToolRequired
+    ? "ANY"
+    : suppliedDeclarations.data.length > 0 || input.familyMapUpdatesAllowed === true
+      ? "AUTO"
+      : "NONE";
   for (const exchange of exchanges) {
+    const exchangeName = exchange.name ?? FAMILY_MAP_TOOL_NAME;
+    if (
+      exchangeName !== FAMILY_MAP_TOOL_NAME
+      && !declarationNames.has(exchangeName)
+    ) throw new ConversationProviderError("MALFORMED_TRANSPORT");
+    if (
+      exchangeName === FAMILY_MAP_TOOL_NAME
+      && !UpdateWorkspaceFamilyMapInputSchema.safeParse(exchange.call).success
+    ) throw new ConversationProviderError("MALFORMED_TRANSPORT");
+    let renderedResult: string | undefined;
+    try {
+      renderedResult = JSON.stringify(exchange.result);
+    } catch {
+      throw new ConversationProviderError("MALFORMED_TRANSPORT");
+    }
+    if (
+      renderedResult === undefined
+      || renderedResult.length > CONVERSATION_TOOL_RESULT_MAX_UTF16
+    ) throw new ConversationProviderError("MALFORMED_TRANSPORT");
     const continuation = exchange.continuation === undefined
       ? {
           role: "model" as const,
-          parts: [{ functionCall: { name: "update_workspace_family_map", args: exchange.call } }],
+          parts: [{ functionCall: { name: exchangeName, args: exchange.call } }],
         }
       : {
           ...exchange.continuation,
@@ -327,7 +383,7 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
       role: "user",
       parts: [{
         functionResponse: {
-          name: "update_workspace_family_map",
+          name: exchangeName,
           response: exchange.result,
         },
       }],
@@ -355,9 +411,16 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
       mapSection,
     ].join(" "),
     contents,
-    tools: [{ functionDeclarations: [familyMapFunctionDeclaration] }],
+    tools: [{ functionDeclarations: declarations }],
     toolConfig: {
-      functionCallingConfig: { mode: familyMapToolMode },
+      functionCallingConfig: {
+        mode: familyMapToolMode,
+        ...(
+          familyMapToolRequired && suppliedDeclarations.data.length > 0
+            ? { allowedFunctionNames: [FAMILY_MAP_TOOL_NAME] }
+            : {}
+        ),
+      },
     },
     generationConfig: {
       maxOutputTokens: CONVERSATION_MAX_OUTPUT_TOKENS,
@@ -370,7 +433,7 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
   return request;
 }
 
-function parseConversationStep(response: unknown): unknown {
+function parseConversationStep(response: unknown, allowedToolNames: ReadonlySet<string>): unknown {
   const parsed = VertexConversationResponseSchema.safeParse(response);
   const content = parsed.success ? parsed.data.candidates[0]?.content : undefined;
   const functionCallParts = content?.parts.filter(
@@ -385,9 +448,15 @@ function parseConversationStep(response: unknown): unknown {
     ?? content?.parts.find((candidate) => candidate.text !== undefined);
   if (part === undefined) throw new VertexMalformedResponseError();
   if (part.functionCall !== undefined) {
-    if (part.functionCall.name !== "update_workspace_family_map") {
+    if (!allowedToolNames.has(part.functionCall.name)) {
       throw new VertexMalformedResponseError();
     }
+    if (part.functionCall.name !== FAMILY_MAP_TOOL_NAME) return {
+      kind: "CALL_TOOL",
+      name: part.functionCall.name,
+      input: part.functionCall.args,
+      continuation: content,
+    };
     return {
       kind: "UPDATE_WORKSPACE_FAMILY_MAP",
       input: part.functionCall.args,
@@ -434,10 +503,17 @@ export class VertexConversationProvider implements ConversationProvider {
 
   async respond(input: Parameters<ConversationProvider["respond"]>[0]): Promise<unknown> {
     try {
+      const request = conversationRequest(input);
+      const allowedToolNames = new Set(
+        (request.tools?.[0] as { functionDeclarations?: readonly { name?: unknown }[] } | undefined)
+          ?.functionDeclarations
+          ?.flatMap((declaration) => typeof declaration.name === "string" ? [declaration.name] : [])
+          ?? [],
+      );
       const output = parseConversationStep(await this.client.generate(
-        conversationRequest(input),
+        request,
         { workspaceId: input.focalMessage.workspaceId },
-      ));
+      ), allowedToolNames);
       const instruction = ConversationInstructionSchema.safeParse(output);
       if (!instruction.success) {
         throw new ConversationProviderError("MALFORMED_TRANSPORT");

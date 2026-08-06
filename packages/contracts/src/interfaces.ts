@@ -70,8 +70,24 @@ export interface ConversationResult {
   toolCalls?: number;
 }
 
+export const ConversationToolDeclarationSchema = z.object({
+  name: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u),
+  description: z.string().trim().min(1).max(1_000),
+  parameters: z.record(z.string(), z.unknown()),
+}).strict();
+
+export type ConversationToolDeclaration = z.infer<typeof ConversationToolDeclarationSchema>;
+
+/** A trusted composition-bound model capability with deterministic input validation. */
+export interface ConversationToolCapability<Input = unknown> {
+  readonly declaration: ConversationToolDeclaration;
+  readonly inputSchema: z.ZodType<Input>;
+  execute(input: Input): Promise<unknown>;
+}
+
 export interface ConversationTurnTools {
-  updateWorkspaceFamilyMap: UpdateWorkspaceFamilyMapTool;
+  updateWorkspaceFamilyMap?: UpdateWorkspaceFamilyMapTool;
+  modelTools?: readonly ConversationToolCapability[];
 }
 
 export type ConversationTelemetryEntry = {
