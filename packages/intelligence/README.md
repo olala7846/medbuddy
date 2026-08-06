@@ -41,6 +41,16 @@ behavior with deterministic assertions:
 MEDBUDDY_VERTEX_PROJECT=<project-id> npm run eval:compaction
 ```
 
+The OpenRouter candidate evaluation pins `deepseek/deepseek-v4-flash-0731`,
+requests max reasoning and strict structured output, and requires both supported
+parameters and zero-data-retention routing. Supply the key only through the
+runtime environment; the evaluation emits content-free latency, token, routing,
+and charged-cost metadata:
+
+```bash
+OPENROUTER_API_KEY=<secret> npm run eval:compaction:openrouter
+```
+
 The optional LangSmith adapter wraps only explicitly composed conversation and
 compaction `VertexModelClient` instances. It requires an exact allowlisted
 fictional workspace match, refuses inline image data, attempts to flush before

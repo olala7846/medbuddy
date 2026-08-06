@@ -4,6 +4,7 @@ import {
   ModelProviderError,
   OPENROUTER_COMPACTION_MODEL_ID,
   OpenRouterCompactionClient,
+  loadOpenRouterCompactionConfiguration,
   type VertexGenerationRequest,
 } from "../src/index.js";
 
@@ -34,6 +35,15 @@ const request: VertexGenerationRequest = {
 };
 
 describe("OpenRouter compaction adapter", () => {
+  it("loads the API key only from explicit runtime configuration", () => {
+    expect(loadOpenRouterCompactionConfiguration({
+      OPENROUTER_API_KEY: "  fictional-openrouter-key  ",
+    })).toEqual({ apiKey: "fictional-openrouter-key" });
+    expect(() => loadOpenRouterCompactionConfiguration({})).toThrow(
+      "OPENROUTER_API_KEY is required for the OpenRouter compaction evaluation.",
+    );
+  });
+
   it("pins V4 Flash 0731 and fails closed on routing, retention, reasoning, and schema", async () => {
     const calls: Array<{ input: string; init: RequestInit | undefined }> = [];
     const fetchStub: typeof fetch = async (input, init) => {

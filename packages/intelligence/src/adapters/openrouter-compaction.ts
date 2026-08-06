@@ -67,6 +67,16 @@ export type OpenRouterCompactionClientOptions = {
   clock?: () => number;
 };
 
+export function loadOpenRouterCompactionConfiguration(
+  environment: Record<string, string | undefined> = process.env,
+): { apiKey: string } {
+  const apiKey = environment.OPENROUTER_API_KEY?.trim();
+  if (apiKey === undefined || apiKey.length === 0) {
+    throw new Error("OPENROUTER_API_KEY is required for the OpenRouter compaction evaluation.");
+  }
+  return { apiKey };
+}
+
 /**
  * Evaluation-only adapter for the bounded compaction request.
  *
