@@ -379,6 +379,43 @@ describe("capability-scoped conversation tool dispatcher", () => {
     expect(executions).toBe(0);
   });
 
+  it.each([
+    ["oversized content", { query: "x".repeat(9_000) }],
+    ["workspace-id", { query: "preferences", "workspace-id": "workspace:b" }],
+    ["workspace id", { query: "preferences", "workspace id": "workspace:b" }],
+    ["actor-member-id", { query: "preferences", "actor-member-id": "member:b" }],
+    ["source-message-id", { query: "preferences", "source-message-id": "message:b" }],
+  ])("rejects raw %s before invoking the input schema callback", async (_label, toolInput) => {
+    let schemaCallbacks = 0;
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: toolInput,
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.preprocess((input) => {
+          schemaCallbacks += 1;
+          return input;
+        }, z.object({ query: z.string() }).passthrough()),
+        outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
+        classifyResult: () => ({ kind: "CONTINUE" }),
+        async execute() {
+          executions += 1;
+          return { complete: true, matches: [] };
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(schemaCallbacks).toBe(0);
+    expect(executions).toBe(0);
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it("rejects trusted scope inserted by generic input parsing", async () => {
     let executions = 0;
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
@@ -393,7 +430,7 @@ describe("capability-scoped conversation tool dispatcher", () => {
         declaration: queryDeclaration,
         inputSchema: z.object({ query: z.string() }).transform((input) => ({
           ...input,
-          scope: { actor_member_id: "member:b" },
+          scope: { "actor-member-id": "member:b" },
         })),
         outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
         classifyResult: () => ({ kind: "CONTINUE" }),
@@ -405,6 +442,34 @@ describe("capability-scoped conversation tool dispatcher", () => {
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
 
     expect(executions).toBe(0);
+  });
+
+  it("permits canonicalSourceRef because it is provenance rather than trusted scope", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      {
+        kind: "CALL_TOOL",
+        name: "query_memory",
+        input: { query: "preferences", canonicalSourceRef: "source:fictional" },
+      },
+      { kind: "REPLY", text: "I used the fictional provenance reference." },
+    ]]]));
+    let receivedInput: unknown;
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string(), canonicalSourceRef: z.string() }).strict(),
+        outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
+        classifyResult: () => ({ kind: "CONTINUE" }),
+        async execute(input) {
+          receivedInput = input;
+          return { complete: true, matches: [] };
+        },
+      }],
+    })).resolves.toMatchObject({ kind: "RESPONDED", toolCalls: 1 });
+
+    expect(receivedInput).toEqual({ query: "preferences", canonicalSourceRef: "source:fictional" });
   });
 
   it.each([
@@ -461,6 +526,88 @@ describe("capability-scoped conversation tool dispatcher", () => {
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
 
     expect(executions).toBe(0);
+  });
+
+  it("rejects a nested enumerable accessor without invoking its getter or input schema", async () => {
+    let getterCalls = 0;
+    const nested: Record<string, unknown> = {};
+    Object.defineProperty(nested, "value", {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        return "must not be read";
+      },
+    });
+    const toolInput = { query: "preferences", filters: [nested] };
+    let schemaCallbacks = 0;
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "query_memory",
+      input: toolInput,
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.preprocess((input) => {
+          schemaCallbacks += 1;
+          return input;
+        }, z.unknown()),
+        outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
+        classifyResult: () => ({ kind: "CONTINUE" }),
+        async execute() {
+          executions += 1;
+          return { complete: true, matches: [] };
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(getterCalls).toBe(0);
+    expect(schemaCallbacks).toBe(0);
+    expect(executions).toBe(0);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("rejects exotic properties nested in arrays and objects before input schema execution", async () => {
+    const withExtraArrayProperty = [{ value: "safe" }];
+    (withExtraArrayProperty as unknown as Record<string, unknown>).extra = "hidden from JSON";
+    const withNonEnumerableProperty = { value: "safe" };
+    Object.defineProperty(withNonEnumerableProperty, "hidden", { value: "hidden", enumerable: false });
+    const withSymbolProperty = { value: "safe" };
+    Object.defineProperty(withSymbolProperty, Symbol("hidden"), { value: "hidden", enumerable: true });
+
+    for (const nested of [withExtraArrayProperty, withNonEnumerableProperty, withSymbolProperty]) {
+      let schemaCallbacks = 0;
+      let executions = 0;
+      const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+        kind: "CALL_TOOL",
+        name: "query_memory",
+        input: { query: "preferences", nested },
+      }]]));
+      const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+      await expect(responder.respond(request, {
+        modelTools: [{
+          declaration: queryDeclaration,
+          inputSchema: z.preprocess((input) => {
+            schemaCallbacks += 1;
+            return input;
+          }, z.unknown()),
+          outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }),
+          classifyResult: () => ({ kind: "CONTINUE" }),
+          async execute() {
+            executions += 1;
+            return { complete: true, matches: [] };
+          },
+        }],
+      })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+      expect(schemaCallbacks).toBe(0);
+      expect(executions).toBe(0);
+      expect(provider.requests).toHaveLength(1);
+    }
   });
 
   it("rejects the unavailable family-map tool while a read capability remains bound", async () => {
@@ -856,6 +1003,43 @@ describe("capability-scoped conversation tool dispatcher", () => {
       call: { query: "preferences" },
     });
     expect(provider.requests[1]?.toolResult).not.toHaveProperty("call.workspaceId");
+  });
+
+  it("rejects an enumerable output accessor without invoking its getter or classifier", async () => {
+    let getterCalls = 0;
+    let classifierCalls = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "REPLY", text: "This model step must not be reached." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).strict(),
+        outputSchema: z.unknown(),
+        classifyResult() {
+          classifierCalls += 1;
+          return { kind: "CONTINUE" };
+        },
+        async execute() {
+          const output: Record<string, unknown> = { complete: true };
+          Object.defineProperty(output, "matches", {
+            enumerable: true,
+            get() {
+              getterCalls += 1;
+              return [];
+            },
+          });
+          return output;
+        },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+
+    expect(getterCalls).toBe(0);
+    expect(classifierCalls).toBe(0);
+    expect(provider.requests).toHaveLength(1);
   });
 
   it.each([

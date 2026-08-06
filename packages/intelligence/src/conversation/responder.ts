@@ -116,8 +116,13 @@ const MAX_MODEL_TOOL_CAPABILITIES = 8;
 const CONVERSATION_TOOL_DECLARATION_MAX_DEPTH = 16;
 const CONVERSATION_TOOL_DECLARATION_MAX_NODES = 512;
 const CONVERSATION_TOOL_DECLARATION_MAX_UTF16 = 16_000;
+const CONVERSATION_TOOL_VALUE_MAX_DEPTH = 32;
+const CONVERSATION_TOOL_VALUE_MAX_NODES = 1_024;
 
-function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
+function hasBoundedPlainJsonValue(
+  value: unknown,
+  bounds: { maxDepth: number; maxNodes: number; maxUtf16: number },
+): boolean {
   const pending: Array<{ value: unknown; depth: number; leaving?: boolean }> = [{ value, depth: 0 }];
   const ancestors = new Set<object>();
   let nodeCount = 0;
@@ -129,8 +134,8 @@ function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
     }
     nodeCount += 1;
     if (
-      nodeCount > CONVERSATION_TOOL_DECLARATION_MAX_NODES
-      || current.depth > CONVERSATION_TOOL_DECLARATION_MAX_DEPTH
+      nodeCount > bounds.maxNodes
+      || current.depth > bounds.maxDepth
     ) return false;
     if (
       current.value === null
@@ -147,14 +152,19 @@ function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
     if (Array.isArray(current.value)) {
       if (
         Object.getPrototypeOf(current.value) !== Array.prototype
-        || Object.getOwnPropertySymbols(current.value).length > 0
+        || current.value.length > bounds.maxNodes - nodeCount
       ) return false;
-      const keys = Object.keys(current.value);
+      const expectedKeys = new Set(["length"]);
+      for (let index = 0; index < current.value.length; index += 1) {
+        expectedKeys.add(String(index));
+      }
+      const keys = Reflect.ownKeys(current.value);
       if (
-        keys.length !== current.value.length
-        || keys.some((key, index) => key !== String(index))
+        keys.length !== current.value.length + 1
+        || keys.some((key) => typeof key !== "string" || !expectedKeys.has(key))
       ) return false;
-      for (const key of keys) {
+      for (let index = 0; index < current.value.length; index += 1) {
+        const key = String(index);
         const descriptor = Object.getOwnPropertyDescriptor(current.value, key);
         if (descriptor?.enumerable !== true || !("value" in descriptor)) return false;
         pending.push({ value: descriptor.value, depth: current.depth + 1 });
@@ -163,7 +173,9 @@ function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
     }
     const prototype = Object.getPrototypeOf(current.value);
     if (prototype !== Object.prototype && prototype !== null) return false;
-    for (const key of Reflect.ownKeys(current.value)) {
+    const keys = Reflect.ownKeys(current.value);
+    if (keys.length > bounds.maxNodes - nodeCount) return false;
+    for (const key of keys) {
       if (typeof key !== "string") return false;
       const descriptor = Object.getOwnPropertyDescriptor(current.value, key);
       if (descriptor?.enumerable !== true || !("value" in descriptor)) return false;
@@ -173,10 +185,18 @@ function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
   try {
     const rendered = JSON.stringify(value);
     return rendered !== undefined
-      && rendered.length <= CONVERSATION_TOOL_DECLARATION_MAX_UTF16;
+      && rendered.length <= bounds.maxUtf16;
   } catch {
     return false;
   }
+}
+
+function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
+  return hasBoundedPlainJsonValue(value, {
+    maxDepth: CONVERSATION_TOOL_DECLARATION_MAX_DEPTH,
+    maxNodes: CONVERSATION_TOOL_DECLARATION_MAX_NODES,
+    maxUtf16: CONVERSATION_TOOL_DECLARATION_MAX_UTF16,
+  });
 }
 
 function bindModelTools(
@@ -220,7 +240,7 @@ const RESERVED_TRUSTED_SCOPE_KEYS = new Set([
 ]);
 
 function isReservedTrustedScopeKey(key: string): boolean {
-  return RESERVED_TRUSTED_SCOPE_KEYS.has(key.replaceAll("_", "").toLowerCase());
+  return RESERVED_TRUSTED_SCOPE_KEYS.has(key.replace(/[^a-z0-9]/giu, "").toLowerCase());
 }
 
 function containsReservedTrustedScopeKey(value: unknown, ancestors = new Set<object>()): boolean {
@@ -240,33 +260,16 @@ function containsReservedTrustedScopeKey(value: unknown, ancestors = new Set<obj
   return reserved;
 }
 
-function isJsonValue(value: unknown, ancestors: Set<object>): boolean {
-  if (
-    value === null
-    || typeof value === "string"
-    || typeof value === "boolean"
-  ) return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (typeof value !== "object") return false;
-  if (ancestors.has(value)) return false;
-  ancestors.add(value);
-  const valid = Array.isArray(value)
-    ? value.every((item) => isJsonValue(item, ancestors))
-    : (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
-      && Reflect.ownKeys(value).every((key) =>
-        typeof key === "string"
-        && Object.prototype.propertyIsEnumerable.call(value, key)
-        && isJsonValue((value as Record<string, unknown>)[key], ancestors));
-  ancestors.delete(value);
-  return valid;
-}
-
 function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object"
     && value !== null
     && !Array.isArray(value)
     && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
-    && isJsonValue(value, new Set());
+    && hasBoundedPlainJsonValue(value, {
+      maxDepth: CONVERSATION_TOOL_VALUE_MAX_DEPTH,
+      maxNodes: CONVERSATION_TOOL_VALUE_MAX_NODES,
+      maxUtf16: Number.MAX_SAFE_INTEGER,
+    });
 }
 
 function isBoundedPlainJsonObject(value: unknown, maxUtf16: number): value is Record<string, unknown> {
@@ -582,18 +585,28 @@ export class ConversationResponder implements ConversationResponderPort {
         if (instruction.data.kind === "CALL_TOOL") {
           const capability = boundModelTools.get(instruction.data.name);
           const rawInput = instruction.data.input;
-          const parsedInput = capability?.inputSchema.safeParse(rawInput);
-          const inputSnapshot = parsedInput?.success === true
-            ? canonicalJsonObjectSnapshot(parsedInput.data, CONVERSATION_TOOL_INPUT_MAX_UTF16)
-            : null;
           if (
             capability === undefined
-            || !isBoundedPlainJsonObject(rawInput, CONVERSATION_TOOL_INPUT_MAX_UTF16)
-            || containsReservedTrustedScopeKey(rawInput)
-            || parsedInput?.success !== true
-            || inputSnapshot === null
             || toolCalls >= CONVERSATION_MAX_TOOL_CALLS
           ) {
+            this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+            return technicalFailure(toolCalls || undefined);
+          }
+          const rawInputSnapshot = canonicalJsonObjectSnapshot(
+            rawInput,
+            CONVERSATION_TOOL_INPUT_MAX_UTF16,
+          );
+          if (rawInputSnapshot === null) {
+            this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+            return technicalFailure(toolCalls || undefined);
+          }
+          const parsedInput = capability.inputSchema.safeParse(
+            cloneCanonicalSnapshot(rawInputSnapshot),
+          );
+          const inputSnapshot = parsedInput.success
+            ? canonicalJsonObjectSnapshot(parsedInput.data, CONVERSATION_TOOL_INPUT_MAX_UTF16)
+            : null;
+          if (!parsedInput.success || inputSnapshot === null) {
             this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
             return technicalFailure(toolCalls || undefined);
           }
