@@ -57,12 +57,14 @@ describe("synthetic continuity JSONL fixture", () => {
     const introductionByStep = new Map(primary
       .filter((step) => step.step === "group-purpose" || step.step.startsWith("intro-"))
       .map((step) => [step.step, step.event.message.text]));
-    expect(introductionByStep.get("group-purpose")).not.toMatch(/父母|太太|孩子|兒子|先生|公公|婆婆|爺爺|奶奶/);
-    expect(introductionByStep.get("intro-grandpa")).toContain("廣志是我的兒子");
-    expect(introductionByStep.get("intro-grandma")).toContain("銀之介是我的先生，廣志是我的兒子");
-    expect(introductionByStep.get("intro-mother")).toContain("廣志是我的先生，小新和小葵是我們的孩子");
-    expect(introductionByStep.get("intro-child-one")).not.toMatch(/爸爸|媽媽|父母|爺爺|奶奶/);
-    expect(introductionByStep.get("intro-child-two")).not.toMatch(/爸爸|媽媽|父母|爺爺|奶奶/);
+    expect(Object.fromEntries(introductionByStep)).toEqual({
+      "group-purpose": "大家好，我是廣志。我開這個群組，是想讓我們六個人一起幫銀之介整理看診和每天的身體狀況；我先把要記的事情說清楚，之後大家再分工。",
+      "intro-grandpa": "我是銀之介，廣志是我的兒子。之後我的量測和不舒服，我會盡量自己說清楚。",
+      "intro-grandma": "我是野原鶴，銀之介是我的先生，廣志是我的兒子。我平常和銀之介住一起，可以幫忙量血壓。",
+      "intro-mother": "我是美冴，廣志是我的先生，小新和小葵是我們的孩子。我平常可以幫忙核對大家貼上來的紀錄。",
+      "intro-child-one": "我是小新。我放學後也會來看訊息，有需要時可以幫忙確認白天發生的事情。",
+      "intro-child-two": "我是小葵。我會把陪銀之介散步時看到的情況告訴大家，也會說明是我親眼看到還是聽別人轉述。",
+    });
     const introductions = [...introductionByStep.values()].join("\n");
     for (const redundantOrDerivedRelationship of [
       "銀之介和野原鶴是我的父母",

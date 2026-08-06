@@ -160,7 +160,13 @@ npm run build
 The deterministic paths do not use the real LINE service, webhook registration,
 Cloud Tasks, target Firestore, or real Vertex. The opt-in Vertex evaluation uses
 fictional content and in-memory persistence; it makes model calls but performs no
-target Firestore writes and no family-map writes.
+target Firestore writes and no family-map writes. To prevent outside character
+knowledge from satisfying the eval, it creates a temporary counterfactual view of
+the same provider-shaped fixture with six unrelated fictional aliases before
+signing and sending the events. The committed fixture remains unchanged. Semantic
+scoring unwraps nested or fenced `REPLY` envelopes, rejects nested `CALL` output,
+and requires each requested relationship and its direct/inferred label on the
+same response line.
 
 ## Boundaries
 
