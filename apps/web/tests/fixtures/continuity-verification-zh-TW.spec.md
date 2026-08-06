@@ -131,8 +131,9 @@ but the facts and ordering below are the independent source of truth.
    inferred parents-in-law and grandparent/grandchild relationships. It defines
    the evidence labels without revealing an answer: an introduction's explicit
    relationship is direct, while a relationship requiring two or more explicit
-   edges is inferred. It requests a terse three-line semantic format so all
-   required assertions fit within the live responder's output budget.
+   edges is inferred. It supplies a three-line, answer-free fill-in template so
+   the responder can return every required name group before its bounded output
+   budget is consumed by optional elaboration.
 
 ## Project structure and code style
 
@@ -169,9 +170,9 @@ knowledge from satisfying the eval, it creates a temporary counterfactual view o
 the same provider-shaped fixture with six unrelated fictional aliases before
 signing and sending the events. The committed fixture remains unchanged. Semantic
 scoring unwraps nested or fenced `REPLY` envelopes, rejects nested `CALL` output,
-and requires each requested relationship on the same response line as an
-affirmative terminal `｜直接` or `｜推論` label. Negated claims, non-answer
-labels, and wrong-gender relationships do not score.
+and requires each requested relationship on the same response line before an
+affirmative `｜直接：` or `｜推論：` label. Negated claims, non-answer labels,
+and wrong-gender relationships do not score.
 
 ## Boundaries
 
