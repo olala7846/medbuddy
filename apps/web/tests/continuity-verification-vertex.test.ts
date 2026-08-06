@@ -71,7 +71,8 @@ function expectLabeledRelationshipLine(
 ): void {
   const lines = response.split(/\r?\n|。/u).map((line) => line.trim()).filter(Boolean);
   expect(lines.some((line) => names.every((name) => line.includes(name)) &&
-    relationship.test(line) && evidenceKind.test(line)), response).toBe(true);
+    relationship.test(line) && evidenceKind.test(line) &&
+    !/不是|並非|否認|無法確認|不確定/u.test(line)), response).toBe(true);
 }
 
 async function createCounterfactualFixture(): Promise<{ path: string; url: URL }> {
@@ -91,6 +92,22 @@ describe("continuity family-eval reply normalization", () => {
       .toBe("fenced reply");
     expect(() => semanticReplyText(JSON.stringify(JSON.stringify({ kind: "CALL", func: "invented" }))))
       .toThrow(/nested model-authored tool call/i);
+  });
+
+  it("requires an affirmative, correctly gendered in-law relationship", () => {
+    expectLabeledRelationshipLine("芷蘭與若晴是推論出的婆媳關係。", ["芷蘭", "若晴"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論/u);
+    expect(() => expectLabeledRelationshipLine(
+      "芷蘭與若晴並非推論出的婆媳關係。",
+      ["芷蘭", "若晴"],
+      /婆媳|婆婆|媳婦|兒媳|姻親/u,
+      /推論/u,
+    )).toThrow();
+    expect(() => expectLabeledRelationshipLine(
+      "芷蘭與若晴是推論出的公公關係。",
+      ["芷蘭", "若晴"],
+      /婆媳|婆婆|媳婦|兒媳|姻親/u,
+      /推論/u,
+    )).toThrow();
   });
 });
 
@@ -137,7 +154,7 @@ describe.runIf(runEvaluation)("Traditional Chinese continuity Vertex evaluation"
       expect(responses).toHaveLength(2);
       const finalResponse = semanticReplyText(responses.at(-1)!);
       expectLabeledRelationshipLine(finalResponse, ["柏岳", "承遠"], /父子|父親|爸爸|兒子|之父|之子/u, /直接/u);
-      expectLabeledRelationshipLine(finalResponse, ["芷蘭", "若晴"], /婆媳|婆婆|媳婦|兒媳|公公|姻親/u, /推論|推得|間接/u);
+      expectLabeledRelationshipLine(finalResponse, ["芷蘭", "若晴"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論|推得|間接/u);
       expectLabeledRelationshipLine(
         finalResponse,
         ["柏岳", "芷蘭", "昀澄", "予安"],
