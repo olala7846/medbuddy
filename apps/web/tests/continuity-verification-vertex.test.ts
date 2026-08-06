@@ -71,13 +71,12 @@ function expectLabeledRelationshipLine(
 ): void {
   const lines = response.split(/\r?\n|。/u).map((line) => line.trim()).filter(Boolean);
   expect(lines.some((line) => {
-    const contrastsEvidenceKinds = /(?:不是|並非)[^。；]*(?:直接|推論|推得|間接)[^。；]*(?:而是|但)/u
-      .test(line);
-    const deniesInference = /(?:無法|不能|未能)[^。；]*(?:推論|推得)|(?:推論|推得)不出/u.test(line);
-    const negatesClaim = /否認|無法確認|不確定/u.test(line) || deniesInference ||
-      (/(?:不是|並非)/u.test(line) && !contrastsEvidenceKinds);
-    return names.every((name) => line.includes(name)) &&
-      relationship.test(line) && evidenceKind.test(line) && !negatesClaim;
+    const [claim = ""] = line.split(/[｜|]/u);
+    const evidenceLabel = line.match(/[｜|]\s*(直接|推論|推得|間接)\s*$/u)?.[1];
+    const negatesClaim = /不是|並非|否認|無法|不能|未能|無從|不足|難以|看不出|不確定/u.test(claim);
+    return names.every((name) => claim.includes(name)) &&
+      relationship.test(claim) && evidenceLabel !== undefined &&
+      evidenceKind.test(evidenceLabel) && !negatesClaim;
   }), response).toBe(true);
 }
 
@@ -101,41 +100,35 @@ describe("continuity family-eval reply normalization", () => {
   });
 
   it("requires an affirmative, correctly gendered in-law relationship", () => {
-    expectLabeledRelationshipLine("秀蘭與雅婷是推論出的婆媳關係。", ["秀蘭", "雅婷"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論/u);
+    expectLabeledRelationshipLine("秀蘭與雅婷：婆媳關係｜推論", ["秀蘭", "雅婷"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論/u);
     expectLabeledRelationshipLine(
-      "秀蘭與雅婷不是直接說明，而是推論出的婆媳關係。",
-      ["秀蘭", "雅婷"],
-      /婆媳|婆婆|媳婦|兒媳|姻親/u,
-      /推論/u,
-    );
-    expectLabeledRelationshipLine(
-      "德明與志宏並非推論，而是直接說明的父子關係。",
+      "德明與志宏：父子關係｜直接",
       ["德明", "志宏"],
       /父子|父親|爸爸|兒子|之父|之子/u,
       /直接/u,
     );
     expect(() => expectLabeledRelationshipLine(
-      "秀蘭與雅婷並非推論出的婆媳關係。",
+      "秀蘭與雅婷：並非婆媳關係｜推論",
       ["秀蘭", "雅婷"],
       /婆媳|婆婆|媳婦|兒媳|姻親/u,
       /推論/u,
     )).toThrow();
     expect(() => expectLabeledRelationshipLine(
-      "秀蘭與雅婷是推論出的公公關係。",
+      "秀蘭與雅婷：公公關係｜推論",
       ["秀蘭", "雅婷"],
       /婆媳|婆婆|媳婦|兒媳|姻親/u,
       /推論/u,
     )).toThrow();
     for (const deniedInference of [
-      "從自我介紹無法推論秀蘭與雅婷是婆媳關係。",
-      "秀蘭與雅婷的婆媳關係不能推得。",
-      "秀蘭與雅婷的婆媳關係推論不出來。",
+      "秀蘭與雅婷：婆媳關係｜無從推論",
+      "秀蘭與雅婷：婆媳關係｜資訊不足",
+      "秀蘭與雅婷：無法判斷婆媳關係｜推論",
     ]) {
       expect(() => expectLabeledRelationshipLine(
         deniedInference,
         ["秀蘭", "雅婷"],
         /婆媳|婆婆|媳婦|兒媳|姻親/u,
-        /推論|推得/u,
+        /推論/u,
       )).toThrow();
     }
   });

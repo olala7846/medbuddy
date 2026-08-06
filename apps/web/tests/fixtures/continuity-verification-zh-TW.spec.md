@@ -169,8 +169,9 @@ knowledge from satisfying the eval, it creates a temporary counterfactual view o
 the same provider-shaped fixture with six unrelated fictional aliases before
 signing and sending the events. The committed fixture remains unchanged. Semantic
 scoring unwraps nested or fenced `REPLY` envelopes, rejects nested `CALL` output,
-and requires each requested relationship and its direct/inferred label on the
-same response line.
+and requires each requested relationship on the same response line as an
+affirmative terminal `｜直接` or `｜推論` label. Negated claims, non-answer
+labels, and wrong-gender relationships do not score.
 
 ## Boundaries
 
