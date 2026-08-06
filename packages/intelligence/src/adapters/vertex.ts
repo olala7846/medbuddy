@@ -41,8 +41,8 @@ const VertexModelPartSchema = z.object({
     args: z.unknown(),
   }).passthrough().optional(),
 }).passthrough().refine(
-  (part) => part.text !== undefined || part.functionCall !== undefined,
-  "A model part must contain text or a function call.",
+  (part) => (part.text === undefined) !== (part.functionCall === undefined),
+  "A model part must contain exactly one of text or function call.",
 );
 
 const VertexModelContentSchema = z.object({
@@ -434,7 +434,13 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
       thinkingConfig: { thinkingLevel: "LOW" },
     },
   };
-  if (JSON.stringify(request).length > CONVERSATION_PROVIDER_REQUEST_MAX_UTF16) {
+  let bodyLength: number;
+  try {
+    bodyLength = JSON.stringify(buildVertexGenerateContentBody(request)).length;
+  } catch {
+    throw new ConversationProviderError("MALFORMED_TRANSPORT");
+  }
+  if (bodyLength > CONVERSATION_PROVIDER_REQUEST_MAX_UTF16) {
     throw new ConversationProviderError("MALFORMED_TRANSPORT");
   }
   return request;
