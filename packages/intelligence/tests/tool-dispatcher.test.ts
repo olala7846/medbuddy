@@ -288,6 +288,57 @@ describe("capability-scoped conversation tool dispatcher", () => {
     expect(provider.requests[0]?.toolDeclarations).toEqual([declaration]);
   });
 
+  it("contains a cyclic declaration as a typed failure before provider or executor invocation", async () => {
+    const cyclicParameters: Record<string, unknown> = {
+      type: "OBJECT",
+      properties: {},
+    };
+    (cyclicParameters.properties as Record<string, unknown>).cycle = cyclicParameters;
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, { kind: "ACKNOWLEDGE" }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => {
+          executions += 1;
+          return { complete: true, matches: [] };
+        }),
+        declaration: { ...queryDeclaration, parameters: cyclicParameters },
+      } as never],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(provider.requests).toHaveLength(0);
+    expect(executions).toBe(0);
+  });
+
+  it("rejects an excessively deep declaration before provider or executor invocation", async () => {
+    let deepParameters: Record<string, unknown> = { type: "STRING" };
+    for (let depth = 0; depth < 40; depth += 1) {
+      deepParameters = {
+        type: "OBJECT",
+        properties: { nested: deepParameters },
+        required: ["nested"],
+      };
+    }
+    let executions = 0;
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, { kind: "ACKNOWLEDGE" }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => {
+          executions += 1;
+          return { complete: true, matches: [] };
+        }),
+        declaration: { ...queryDeclaration, parameters: deepParameters },
+      } as never],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+
+    expect(provider.requests).toHaveLength(0);
+    expect(executions).toBe(0);
+  });
+
   it.each([
     ["a root workspaceId", { query: "preferences", workspaceId: "workspace:b" }],
     ["a nested workspace_id", { query: "preferences", filter: { workspace_id: "workspace:b" } }],
@@ -728,6 +779,83 @@ describe("capability-scoped conversation tool dispatcher", () => {
     });
 
     expect(provider.requests).toHaveLength(2);
+  });
+
+  it("isolates Vertex tool history from classifier output mutation", async () => {
+    const vertexRequests: VertexGenerationRequest[] = [];
+    const client: VertexModelClient = {
+      async generate(input) {
+        vertexRequests.push(input);
+        return vertexRequests.length === 1
+          ? { candidates: [{ content: { role: "model", parts: [{
+              functionCall: { name: "query_memory", args: { query: "preferences" } },
+            }] } }] }
+          : { candidates: [{ content: { role: "model", parts: [{ text: "I found the safe result." }] } }] };
+      },
+    };
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      new VertexConversationProvider(client),
+    );
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).strict(),
+        outputSchema: z.object({ complete: z.boolean(), matches: z.array(z.string()) }).strict(),
+        classifyResult(output: { complete: boolean; matches: string[] }) {
+          const mutableOutput = output as Record<string, unknown>;
+          mutableOutput.workspaceId = "workspace:b";
+          mutableOutput.matches = ["x".repeat(9_000)];
+          return { kind: "CONTINUE" as const };
+        },
+        async execute() {
+          return { complete: true, matches: ["Safe result."] };
+        },
+      }],
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: "I found the safe result.",
+      retryable: false,
+      toolCalls: 1,
+    });
+
+    expect(vertexRequests).toHaveLength(2);
+    expect(vertexRequests[1]?.contents.at(-1)).toEqual({
+      role: "user",
+      parts: [{
+        functionResponse: {
+          name: "query_memory",
+          response: { complete: true, matches: ["Safe result."] },
+        },
+      }],
+    });
+    expect(JSON.stringify(vertexRequests[1])).not.toContain("workspace:b");
+    expect(JSON.stringify(vertexRequests[1])).not.toContain("x".repeat(9_000));
+  });
+
+  it("isolates recorded tool input from executor mutation", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "REPLY", text: "I used the safe query." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [queryCapability(async (input) => {
+        const mutableInput = input as Record<string, unknown>;
+        mutableInput.workspaceId = "workspace:b";
+        mutableInput.query = "x".repeat(9_000);
+        return { complete: true, matches: [] };
+      })],
+    })).resolves.toMatchObject({ kind: "RESPONDED", toolCalls: 1 });
+
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]?.toolResult).toMatchObject({
+      name: "query_memory",
+      call: { query: "preferences" },
+    });
+    expect(provider.requests[1]?.toolResult).not.toHaveProperty("call.workspaceId");
   });
 
   it.each([
