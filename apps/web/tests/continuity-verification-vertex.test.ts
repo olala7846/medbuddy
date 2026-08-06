@@ -73,7 +73,8 @@ function expectLabeledRelationshipLine(
   expect(lines.some((line) => {
     const [claim = ""] = line.split(/[｜|]/u);
     const evidenceLabel = line.match(/[｜|]\s*(直接|推論|推得|間接)\s*$/u)?.[1];
-    const negatesClaim = /不是|並非|否認|無法|不能|未能|無從|不足|難以|看不出|不確定/u.test(claim);
+    const negatesClaim =
+      /不是|並非|否認|無法|不能|未能|無從|不足|難以|看不出|不確定|可能|也許|或許|似乎|疑似/u.test(claim);
     return names.every((name) => claim.includes(name)) &&
       relationship.test(claim) && evidenceLabel !== undefined &&
       evidenceKind.test(evidenceLabel) && !negatesClaim;
@@ -123,6 +124,8 @@ describe("continuity family-eval reply normalization", () => {
       "秀蘭與雅婷：婆媳關係｜無從推論",
       "秀蘭與雅婷：婆媳關係｜資訊不足",
       "秀蘭與雅婷：無法判斷婆媳關係｜推論",
+      "秀蘭與雅婷：可能是婆媳關係｜推論",
+      "秀蘭與雅婷：疑似婆媳關係｜推論",
     ]) {
       expect(() => expectLabeledRelationshipLine(
         deniedInference,
