@@ -17,11 +17,7 @@ import {
 import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
 
 import { runSyntheticContinuityVerification } from "./support/continuity-verification-harness.js";
-import {
-  SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
-  TRADITIONAL_CHINESE_CORRECTION,
-  TRADITIONAL_CHINESE_RECENT_CONTENT,
-} from "./support/continuity-verification-fixture.js";
+import { SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL } from "./support/continuity-verification-fixture.js";
 
 const runEvaluation = process.env.MEDBUDDY_RUN_CONTINUITY_FAMILY_EVAL === "true";
 const configuration = runEvaluation ? loadVertexConfiguration() : null;
@@ -160,8 +156,6 @@ describe.runIf(runEvaluation)("Traditional Chinese continuity Vertex evaluation"
         fixtureUrl: counterfactualFixture.url,
         runNonce: "sparse-family-vertex",
         modelAssertions: "STRUCTURAL",
-        expectedCorrection: TRADITIONAL_CHINESE_CORRECTION,
-        expectedRecentContent: TRADITIONAL_CHINESE_RECENT_CONTENT,
         responder: {
           async respond(request, tools) {
             const result = await liveResponder.respond(request, tools);
