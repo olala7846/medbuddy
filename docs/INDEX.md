@@ -64,6 +64,7 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | --- | --- |
 | [proposals/AGENT_MEMORY_ARCHITECTURE.md](./proposals/AGENT_MEMORY_ARCHITECTURE.md) | Proposed memory layers, retrieval policy, implementation sequence, and framework/GCP choices |
 | [proposals/DEEPSEEK_OPENROUTER_COMPACTION_LEARNING.md](./proposals/DEEPSEEK_OPENROUTER_COMPACTION_LEARNING.md) | Why DeepSeek via OpenRouter is not replacing compaction yet, plus reusable evaluation and provider-boundary design |
+| [proposals/GPT56_LUNA_OPENROUTER_COMPACTION_LEARNING.md](./proposals/GPT56_LUNA_OPENROUTER_COMPACTION_LEARNING.md) | Why GPT-5.6 Luna medium is the leading OpenRouter compaction candidate, its schema compatibility seam, and the ZDR blocker |
 | [proposals/WORKSPACE_FAMILY_MAP_DESIGN.md](./proposals/WORKSPACE_FAMILY_MAP_DESIGN.md) | Approved and implemented LINE workspace family-map behavior, tool seam, persistence, and verification contract |
 
 ### Operations
