@@ -56,7 +56,14 @@ export type GeneratedCompactionSummary = {
 };
 
 /** Provider output reached Vertex successfully but violated the summary contract. */
-export class CompactionSummaryContractError extends Error {}
+export class CompactionSummaryContractError extends Error {
+  constructor(
+    message: string,
+    readonly usage?: { inputTokens: number; outputTokens: number },
+  ) {
+    super(message);
+  }
+}
 
 const MAX_COMPACTION_GENERATION_ATTEMPTS = 2;
 
@@ -97,32 +104,37 @@ function decodeCompactionResponse(
   const text = transport.success ? transport.data.candidates[0]?.content.parts[0]?.text : undefined;
   if (text === undefined) throw new CompactionSummaryContractError("Malformed compaction provider response.");
   const usageMetadata = transport.success ? transport.data.usageMetadata : undefined;
+  const usage = usageMetadata === undefined ? undefined : {
+    inputTokens: usageMetadata.promptTokenCount,
+    outputTokens: usageMetadata.candidatesTokenCount,
+  };
 
   let decoded: unknown;
   try {
     decoded = JSON.parse(text) as unknown;
   } catch {
-    throw new CompactionSummaryContractError("Malformed compaction provider response.");
+    throw new CompactionSummaryContractError("Malformed compaction provider response.", usage);
   }
   const parsed = SegmentSummarySchema.safeParse(decoded);
-  if (!parsed.success) throw new CompactionSummaryContractError("Invalid compaction summary.");
+  if (!parsed.success) throw new CompactionSummaryContractError("Invalid compaction summary.", usage);
   const allowed = new Set(input.allowedSourceSequences);
   for (const event of parsed.data.keyEvents) {
     if (event.sourceSequence !== undefined && !allowed.has(event.sourceSequence)) {
-      throw new CompactionSummaryContractError("Compaction summary references an unavailable source sequence.");
+      throw new CompactionSummaryContractError(
+        "Compaction summary references an unavailable source sequence.",
+        usage,
+      );
     }
     if (event.verbatimExcerpt !== undefined && !allowed.has(event.verbatimExcerpt.sourceSequence)) {
-      throw new CompactionSummaryContractError("Compaction summary excerpt references an unavailable source sequence.");
+      throw new CompactionSummaryContractError(
+        "Compaction summary excerpt references an unavailable source sequence.",
+        usage,
+      );
     }
   }
   return {
     summary: parsed.data,
-    ...(usageMetadata === undefined ? {} : {
-      usage: {
-        inputTokens: usageMetadata.promptTokenCount,
-        outputTokens: usageMetadata.candidatesTokenCount,
-      },
-    }),
+    ...(usage === undefined ? {} : { usage }),
   };
 }
 
@@ -155,14 +167,29 @@ export class CompactionSummaryGenerator {
         }],
       }],
     };
+    let accumulatedUsage: GeneratedCompactionSummary["usage"];
     for (let attempt = 1; attempt <= MAX_COMPACTION_GENERATION_ATTEMPTS; attempt += 1) {
       try {
         const response = await this.client.generate(request, { workspaceId: input.workspaceId });
-        return decodeCompactionResponse(response, input);
+        const generated = decodeCompactionResponse(response, input);
+        if (accumulatedUsage === undefined) return generated;
+        return {
+          ...generated,
+          usage: {
+            inputTokens: accumulatedUsage.inputTokens + (generated.usage?.inputTokens ?? 0),
+            outputTokens: accumulatedUsage.outputTokens + (generated.usage?.outputTokens ?? 0),
+          },
+        };
       } catch (error) {
         if (!(error instanceof CompactionSummaryContractError) ||
             attempt === MAX_COMPACTION_GENERATION_ATTEMPTS) {
           throw error;
+        }
+        if (error.usage !== undefined) {
+          accumulatedUsage = {
+            inputTokens: (accumulatedUsage?.inputTokens ?? 0) + error.usage.inputTokens,
+            outputTokens: (accumulatedUsage?.outputTokens ?? 0) + error.usage.outputTokens,
+          };
         }
       }
     }

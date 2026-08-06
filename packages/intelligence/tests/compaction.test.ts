@@ -169,13 +169,13 @@ describe("compaction summary generation", () => {
 
   it("retries one malformed provider result before publishing a valid summary", async () => {
     const client = new SequencedClient([
-      { candidates: [] },
+      response({ ...validSummary, keyEvents: [{ text: "Bad reference.", sourceSequence: 3 }] }),
       response(validSummary),
     ]);
 
     await expect(new CompactionSummaryGenerator(client).generate(request)).resolves.toEqual({
       summary: validSummary,
-      usage: { inputTokens: 120, outputTokens: 40 },
+      usage: { inputTokens: 240, outputTokens: 80 },
     });
     expect(client.requests).toHaveLength(2);
     expect(client.requests[1]).toEqual(client.requests[0]);
