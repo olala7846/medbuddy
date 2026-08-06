@@ -10,6 +10,7 @@ import {
 } from "./cloud-tasks/dispatcher.js";
 import { FirestorePersistence } from "./firestore/repositories.js";
 import { FirestoreContinuityRepository } from "./firestore/continuity.js";
+import { FirestoreDynamicMemoryRepository } from "./firestore/dynamic-memory.js";
 import { PrivateAttachmentStorage } from "./storage/attachments.js";
 import { ContinuityPrivateAttachmentStorage } from "./storage/attachments.js";
 import { EncryptedLineAttachmentLocatorStore, FirestoreAttachmentLocatorDocuments } from "./firestore/attachment-locator.js";
@@ -24,6 +25,7 @@ export function createConversationPlatform(projectId: string) {
   return {
     persistence: new FirestorePersistence(firestore),
     continuity: new FirestoreContinuityRepository(firestore),
+    memory: new FirestoreDynamicMemoryRepository(firestore),
   };
 }
 

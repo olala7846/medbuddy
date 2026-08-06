@@ -1,5 +1,6 @@
 import {
   ProposeMemoryInputSchema,
+  ProposeMemoryResultSchema,
   QueryMemoryInputSchema,
   SourceEventSchema,
 } from "@medbuddy/contracts";
@@ -79,6 +80,26 @@ describe("DynamicMemoryService", () => {
     await expect(repository.listActive(source.workspaceId, 10)).resolves.toHaveLength(2);
   });
 
+  it.each([{
+    memoryType: "EPISODIC" as const,
+    event: "The fictional family agreed to bring the blue folder tomorrow.",
+    subjectLabels: [],
+  }, {
+    memoryType: "PROCEDURAL" as const,
+    preference: "Use Traditional Chinese for summaries.",
+    preferenceKind: "LANGUAGE" as const,
+    appliesTo: "SUMMARIES" as const,
+    subjectLabels: [] as [],
+  }])("persists an eligible $memoryType payload", async (payload) => {
+    const repository = new InMemoryDynamicMemoryRepository();
+    const service = new DynamicMemoryService(repository);
+    await expect(service.propose({ workspaceId: source.workspaceId, focalSource: source },
+      ProposeMemoryInputSchema.parse({ payload }))).resolves.toMatchObject({
+        kind: "STORED",
+        record: { payload },
+      });
+  });
+
   it.each([
     SourceEventSchema.parse({ ...source, workspaceId: "workspace:memory-b" }),
     SourceEventSchema.parse({ ...source, authorMemberId: "MEDBUDDY" }),
@@ -154,6 +175,26 @@ describe("active memory capabilities", () => {
       kind: "RESULT",
       complete: true,
       records: [{ canonicalSource: { sourceRef: source.id } }],
+    });
+  });
+
+  it("turns persistence failure into an application-owned terminal response", async () => {
+    const capabilities = createActiveMemoryCapabilities({
+      service: new DynamicMemoryService({
+        async createOrGet() { throw new Error("fictional storage failure"); },
+        async listActive() { return []; },
+      }),
+      workspaceId: source.workspaceId,
+      focalSource: source,
+    });
+    const result = ProposeMemoryResultSchema.parse(await capabilities[0].execute(semanticProposal, {
+      deadlineMs: Date.now() + 1_000,
+      signal: new AbortController().signal,
+    }));
+    expect(result).toEqual({ kind: "TECHNICAL_FAILURE" });
+    expect(capabilities[0].classifyResult(result)).toEqual({
+      kind: "TERMINAL_FAILURE",
+      responseText: "I couldn’t remember that right now. Please try again.",
     });
   });
 });
