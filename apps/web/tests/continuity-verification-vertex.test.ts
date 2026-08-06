@@ -26,12 +26,12 @@ import {
 const runEvaluation = process.env.MEDBUDDY_RUN_CONTINUITY_FAMILY_EVAL === "true";
 const configuration = runEvaluation ? loadVertexConfiguration() : null;
 const COUNTERFACTUAL_NAMES = new Map([
-  ["銀之介", "柏岳"],
-  ["野原鶴", "芷蘭"],
-  ["廣志", "承遠"],
-  ["美冴", "若晴"],
-  ["小新", "昀澄"],
-  ["小葵", "予安"],
+  ["銀之介", "德明"],
+  ["野原鶴", "秀蘭"],
+  ["廣志", "志宏"],
+  ["美冴", "雅婷"],
+  ["小新", "家豪"],
+  ["小葵", "欣怡"],
 ] as const);
 
 // Score relationship semantics independently of a known live-model tendency to
@@ -73,7 +73,8 @@ function expectLabeledRelationshipLine(
   expect(lines.some((line) => {
     const contrastsEvidenceKinds = /(?:不是|並非)[^。；]*(?:直接|推論|推得|間接)[^。；]*(?:而是|但)/u
       .test(line);
-    const negatesClaim = /否認|無法確認|不確定/u.test(line) ||
+    const deniesInference = /(?:無法|不能|未能)[^。；]*(?:推論|推得)|(?:推論|推得)不出/u.test(line);
+    const negatesClaim = /否認|無法確認|不確定/u.test(line) || deniesInference ||
       (/(?:不是|並非)/u.test(line) && !contrastsEvidenceKinds);
     return names.every((name) => line.includes(name)) &&
       relationship.test(line) && evidenceKind.test(line) && !negatesClaim;
@@ -100,31 +101,43 @@ describe("continuity family-eval reply normalization", () => {
   });
 
   it("requires an affirmative, correctly gendered in-law relationship", () => {
-    expectLabeledRelationshipLine("芷蘭與若晴是推論出的婆媳關係。", ["芷蘭", "若晴"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論/u);
+    expectLabeledRelationshipLine("秀蘭與雅婷是推論出的婆媳關係。", ["秀蘭", "雅婷"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論/u);
     expectLabeledRelationshipLine(
-      "芷蘭與若晴不是直接說明，而是推論出的婆媳關係。",
-      ["芷蘭", "若晴"],
+      "秀蘭與雅婷不是直接說明，而是推論出的婆媳關係。",
+      ["秀蘭", "雅婷"],
       /婆媳|婆婆|媳婦|兒媳|姻親/u,
       /推論/u,
     );
     expectLabeledRelationshipLine(
-      "柏岳與承遠並非推論，而是直接說明的父子關係。",
-      ["柏岳", "承遠"],
+      "德明與志宏並非推論，而是直接說明的父子關係。",
+      ["德明", "志宏"],
       /父子|父親|爸爸|兒子|之父|之子/u,
       /直接/u,
     );
     expect(() => expectLabeledRelationshipLine(
-      "芷蘭與若晴並非推論出的婆媳關係。",
-      ["芷蘭", "若晴"],
+      "秀蘭與雅婷並非推論出的婆媳關係。",
+      ["秀蘭", "雅婷"],
       /婆媳|婆婆|媳婦|兒媳|姻親/u,
       /推論/u,
     )).toThrow();
     expect(() => expectLabeledRelationshipLine(
-      "芷蘭與若晴是推論出的公公關係。",
-      ["芷蘭", "若晴"],
+      "秀蘭與雅婷是推論出的公公關係。",
+      ["秀蘭", "雅婷"],
       /婆媳|婆婆|媳婦|兒媳|姻親/u,
       /推論/u,
     )).toThrow();
+    for (const deniedInference of [
+      "從自我介紹無法推論秀蘭與雅婷是婆媳關係。",
+      "秀蘭與雅婷的婆媳關係不能推得。",
+      "秀蘭與雅婷的婆媳關係推論不出來。",
+    ]) {
+      expect(() => expectLabeledRelationshipLine(
+        deniedInference,
+        ["秀蘭", "雅婷"],
+        /婆媳|婆婆|媳婦|兒媳|姻親/u,
+        /推論|推得/u,
+      )).toThrow();
+    }
   });
 });
 
@@ -170,11 +183,11 @@ describe.runIf(runEvaluation)("Traditional Chinese continuity Vertex evaluation"
 
       expect(responses).toHaveLength(2);
       const finalResponse = semanticReplyText(responses.at(-1)!);
-      expectLabeledRelationshipLine(finalResponse, ["柏岳", "承遠"], /父子|父親|爸爸|兒子|之父|之子/u, /直接/u);
-      expectLabeledRelationshipLine(finalResponse, ["芷蘭", "若晴"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論|推得|間接/u);
+      expectLabeledRelationshipLine(finalResponse, ["德明", "志宏"], /父子|父親|爸爸|兒子|之父|之子/u, /直接/u);
+      expectLabeledRelationshipLine(finalResponse, ["秀蘭", "雅婷"], /婆媳|婆婆|媳婦|兒媳|姻親/u, /推論|推得|間接/u);
       expectLabeledRelationshipLine(
         finalResponse,
-        ["柏岳", "芷蘭", "昀澄", "予安"],
+        ["德明", "秀蘭", "家豪", "欣怡"],
         /祖孫|祖父母|爺爺奶奶|孫/u,
         /推論|推得|間接/u,
       );
