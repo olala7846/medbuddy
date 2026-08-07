@@ -141,8 +141,9 @@ describe("silent passive-memory worker", () => {
     "The fictional folder is not blue.",
     "Someone said “the fictional folder is blue.”",
     "Mei is Kai's mother.",
+    "Bullet responses are nice.",
   ])("cannot turn governed-ineligible evidence into an affirmative memory: %s", async (body) => {
-    const statement = body.includes("folder") ? "fictional folder" : "Mei";
+    const statement = body.includes("folder") ? "fictional folder" : body.includes("responses") ? "responses" : "Mei";
     const { memories, worker } = await harness({
       bodies: [body],
       output: { proposals: [{

@@ -42,6 +42,7 @@ function effectiveHumanText(
         messages.set(event.providerMessageId, {
           workspaceId,
           canonicalSourceRef: event.id,
+          canonicalSource: event,
           sourceSequence: event.sourceSequence,
           providerMessageId: event.providerMessageId,
           targetMessageId: event.providerMessageId,
@@ -62,6 +63,7 @@ function effectiveHumanText(
         messages.set(event.payload.targetMessageId, {
           ...target,
           canonicalSourceRef: event.id,
+          canonicalSource: event,
           sourceSequence: event.sourceSequence,
           effectiveText: event.payload.body,
           sourceKind: "TEXT_EDIT",

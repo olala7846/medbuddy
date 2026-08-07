@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { DynamicMemoryPayloadSchema, MemoryTagSchema } from "./dynamic-memory.js";
+import { SourceEventSchema } from "./continuity.js";
 import {
   MemberIdSchema,
   MessageIdSchema,
@@ -20,6 +21,7 @@ const TimestampSchema = z.iso.datetime({ offset: true });
 export const PassiveMemoryEvidenceSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   canonicalSourceRef: SourceEventIdSchema,
+  canonicalSource: SourceEventSchema,
   sourceSequence: z.number().int().positive(),
   providerMessageId: MessageIdSchema,
   authorMemberId: MemberIdSchema,
@@ -33,6 +35,19 @@ export const PassiveMemoryEvidenceSchema = z.object({
       code: "custom",
       message: "The canonical passive source must terminate its edit lineage.",
       path: ["lineageSourceRefs"],
+    });
+  }
+  if (evidence.canonicalSource.id !== evidence.canonicalSourceRef ||
+      evidence.canonicalSource.workspaceId !== evidence.workspaceId ||
+      evidence.canonicalSource.sourceSequence !== evidence.sourceSequence ||
+      evidence.canonicalSource.acceptedAt !== evidence.acceptedAt ||
+      evidence.canonicalSource.authorMemberId !== evidence.authorMemberId ||
+      (evidence.canonicalSource.payload.kind !== "TEXT" && evidence.canonicalSource.payload.kind !== "TEXT_EDIT") ||
+      evidence.canonicalSource.payload.body !== evidence.effectiveText) {
+    context.addIssue({
+      code: "custom",
+      message: "Passive evidence must carry the exact immutable canonical source event.",
+      path: ["canonicalSource"],
     });
   }
 });

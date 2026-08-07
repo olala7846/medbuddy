@@ -14,6 +14,16 @@ const batch = PassiveMemoryEvidenceBatchSchema.parse({
   evidence: [{
     workspaceId: "workspace:fictional-passive",
     canonicalSourceRef: "source-event:fictional-passive",
+    canonicalSource: {
+      id: "source-event:fictional-passive",
+      workspaceId: "workspace:fictional-passive",
+      sourceSequence: 1,
+      occurredAt: "2026-08-06T12:00:00.000Z",
+      acceptedAt: "2026-08-06T12:00:00.000Z",
+      providerMessageId: "message:fictional-passive",
+      authorMemberId: "member:fictional-passive",
+      payload: { kind: "TEXT", body: "Please use Traditional Chinese for responses.", replyRequested: false },
+    },
     sourceSequence: 1,
     providerMessageId: "message:fictional-passive",
     authorMemberId: "member:fictional-passive",

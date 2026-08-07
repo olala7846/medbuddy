@@ -15,6 +15,16 @@ describe("passive memory contracts", () => {
       evidence: [{
         workspaceId: "workspace:fictional",
         canonicalSourceRef: "source-event:edit",
+        canonicalSource: {
+          id: "source-event:edit",
+          workspaceId: "workspace:fictional",
+          sourceSequence: 2,
+          occurredAt: "2026-08-06T12:00:00.000Z",
+          acceptedAt: "2026-08-06T12:00:00.000Z",
+          providerMessageId: "message:fictional-edit",
+          authorMemberId: "member:fictional",
+          payload: { kind: "TEXT_EDIT", targetMessageId: "message:fictional", body: "Fictional corrected preference." },
+        },
         sourceSequence: 2,
         providerMessageId: "message:fictional",
         authorMemberId: "member:fictional",

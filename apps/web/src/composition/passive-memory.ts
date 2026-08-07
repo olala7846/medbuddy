@@ -16,7 +16,6 @@ import {
 } from "@medbuddy/contracts";
 import {
   PASSIVE_MEMORY_MODEL_ID,
-  PASSIVE_MEMORY_PROMPT_VERSION,
   VertexPassiveMemoryGenerator,
   VertexRestClient,
   type PassiveStructuredGenerator,
@@ -44,10 +43,6 @@ export const PassiveMemoryWorkerLogEntrySchema = z.object({
   proposalCount: z.enum(["ZERO", "ONE", "TWO_TO_FOUR", "FIVE_TO_16"]).optional(),
   rangeSize: z.enum(["ONE", "TWO_TO_TEN", "ELEVEN_TO_100", "OVER_100"]).optional(),
   durationClass: z.enum(["UNDER_1S", "UNDER_5S", "UNDER_15S", "AT_LEAST_15S"]).optional(),
-  inputTokens: z.number().int().nonnegative().optional(),
-  outputTokens: z.number().int().nonnegative().optional(),
-  modelId: z.literal(PASSIVE_MEMORY_MODEL_ID).optional(),
-  promptVersion: z.literal(PASSIVE_MEMORY_PROMPT_VERSION).optional(),
   policyVersion: z.literal(PASSIVE_MEMORY_POLICY_VERSION).optional(),
 }).strict();
 
@@ -98,11 +93,13 @@ function durationClass(milliseconds: number): PassiveMemoryWorkerLogEntry["durat
 
 function isGovernedAffirmativeEvidence(evidence: PassiveMemoryEvidence): boolean {
   const body = evidence.effectiveText.normalize("NFKC");
-  if (/[?？]/u.test(body)) return false;
-  if (/\b(?:maybe|might|perhaps|unsure|uncertain|not sure|seems?|appears?|if|would|could)\b|(?:可能|也許|或許|不確定|好像|似乎|如果|假如)/iu.test(body)) return false;
+  if (/[?？]/u.test(body) || /^(?:who|what|when|where|why|how|do|does|did|is|are|can|could|should)\b|(?:是否|是不是|嗎|呢)[。！!]?$/iu.test(body)) return false;
+  if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|wonder whether)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如)/iu.test(body)) return false;
   if (/\b(?:no|not|never|without|don['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|won['’]?t)\b|(?:沒有|沒|不是|不會|未曾|尚未)/iu.test(body)) return false;
   if (/["“”「」『』]/u.test(body) || /\b(?:said|says|told|quoted)\b|(?:轉述|聽說|表示|說道)/iu.test(body)) return false;
   if (containsFamilyRelationshipTerm(body)) return false;
+  const presentationShaped = /\b(?:response|reply|summary|bullet|format|tone|language|concise|brief|detailed)\b|(?:回覆|回答|摘要|總結|條列|清單|格式|語氣|繁體中文|英文)/iu.test(body);
+  if (presentationShaped && !/\b(?:please|prefer|use|keep|make|i want|we want)\b|(?:請|偏好|希望|想要|使用)/iu.test(body)) return false;
   return true;
 }
 
@@ -148,8 +145,6 @@ export class PassiveMemoryWorker {
         attempt: job.attempts,
         evidenceCount: evidenceCountClass(evidence.evidence.length),
         rangeSize: rangeSizeClass(rangeSize),
-        modelId: PASSIVE_MEMORY_MODEL_ID,
-        promptVersion: PASSIVE_MEMORY_PROMPT_VERSION,
         policyVersion: PASSIVE_MEMORY_POLICY_VERSION,
       });
       const generated = await this.dependencies.generator.generate(evidence);
@@ -182,7 +177,6 @@ export class PassiveMemoryWorker {
         attempt: job.attempts,
         proposalCount: proposalCountClass(output.proposals.length),
         durationClass: durationClass((this.dependencies.clock?.() ?? Date.now()) - startedAt),
-        ...(generated.usage === undefined ? {} : generated.usage),
         policyVersion: PASSIVE_MEMORY_POLICY_VERSION,
       });
       return "COMPLETED";

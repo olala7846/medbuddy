@@ -242,6 +242,18 @@ describe("DynamicMemoryService", () => {
     const evidence = PassiveMemoryEvidenceSchema.parse({
       workspaceId: source.workspaceId,
       canonicalSourceRef: "source-event:memory-edit",
+      canonicalSource: SourceEventSchema.parse({
+        ...source,
+        id: "source-event:memory-edit",
+        sourceSequence: 2,
+        providerMessageId: "message:memory-edit",
+        acceptedAt: "2026-08-06T12:05:00.000Z",
+        payload: {
+          kind: "TEXT_EDIT",
+          targetMessageId: source.providerMessageId,
+          body: "Please remember the fictional folder is green.",
+        },
+      }),
       sourceSequence: 2,
       providerMessageId: source.providerMessageId!,
       authorMemberId: source.authorMemberId,
@@ -267,6 +279,14 @@ describe("DynamicMemoryService", () => {
     const evidence = PassiveMemoryEvidenceSchema.parse({
       workspaceId: source.workspaceId,
       canonicalSourceRef: source.id,
+      canonicalSource: SourceEventSchema.parse({
+        ...source,
+        payload: {
+          kind: "TEXT",
+          body: "The fictional folder is blue and the fictional folder is green.",
+          replyRequested: false,
+        },
+      }),
       sourceSequence: source.sourceSequence,
       providerMessageId: source.providerMessageId!,
       authorMemberId: source.authorMemberId,

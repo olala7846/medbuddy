@@ -95,6 +95,20 @@ export function describePassiveMemoryAdapterContract(create: () => {
         evidence: [{
           workspaceId,
           canonicalSourceRef: "source-event:passive-edit",
+          canonicalSource: {
+            id: "source-event:passive-edit",
+            workspaceId,
+            sourceSequence: 3,
+            occurredAt: "2026-08-06T12:02:00.000Z",
+            acceptedAt: "2026-08-06T12:02:00.000Z",
+            providerMessageId: "message:passive-edit",
+            authorMemberId: "member:fictional-a",
+            payload: {
+              kind: "TEXT_EDIT",
+              targetMessageId: "message:passive-original",
+              body: "Fictional corrected preference.",
+            },
+          },
           sourceSequence: 3,
           providerMessageId: "message:passive-original",
           authorMemberId: "member:fictional-a",
