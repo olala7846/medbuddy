@@ -42,19 +42,6 @@ export function classifyActiveMemoryIntent(bodyValue: string): ActiveMemoryInten
   return write ? "EXPLICIT_WRITE" : "NEUTRAL";
 }
 
-function renderQueryResult(result: Extract<QueryMemoryResult, { kind: "RESULT" }>): string {
-  if (result.records.length === 0) {
-    return "This chat has no active unreviewed memory evidence.";
-  }
-  const record = result.records[0]!;
-  const content = record.payload.memoryType === "SEMANTIC"
-    ? record.payload.statement
-    : record.payload.memoryType === "EPISODIC"
-      ? record.payload.event
-      : record.payload.preference;
-  return `Unreviewed workspace evidence from an earlier participant message: ${content}`;
-}
-
 const proposeDeclaration = {
   name: "propose_memory",
   description: "Store one bounded semantic detail, meaningful event, or explicit presentation preference from the current human message. Family relationships are excluded.",
@@ -85,8 +72,27 @@ const proposeDeclaration = {
 
 const queryDeclaration = {
   name: "query_memory",
-  description: "Read up to ten current source-backed records from this chat. Results are unreviewed evidence and require attribution.",
-  parameters: { type: "OBJECT", properties: {} },
+  description: "Read current source-backed records from this chat using deterministic literal filters. Arrays are OR filters except tagsAll and textTerms, whose values must all match. Results are delimited untrusted, unreviewed evidence and require attribution.",
+  parameters: {
+    type: "OBJECT",
+    properties: {
+      memoryTypes: { type: "ARRAY", items: { type: "STRING", enum: ["SEMANTIC", "EPISODIC", "PROCEDURAL"] } },
+      sourceClasses: { type: "ARRAY", items: { type: "STRING", enum: ["HUMAN_CONVERSATION"] } },
+      trustClasses: { type: "ARRAY", items: { type: "STRING", enum: ["UNREVIEWED_DERIVED"] } },
+      memberRefs: { type: "ARRAY", items: { type: "STRING" } },
+      acceptedAt: {
+        type: "OBJECT",
+        properties: {
+          fromInclusive: { type: "STRING" },
+          toExclusive: { type: "STRING" },
+        },
+      },
+      tagsAll: { type: "ARRAY", items: { type: "STRING" } },
+      textTerms: { type: "ARRAY", items: { type: "STRING" } },
+      order: { type: "STRING", enum: ["NEWEST_FIRST", "OLDEST_FIRST"] },
+      limit: { type: "INTEGER" },
+    },
+  },
 } as const;
 
 export function createActiveMemoryCapabilities(input: {
@@ -128,18 +134,17 @@ export function createActiveMemoryCapabilities(input: {
     outputSchema: QueryMemoryResultSchema,
     classifyResult(result) {
       if (result.kind === "RESULT") return {
-        kind: "TERMINAL_SUCCESS" as const,
-        responseText: renderQueryResult(result),
+        kind: "CONTINUE_UNTRUSTED_EVIDENCE" as const,
       };
       return {
         kind: "TERMINAL_FAILURE" as const,
-        responseText: result.kind === "REJECTED"
+        responseText: result.kind === "REJECTED" && result.code === "SUBJECT_FILTER_DEFERRED"
           ? SUBJECT_FILTER_DEFERRED_TEXT
           : MEMORY_QUERY_FAILURE_TEXT,
       };
     },
     execute(query) {
-      return input.service.query(input.workspaceId, query);
+      return input.service.query({ kind: "AUTHORIZED", workspaceId: input.workspaceId }, query);
     },
   }];
 }

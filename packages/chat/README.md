@@ -1,6 +1,6 @@
 # `@medbuddy/chat`
 
-Deterministic chat application service: append/list messages, request capture retry, and orchestrate isolated LINE turns with one workspace family map.
+Deterministic chat application service: append/list messages, request capture retry, orchestrate isolated LINE turns, and own source-backed dynamic-memory proposal and retrieval policy.
 
 ## Public entry
 
@@ -8,7 +8,11 @@ Deterministic chat application service: append/list messages, request capture re
 
 `ThreadConversationService` loads messages and the family map from exactly one
 workspace, then binds workspace, actor, and source-message identity around the
-narrow update capability passed to Intelligence.
+narrow family-map and dynamic-memory capabilities passed to Intelligence.
+
+`DynamicMemoryService` scans only current dynamic-memory records from one
+trusted workspace. Query filters are literal and deterministic; source excerpts
+are exact, bounded evidence, and incomplete or uncertain reads fail explicitly.
 
 `DynamicMemoryService` is shared by active tools and the silent passive worker.
 Passive proposals are validated and materialized without storage mutation;

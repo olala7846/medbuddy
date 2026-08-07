@@ -117,6 +117,13 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       .slice(-input.limit).map(clone);
   }
 
+  async getSourceEvent(
+    workspaceId: Parameters<ContinuityRepository["getSourceEvent"]>[0],
+    sourceEventId: Parameters<ContinuityRepository["getSourceEvent"]>[1],
+  ): Promise<SourceEvent | null> {
+    return clone((this.events.get(workspaceId) ?? []).find((event) => event.id === sourceEventId) ?? null);
+  }
+
   async createOutboundCandidate(candidateValue: OutboundCandidate): Promise<OutboundCandidate> {
     const candidate = OutboundCandidateSchema.parse(candidateValue);
     return this.queue.run(candidate.workspaceId, () => {

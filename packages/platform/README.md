@@ -1,6 +1,6 @@
 # `@medbuddy/platform`
 
-I/O adapters: Firestore repositories (including the current workspace family map), Cloud Tasks dispatcher/verify, Cloud Storage attachments, in-memory test implementations, demo-workspace persistence, production factory.
+I/O adapters: Firestore repositories (including workspace family maps, current dynamic memory, and exact source-evidence lookup), Cloud Tasks dispatcher/verify, Cloud Storage attachments, in-memory test implementations, demo-workspace persistence, production factory.
 
 The Firestore and in-memory family-map adapters implement the same source-bound,
 workspace-isolated compare-and-set contract. Firestore stores only
@@ -10,6 +10,10 @@ Passive-memory adapters expose only capped effective human text/edit ranges and
 bounded edit lineage, plus leased workspace jobs. Successful dynamic-memory
 records, terminal state, and the cursor commit atomically behind the attempt
 fence; failed or stale attempts create no active records.
+
+Dynamic-memory adapters expose a deterministic current-record scan capped at
+500 records. They remain workspace-path-bound and do not search raw history,
+continuity compaction, relationship maps, or reviewed-care records.
 
 ## Public entry
 

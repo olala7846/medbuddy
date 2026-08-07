@@ -307,6 +307,7 @@ export type AttachmentTaskInput = z.infer<typeof AttachmentTaskInputSchema>;
 
 export interface ContinuityRepository {
   acceptSourceEvent(input: AcceptSourceEventInput): Promise<AcceptSourceEventResult>;
+  getSourceEvent(workspaceId: z.infer<typeof WorkspaceIdSchema>, sourceEventId: z.infer<typeof SourceEventIdSchema>): Promise<SourceEvent | null>;
   listSourceEvents(workspaceId: z.infer<typeof WorkspaceIdSchema>, afterSequence?: number): Promise<readonly SourceEvent[]>;
   createOutboundCandidate(candidate: OutboundCandidate): Promise<OutboundCandidate>;
   publishOutboundCandidate(workspaceId: z.infer<typeof WorkspaceIdSchema>, candidateId: z.infer<typeof OutboundCandidateIdSchema>, acceptedAt: string): Promise<SourceEvent>;

@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import {
   CONVERSATION_MAX_TOOL_CALLS,
-  CONVERSATION_TOOL_RESULT_MAX_UTF16,
+  CONVERSATION_TOOL_EXCHANGE_MAX_UTF16,
   ConversationProviderError,
   type ConversationProvider,
 } from "../conversation/responder.js";
@@ -386,7 +386,7 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
     }
     if (
       renderedResult === undefined
-      || renderedResult.length > CONVERSATION_TOOL_RESULT_MAX_UTF16
+      || renderedResult.length > CONVERSATION_TOOL_EXCHANGE_MAX_UTF16
     ) throw new ConversationProviderError("MALFORMED_TRANSPORT");
     const continuation = exchange.continuation === undefined
       ? {

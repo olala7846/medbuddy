@@ -4,6 +4,7 @@ import {
   PASSIVE_MEMORY_MAX_RANGE_SIZE,
   CreateDynamicMemoryResultSchema,
   DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT,
+  DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
   DynamicMemoryRecordSchema,
   PassiveMemoryAttemptClaimSchema,
   PassiveMemoryEvidenceBatchSchema,
@@ -238,9 +239,21 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
 
   async listActive(workspaceId: string, limit: number): Promise<readonly DynamicMemoryRecord[]> {
     const bounded = Math.min(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT, Math.max(0, limit));
-    return [...this.#records.values()].filter((record) => record.workspaceId === workspaceId)
-      .sort((left, right) => right.recordedAt.localeCompare(left.recordedAt) || left.id.localeCompare(right.id))
-      .slice(0, bounded).map(clone);
+    return (await this.scanCurrent(workspaceId as never, "NEWEST_FIRST", bounded)).records;
+  }
+
+  async scanCurrent(workspaceId: string, order: "NEWEST_FIRST" | "OLDEST_FIRST", limit: number) {
+    if (!Number.isInteger(limit) || limit < 0 || limit > DYNAMIC_MEMORY_QUERY_SCAN_LIMIT) {
+      throw new Error(`Dynamic-memory scans are capped at ${DYNAMIC_MEMORY_QUERY_SCAN_LIMIT} records.`);
+    }
+    const direction = order === "NEWEST_FIRST" ? -1 : 1;
+    const records = [...this.#records.values()].filter((record) => record.workspaceId === workspaceId)
+      .sort((left, right) =>
+        direction * left.canonicalSource.acceptedAt.localeCompare(right.canonicalSource.acceptedAt)
+        || direction * left.recordedAt.localeCompare(right.recordedAt)
+        || left.id.localeCompare(right.id))
+      .slice(0, limit).map(clone);
+    return { complete: true as const, incompleteReasons: [], records };
   }
 
   async getCursor(workspaceId: Parameters<PassiveMemoryJobRepository["getCursor"]>[0]): Promise<number> {

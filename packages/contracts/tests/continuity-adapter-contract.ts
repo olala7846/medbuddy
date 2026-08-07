@@ -85,6 +85,14 @@ export function describeContinuityRepositoryContract(
       await expect(continuity.listSourceEvents("workspace:meadow" as never)).resolves.toMatchObject([
         { workspaceId: "workspace:meadow", sourceSequence: 1 },
       ]);
+      await expect(continuity.getSourceEvent(
+        "workspace:orchard" as never,
+        "source-event:fictional-1" as never,
+      )).resolves.toMatchObject({ workspaceId: "workspace:orchard" });
+      await expect(continuity.getSourceEvent(
+        "workspace:meadow" as never,
+        "source-event:fictional-1" as never,
+      )).resolves.toBeNull();
     });
 
     it("publishes outbound evidence once and only after an explicit acceptance call", async () => {

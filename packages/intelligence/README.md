@@ -1,6 +1,6 @@
 # `@medbuddy/intelligence`
 
-Probabilistic and bounded-model surfaces: bounded model/tool/model conversation loop, Vertex family-map function transport, capture processing, safety routing, and committed medication grounding.
+Probabilistic and bounded-model surfaces: bounded model/tool/model conversation loop, Vertex family-map and dynamic-memory function transport, capture processing, safety routing, and committed medication grounding.
 
 ## Public entry
 
@@ -58,6 +58,7 @@ response-time inferences rather than stored facts.
 ## Composition note
 
 `@medbuddy/web` composes the direct Vertex adapter for LINE. Chat supplies the
-server-bound family-map capability; Intelligence never receives persistence.
+server-bound family-map and current dynamic-memory capabilities; Intelligence
+never receives persistence or workspace selection authority.
 Deterministic medical refusals and the narrow ambiguous-pronoun relationship
 guard run before the model/tool loop.

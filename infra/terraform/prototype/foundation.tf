@@ -16,6 +16,52 @@ resource "google_firestore_database" "default" {
   }
 }
 
+# scanCurrent is bounded by limit(500), but its acceptedAt/recordedAt/id total
+# order requires explicit indexes in both supported timestamp directions.
+resource "google_firestore_index" "dynamic_memory_newest" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "dynamicMemoryRecords"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "canonicalSource.acceptedAt"
+    order      = "DESCENDING"
+  }
+
+  fields {
+    field_path = "recordedAt"
+    order      = "DESCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}
+
+resource "google_firestore_index" "dynamic_memory_oldest" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "dynamicMemoryRecords"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "canonicalSource.acceptedAt"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "recordedAt"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}
+
 resource "google_storage_bucket" "attachments" {
   name                        = local.attachment_bucket_name
   project                     = local.project_id
