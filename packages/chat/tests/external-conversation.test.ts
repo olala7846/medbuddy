@@ -12,10 +12,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   ContinuityThreadConversationService,
+  DynamicMemoryService,
   ThreadConversationService,
 } from "../src/index.js";
 import { InMemoryContinuityRepository } from "@medbuddy/platform";
-import { InMemoryPersistence } from "@medbuddy/platform";
+import { InMemoryDynamicMemoryRepository, InMemoryPersistence } from "@medbuddy/platform";
 
 const timestamp = "2026-08-03T12:00:00.000Z";
 const input = ThreadConversationInputSchema.parse({
@@ -233,6 +234,58 @@ describe("ContinuityThreadConversationService", () => {
       { authorMemberId: "MEDBUDDY", sourceSequence: 2 },
     ]);
     expect(harness.modelRequests[0]?.context.assembledContext?.recentConversation).toContain("Fictional observed message a.");
+  });
+
+  it("binds active memory tools to the accepted focal human source", async () => {
+    const persistence = new InMemoryPersistence();
+    const memories = new InMemoryDynamicMemoryRepository();
+    const service = new ContinuityThreadConversationService({
+      continuity: new InMemoryContinuityRepository(),
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      memory: new DynamicMemoryService(memories, () => timestamp),
+      responder: {
+        async respond(_request, tools) {
+          const propose = tools?.modelTools?.find((tool) => tool.declaration.name === "propose_memory");
+          const query = tools?.modelTools?.find((tool) => tool.declaration.name === "query_memory");
+          if (propose === undefined || query === undefined) throw new Error("Expected active memory tools.");
+          await propose.execute({
+            payload: {
+              memoryType: "SEMANTIC",
+              statement: "The fictional appointment folder is blue.",
+              subjectLabels: [],
+            },
+            tags: [],
+          }, { deadlineMs: Date.now() + 1_000, signal: new AbortController().signal });
+          const result = await query.execute({ subjectLabels: [] }, {
+            deadlineMs: Date.now() + 1_000,
+            signal: new AbortController().signal,
+          });
+          expect(result).toMatchObject({ kind: "RESULT", records: [{
+            canonicalSource: { sourceRef: "source-event:line-fictional-memory" },
+          }] });
+          return { kind: "RESPONDED", responseText: "Remembered fictional detail.", retryable: false };
+        },
+      },
+      systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
+    });
+
+    const memoryInput = observedInput(true, "memory");
+    await expect(service.observe(ObserveContinuityConversationInputSchema.parse({
+      ...memoryInput,
+      payload: {
+        ...memoryInput.payload,
+        body: "Please remember that the fictional appointment folder is blue.",
+      },
+    }))).resolves.toMatchObject({
+      kind: "RESPONSE_CANDIDATE",
+    });
+    await expect(memories.listActive("workspace:line-thread-a" as never, 10)).resolves.toMatchObject([{
+      canonicalSource: {
+        sourceRef: "source-event:line-fictional-memory",
+        authorMemberRef: "member:line-sender-a",
+      },
+    }]);
   });
 
   it("deduplicates observation before model work", async () => {

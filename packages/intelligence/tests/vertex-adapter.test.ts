@@ -62,6 +62,34 @@ const attachment = AttachmentSchema.parse({
 });
 
 describe("Vertex adapters", () => {
+  it("instructs memory tools to acknowledge writes truthfully and attribute unreviewed reads", async () => {
+    const requests: VertexGenerationRequest[] = [];
+    const recordingClient: VertexModelClient = {
+      async generate(input) {
+        requests.push(input);
+        return { candidates: [{ content: { role: "model", parts: [{ text: "Fictional reply." }] } }] };
+      },
+    };
+    await new VertexConversationProvider(recordingClient).respond({
+      focalMessage,
+      context: conversationInput.context,
+      toolDeclarations: [{
+        name: "propose_memory",
+        description: "Store one fictional item.",
+        parameters: { type: "OBJECT", properties: {} },
+      }, {
+        name: "query_memory",
+        description: "Read fictional items.",
+        parameters: { type: "OBJECT", properties: {} },
+      }],
+    });
+
+    expect(requests[0]?.systemInstruction).toContain("only after a STORED or EXISTING result");
+    expect(requests[0]?.systemInstruction).toContain("Do not mention a successful autonomous write");
+    expect(requests[0]?.systemInstruction).toContain("attribute each retrieved record");
+    expect(requests[0]?.systemInstruction).toContain("unreviewed evidence");
+  });
+
   it("serializes the current JSON response format without adding deprecated MIME configuration", () => {
     const responseFormat = [{
       text: {
@@ -153,6 +181,31 @@ describe("Vertex adapters", () => {
         toolConfig: { functionCallingConfig: { mode: "NONE" } },
       }),
     ]);
+  });
+
+  it("renders a fresh response-only provider step with no declarations and NONE mode", async () => {
+    const requests: VertexGenerationRequest[] = [];
+    const provider = new VertexConversationProvider({
+      async generate(input) {
+        requests.push(input);
+        return { candidates: [{ content: { role: "model", parts: [{ text: "A fresh answer." }] } }] };
+      },
+    });
+    await provider.respond({
+      focalMessage,
+      context: conversationInput.context,
+      toolDeclarations: [],
+      toolExecutionAllowed: false,
+      familyMapUpdatesAllowed: false,
+      familyMapUpdateRequired: false,
+      responseOnly: true,
+    });
+    expect(requests[0]).toMatchObject({
+      tools: [{ functionDeclarations: [] }],
+      toolConfig: { functionCallingConfig: { mode: "NONE" } },
+    });
+    expect(requests[0]?.systemInstruction).not.toContain("propose_memory");
+    expect(JSON.stringify(requests[0]?.contents)).not.toMatch(/functionCall|functionResponse|STORED|EXISTING/u);
   });
 
   it("bounds the complete conversational provider request including wrappers", async () => {

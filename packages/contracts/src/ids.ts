@@ -21,6 +21,7 @@ export const SourceEventIdSchema = brandedId<"SourceEventId">("source-event");
 export const OutboundCandidateIdSchema = brandedId<"OutboundCandidateId">("outbound-candidate");
 export const CompactionJobIdSchema = brandedId<"CompactionJobId">("compaction-job");
 export const CompactionSegmentIdSchema = brandedId<"CompactionSegmentId">("compaction-segment");
+export const MemoryRecordIdSchema = brandedId<"MemoryRecordId">("memory-record");
 
 export type AccountId = z.infer<typeof AccountIdSchema>;
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
@@ -34,3 +35,4 @@ export type SourceEventId = z.infer<typeof SourceEventIdSchema>;
 export type OutboundCandidateId = z.infer<typeof OutboundCandidateIdSchema>;
 export type CompactionJobId = z.infer<typeof CompactionJobIdSchema>;
 export type CompactionSegmentId = z.infer<typeof CompactionSegmentIdSchema>;
+export type MemoryRecordId = z.infer<typeof MemoryRecordIdSchema>;

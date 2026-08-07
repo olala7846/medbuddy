@@ -72,6 +72,7 @@ describe("conversation responder", () => {
   it.each([
     "I am Mei.",
     "Mei is Kai's mother.",
+    "Mei is Kai's mum.",
     "Actually, Mei is Kai's aunt.",
     "Forget the direct relationship.",
     "Clear the family map.",

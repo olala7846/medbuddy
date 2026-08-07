@@ -186,6 +186,14 @@ export interface ConversationToolExecutionContext {
 export const ConversationToolResultDispositionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("CONTINUE") }).strict(),
   z.object({
+    kind: z.literal("CONTINUE_FRESH"),
+    outcome: z.enum(["SUCCEEDED", "FAILED"]),
+  }).strict(),
+  z.object({
+    kind: z.literal("TERMINAL_SUCCESS"),
+    responseText: z.string().trim().min(1).max(5_000),
+  }).strict(),
+  z.object({
     kind: z.literal("TERMINAL_FAILURE"),
     responseText: z.string().trim().min(1).max(5_000),
   }).strict(),
@@ -213,6 +221,8 @@ export interface ConversationToolCapability<
   Output extends ConversationToolJsonObject = ConversationToolJsonObject,
 > {
   readonly declaration: ConversationToolDeclaration;
+  /** Reject a model reply until this capability has completed successfully. */
+  readonly requiredBeforeReply?: boolean;
   readonly inputSchema: z.ZodType<Input>;
   readonly outputSchema: z.ZodType<Output>;
   classifyResult(output: Output): ConversationToolResultDisposition;
