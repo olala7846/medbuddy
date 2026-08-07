@@ -75,10 +75,15 @@ Tests: `packages/*/tests` and `apps/web/tests`.
 
 **Not present yet:**
 
-- Root `fixtures/`, `scripts/`, `tests/{unit,integration,e2e}` directories.
+- Root `fixtures/` and `tests/{unit,integration,e2e}` directories.
 - Root medication-snapshot script.
 - Reviewed-care retrieval, semantic/vector retrieval, private participant memory,
   or specialized medical conversation.
+
+## Root scripts
+
+- `scripts/check-module-boundaries.mjs` checks workspace package dependencies and public import paths. Run `npm run check:boundaries`.
+- `scripts/cleanup-continuity-verification.mjs` removes a declared fictional continuity-verification manifest. It requires an explicit acknowledgement and validates the target project before cleanup.
 
 ## Composition
 
