@@ -11,3 +11,38 @@ Traditional Chinese scenario. Each file has one strict action envelope per line:
 `{{RUN_NONCE}}` is the only supported placeholder. The loader replaces it in
 fictional group, message, event, and reply-token values so target verification
 uses an isolated cleanup scope. All content is fictional and nonmedical.
+
+## Dynamic-memory acceptance gate
+
+Run `FIRESTORE_EMULATOR_HOST=127.0.0.1:8787 npm run verify:memory:acceptance`
+against a freshly started local emulator for the complete Effort 3.7 synthetic
+gate. It fails instead of silently skipping parity when the emulator variable is
+absent. `npm run verify:memory:acceptance:memory` is the explicit deterministic
+in-memory-only subset. The
+top-level tracer in `../memory-acceptance.test.ts` sends signed provider-shaped
+LINE events through the real webhook, continuity, formation, passive-worker,
+memory, and reply boundaries with fixed providers and no network access. It
+uses two fictional groups and one fictional DM, reaches the production count
+threshold, forms all three allowed record types silently, and proves a later
+group member receives attributed workspace-shared evidence while both other
+conversations remain empty.
+
+The gate also selects the existing focused contract owners instead of copying
+their assertions into the tracer:
+
+- dynamic-memory contracts own eligibility exclusions, idempotency, query
+  normalization/bounds/provenance/partial results, and lifecycle history;
+- formation and passive-worker contracts own both policy profiles, all four
+  first-threshold triggers, poison/recovery/stale/retry behavior, and silent
+  autonomous operation;
+- LINE, conversation, injection, medical-refusal, and family-map contracts own
+  authentication, fail-closed scope, capability containment, and regressions;
+- in-memory and Firestore files run the same repository contracts. Firestore
+  cases activate when `FIRESTORE_EMULATOR_HOST` points to a fresh emulator.
+
+`memory-acceptance-zh-TW.jsonl` is the separately opted-in, fictional live-model
+evaluation. Its three rows cover semantic, episodic, and allow-listed procedural
+classification through the production passive-memory Vertex adapter. Run it
+with `MEDBUDDY_VERTEX_ENABLED=true`, `MEDBUDDY_VERTEX_PROJECT`, and
+`MEDBUDDY_VERTEX_LOCATION` configured, using `npm run eval:memory:acceptance`.
+It uses no LINE, Firestore, Cloud Tasks, or deployment adapter.

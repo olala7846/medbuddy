@@ -1,0 +1,3 @@
+{"memoryType":"SEMANTIC","body":"我確認：虛構家庭把藍色資料夾放在玄關櫃子。","expected":{"memoryType":"SEMANTIC","statement":"虛構家庭把藍色資料夾放在玄關櫃子。"}}
+{"memoryType":"EPISODIC","body":"我們確認：昨天全家完成了虛構的行前清單。","expected":{"memoryType":"EPISODIC","event":"昨天全家完成了虛構的行前清單。"}}
+{"memoryType":"PROCEDURAL","body":"請用繁體中文回覆。","expected":{"memoryType":"PROCEDURAL","preference":"請用繁體中文回覆。","preferenceKind":"LANGUAGE","appliesTo":"ALL_RESPONSES"}}

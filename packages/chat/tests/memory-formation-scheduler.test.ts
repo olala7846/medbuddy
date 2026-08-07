@@ -3,6 +3,7 @@ import {
   MEMORY_FORMATION_POLICIES,
   type AcceptedFormationEvent,
   type MemoryFormationRepository,
+  type MemoryFormationPolicy,
   type MemoryFormationState,
   type PassiveMemoryJob,
   type PassiveMemoryJobRepository,
@@ -12,12 +13,21 @@ import { MemoryFormationScheduler } from "../src/memory-formation.js";
 const workspaceId = "workspace:formation" as never;
 const at = (minutes: number) => new Date(Date.parse("2026-08-06T12:00:00.000Z") + minutes * 60_000).toISOString();
 
-function event(sequence: number, size: number, acceptedAt = at(sequence)): AcceptedFormationEvent {
+function event(
+  sequence: number,
+  size: number,
+  acceptedAt = at(sequence),
+  policy: MemoryFormationPolicy = MEMORY_FORMATION_POLICIES.production,
+): AcceptedFormationEvent {
   return { workspaceId, sourceEventId: `source-event:${sequence}` as never, sourceSequence: sequence,
-    acceptedAt, policyVersion: "memory-formation-v1", kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: size };
+    acceptedAt, policyVersion: policy.policyVersion, kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: size };
 }
 
-function harness(events: AcceptedFormationEvent[], lifecycleCleanup = vi.fn(async () => {})) {
+function harness(
+  events: AcceptedFormationEvent[],
+  lifecycleCleanup = vi.fn(async () => {}),
+  policy: MemoryFormationPolicy = MEMORY_FORMATION_POLICIES.production,
+) {
   let state: MemoryFormationState | null = null;
   let jobCursor = 0;
   const jobs = new Map<string, PassiveMemoryJob>();
@@ -52,7 +62,7 @@ function harness(events: AcceptedFormationEvent[], lifecycleCleanup = vi.fn(asyn
   const scheduler = new MemoryFormationScheduler({ repository, jobs: jobRepository,
     wakeDispatcher: { async dispatch(input) { wakes.push(input); } },
     workerDispatcher,
-    policy: MEMORY_FORMATION_POLICIES.production,
+    policy,
     now: () => at(0),
     lifecycleCleanup,
   });
@@ -60,6 +70,97 @@ function harness(events: AcceptedFormationEvent[], lifecycleCleanup = vi.fn(asyn
 }
 
 describe("first-threshold-wins memory formation", () => {
+  describe.each([
+    MEMORY_FORMATION_POLICIES.production,
+    MEMORY_FORMATION_POLICIES["verification-small"],
+  ])("$profile complete trigger matrix", (policy) => {
+    function matchingEvent(sequence: number, size: number, acceptedAt = at(sequence)) {
+      return event(sequence, size, acceptedAt, policy);
+    }
+
+    function expectedPolicy() {
+      return {
+        policyVersion: policy.policyVersion,
+        continuityPolicyVersion: policy.continuityPolicyVersion,
+      };
+    }
+
+    it("dispatches QUIET at the exact equal-deadline tie with a sealed source range", async () => {
+      const h = harness([], vi.fn(async () => {}), policy);
+      await h.repository.compareAndSetState(null, {
+        workspaceId, ...expectedPolicy(), cursor: 1, revision: 0,
+        firstSourceSequence: 1, lastSourceSequence: 1,
+        sourceMembers: [{ sourceEventId: "source-event:1" as never, sourceSequence: 1 }],
+        humanTextCount: 1, renderedUtf16: 10, firstAcceptedAt: at(0), newestAcceptedAt: at(0),
+        quietDeadline: at(10), maximumAgeDeadline: at(10), scheduleGeneration: 1, scheduledFor: at(10),
+      });
+
+      await expect(h.scheduler.wake({ workspaceId, generation: 1,
+        policyVersion: policy.policyVersion }, at(10))).resolves.toBe("DISPATCHED");
+      expect(h.getState()).toMatchObject({ ...expectedPolicy(), dispatchReason: "QUIET",
+        firstSourceSequence: 1, lastSourceSequence: 1, quietDeadline: at(10), maximumAgeDeadline: at(10) });
+      expect(h.dispatches).toHaveLength(1);
+      expect([...h.jobs.values()]).toMatchObject([{
+        formationPolicyVersion: policy.policyVersion, firstSourceSequence: 1, lastSourceSequence: 1,
+      }]);
+    });
+
+    it("dispatches COUNT on the exact count boundary with its full source range and deadlines", async () => {
+      const h = harness(Array.from({ length: policy.humanTextCountCeiling }, (_, index) =>
+        matchingEvent(index + 1, 10, at(0))), vi.fn(async () => {}), policy);
+
+      await h.scheduler.reconcileWorkspace(workspaceId);
+
+      expect(h.getState()).toMatchObject({ ...expectedPolicy(), dispatchReason: "COUNT",
+        firstSourceSequence: 1, lastSourceSequence: 30,
+        quietDeadline: at(10), maximumAgeDeadline: at(24 * 60) });
+      expect(h.dispatches).toHaveLength(1);
+      expect([...h.jobs.values()]).toMatchObject([{
+        formationPolicyVersion: policy.policyVersion, firstSourceSequence: 1, lastSourceSequence: 30,
+      }]);
+    });
+
+    it("dispatches SIZE on the exact UTF-16 boundary with its singleton range and deadlines", async () => {
+      const h = harness([matchingEvent(1, policy.renderedSizeCeilingUtf16, at(0))],
+        vi.fn(async () => {}), policy);
+
+      await h.scheduler.reconcileWorkspace(workspaceId);
+
+      expect(h.getState()).toMatchObject({ ...expectedPolicy(), dispatchReason: "SIZE",
+        firstSourceSequence: 1, lastSourceSequence: 1,
+        quietDeadline: at(10), maximumAgeDeadline: at(24 * 60) });
+      expect(h.dispatches).toHaveLength(1);
+      expect([...h.jobs.values()]).toMatchObject([{
+        formationPolicyVersion: policy.policyVersion, firstSourceSequence: 1, lastSourceSequence: 1,
+      }]);
+    });
+
+    it("dispatches MAX_AGE at its exact boundary while preserving the durable range and later quiet deadline", async () => {
+      const h = harness([], vi.fn(async () => {}), policy);
+      await h.repository.compareAndSetState(null, {
+        workspaceId, ...expectedPolicy(), cursor: 2, revision: 0,
+        firstSourceSequence: 1, lastSourceSequence: 2,
+        sourceMembers: [
+          { sourceEventId: "source-event:1" as never, sourceSequence: 1 },
+          { sourceEventId: "source-event:2" as never, sourceSequence: 2 },
+        ],
+        humanTextCount: 2, renderedUtf16: 19, firstAcceptedAt: at(0), newestAcceptedAt: at(24 * 60 - 5),
+        quietDeadline: at(24 * 60 + 5), maximumAgeDeadline: at(24 * 60),
+        scheduleGeneration: 1, scheduledFor: at(24 * 60),
+      });
+
+      await expect(h.scheduler.wake({ workspaceId, generation: 1,
+        policyVersion: policy.policyVersion }, at(24 * 60))).resolves.toBe("DISPATCHED");
+      expect(h.getState()).toMatchObject({ ...expectedPolicy(), dispatchReason: "MAX_AGE",
+        firstSourceSequence: 1, lastSourceSequence: 2,
+        quietDeadline: at(24 * 60 + 5), maximumAgeDeadline: at(24 * 60) });
+      expect(h.dispatches).toHaveLength(1);
+      expect([...h.jobs.values()]).toMatchObject([{
+        formationPolicyVersion: policy.policyVersion, firstSourceSequence: 1, lastSourceSequence: 2,
+      }]);
+    });
+  });
+
   it("moves one quiet wake without dispatching work on traffic, then rechecks the durable deadline", async () => {
     const events = [event(1, 100, at(0))];
     const h = harness(events);
