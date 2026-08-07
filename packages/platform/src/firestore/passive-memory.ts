@@ -37,7 +37,7 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
   constructor(private readonly firestore: Firestore) {}
 
   async createOrGet(value: PassiveMemoryJob): Promise<PassiveMemoryJob> {
-    const job = PassiveMemoryJobSchema.parse(value);
+    const job = PassiveMemoryJobSchema.parse(withoutLease(PassiveMemoryJobSchema.parse(value)));
     return this.firestore.runTransaction(async (transaction) => {
       const stateRef = this.stateRef(job.workspaceId);
       const jobRef = this.jobRef(job.workspaceId, job.id);
@@ -126,7 +126,7 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     fenceValue: Parameters<PassiveMemoryJobRepository["finish"]>[1],
     terminal: boolean,
   ): Promise<PassiveMemoryJob> {
-    const job = PassiveMemoryJobSchema.parse(value);
+    const job = PassiveMemoryJobSchema.parse(withoutLease(PassiveMemoryJobSchema.parse(value)));
     const fence = PassiveMemoryAttemptFenceSchema.parse(fenceValue);
     return this.firestore.runTransaction(async (transaction) => {
       const stateRef = this.stateRef(job.workspaceId);
