@@ -1,4 +1,5 @@
 import { describePassiveMemoryAdapterContract } from "@medbuddy/contracts/passive-memory-adapter-contract-tests";
+import { describeDynamicMemoryRepositoryContract } from "@medbuddy/contracts/dynamic-memory-adapter-contract-tests";
 
 import {
   InMemoryContinuityRepository,
@@ -18,6 +19,8 @@ describePassiveMemoryAdapterContract(() => {
     ledger: continuity,
   };
 });
+
+describeDynamicMemoryRepositoryContract(() => new InMemoryPassiveMemoryJobRepository());
 
 describe("bounded passive-memory evidence access", () => {
   it("rejects an oversized range before touching the source ledger", async () => {
