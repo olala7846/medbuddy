@@ -57,6 +57,11 @@ export const SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL = new URL(
   import.meta.url,
 );
 
+export const SYNTHETIC_DEPLOYED_MEMORY_SMOKE_FIXTURE_URL = new URL(
+  "../fixtures/deployed-memory-smoke.jsonl",
+  import.meta.url,
+);
+
 export const TRADITIONAL_CHINESE_COMPACTED_CONTENT = {
   sourceText: "第一次回診，今天由我陪爸爸看診",
   summaryMarker: "第一次回診已納入虛構壓縮摘要",
