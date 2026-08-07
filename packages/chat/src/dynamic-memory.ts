@@ -196,6 +196,29 @@ function isAllowlistedPresentationPreference(payload: DynamicMemoryPayload): boo
   return allowed.has(preference);
 }
 
+function isGovernedPassiveEvidence(evidence: PassiveMemoryEvidence, input: ProposeMemoryInput): boolean {
+  const body = evidence.effectiveText.normalize("NFKC");
+  if (/[?？]/u.test(body) || /\bwhether\b|^(?:who|what|when|where|why|how|do|does|did|is|are|can|could|should)\b|(?:是否|是不是|嗎|呢)[。！!]?$/iu.test(body)) return false;
+  if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|according to)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如|我想知道|根據.+(?:說法|表示))/iu.test(body)) return false;
+  if (/\b(?:no|not|never|without|don['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|won['’]?t)\b|(?:沒有|沒|不是|不會|未曾|尚未)/iu.test(body)) return false;
+  if (/["“”「」『』]/u.test(body) || /\b(?:said|says|told|quoted)\b|(?:轉述|聽說|表示|說道)/iu.test(body)) return false;
+  if (containsFamilyRelationshipTerm(body)) return false;
+  if (input.payload.memoryType !== "PROCEDURAL" &&
+      /\b(?:response|reply|summary|bullet|format|tone|language|concise|brief|detailed)\b|(?:回覆|回答|摘要|總結|條列|清單|格式|語氣|繁體中文|英文)/iu.test(body)) {
+    return false;
+  }
+  const trimmed = body.trim();
+  const captured = input.payload.memoryType === "PROCEDURAL"
+    ? (/^(?:(?:please\s+)?(?:use|keep|make)\b|(?:i|we)\s+(?:prefer|want):|請(?:用|使用|保持)|我(?:們)?(?:偏好|希望|想要)[：:])/iu.test(trimmed) ? trimmed : null)
+    : (/^(?:i|we)\s+confirm:\s*(.+)$/iu.exec(trimmed)?.[1]
+      ?? /^我(?:們)?確認[：:]\s*(.+)$/u.exec(trimmed)?.[1]
+      ?? null);
+  if (captured === null) return false;
+  const source = normalizedSpan(captured);
+  return [payloadText(input.payload), ...input.payload.subjectLabels, ...input.tags]
+    .every((value) => source.includes(normalizedSpan(value)));
+}
+
 function memoryId(
   workspaceId: WorkspaceId,
   sourceRef: SourceEvent["id"],
@@ -260,6 +283,9 @@ export class DynamicMemoryService {
     if (evidence.workspaceId !== context.workspaceId ||
         !Number.isInteger(context.proposalSlot) || context.proposalSlot < 0 || context.proposalSlot >= 16) {
       return { kind: "REJECTED", code: "INELIGIBLE_SOURCE" };
+    }
+    if (!isGovernedPassiveEvidence(evidence, parsed.data)) {
+      return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     }
     const materialized = this.materializeBound({
       workspaceId: context.workspaceId,
