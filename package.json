@@ -29,6 +29,7 @@
     "verify:memory-formation": "vitest run --run memory-formation-direct-proof",
     "verify:memory:acceptance": "MEDBUDDY_MEMORY_ACCEPTANCE_IN_MEMORY_ONLY=false vitest run --config vitest.memory-acceptance.config.ts",
     "verify:memory:acceptance:memory": "MEDBUDDY_MEMORY_ACCEPTANCE_IN_MEMORY_ONLY=true vitest run --config vitest.memory-acceptance.config.ts",
+    "verify:memory:target": "vitest run --run --testTimeout=120000 deployed-memory-smoke-target",
     "eval:memory:acceptance": "MEDBUDDY_RUN_MEMORY_ACCEPTANCE_EVAL=true vitest run --run --testTimeout=240000 memory-acceptance-vertex",
     "eval:continuity-family": "MEDBUDDY_RUN_CONTINUITY_FAMILY_EVAL=true vitest run --run --testTimeout=240000 continuity-verification-vertex",
     "verify:continuity:target": "vitest run --run --testTimeout=120000 continuity-verification-target",
