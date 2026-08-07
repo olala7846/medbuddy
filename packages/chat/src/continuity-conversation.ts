@@ -43,7 +43,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
     policy?: ContinuityPolicy;
     dispatcher?: ContinuityTaskDispatcher;
     now?: () => string;
-    formationScheduler?: { reconcileWorkspace(workspaceId: string): Promise<void> };
+    formationScheduler?: { reconcileWorkspace(workspaceId: ObserveContinuityConversationInput["workspaceId"]): Promise<void> };
   }) {}
 
   async observe(inputValue: ObserveContinuityConversationInput): Promise<ObserveContinuityConversationResult> {

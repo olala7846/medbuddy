@@ -13,6 +13,8 @@ import {
   type PassiveMemoryJob,
   type PassiveMemoryJobDispatcher,
   type PassiveMemoryJobRepository,
+  type SourceEventId,
+  type WorkspaceId,
 } from "@medbuddy/contracts";
 
 type WakeOutcome = "DISPATCHED" | "RESCHEDULED" | "STALE" | "EMPTY" | "POLICY_MISMATCH";
@@ -25,7 +27,7 @@ function earliest(left: string, right: string): string {
   return Date.parse(left) <= Date.parse(right) ? left : right;
 }
 
-function freshState(workspaceId: string, policy: MemoryFormationPolicy, cursor = 0): MemoryFormationState {
+function freshState(workspaceId: WorkspaceId, policy: MemoryFormationPolicy, cursor = 0): MemoryFormationState {
   return MemoryFormationStateSchema.parse({
     workspaceId, policyVersion: policy.policyVersion,
     continuityPolicyVersion: policy.continuityPolicyVersion,
@@ -51,27 +53,26 @@ export class MemoryFormationScheduler {
     workerDispatcher: PassiveMemoryJobDispatcher;
     policy: MemoryFormationPolicy;
     now: () => string;
-    lifecycleCleanup?: (workspaceId: string, sourceEventId: string) => Promise<void>;
+    lifecycleCleanup?: (workspaceId: WorkspaceId, sourceEventId: SourceEventId) => Promise<void>;
   }) {}
 
-  async reconcileWorkspace(workspaceId: string): Promise<void> {
+  async reconcileWorkspace(workspaceId: WorkspaceId): Promise<void> {
     for (let retry = 0; retry < 8; retry += 1) {
-      let stored = await this.dependencies.repository.getState(workspaceId as never);
+      let stored = await this.dependencies.repository.getState(workspaceId);
       if (stored !== null && (stored.policyVersion !== this.dependencies.policy.policyVersion ||
           stored.continuityPolicyVersion !== this.dependencies.policy.continuityPolicyVersion)) {
         throw new Error("Memory-formation policy does not match persisted workspace state.");
       }
       if (stored?.activeJobId !== undefined) {
-        const job = await this.dependencies.jobs.get(workspaceId as never, stored.activeJobId);
-        if (job === null) return this.dispatchPersisted(stored);
-        if (job.status === "PENDING" || job.status === "RUNNING") return this.dispatchPersisted(stored);
-        const reset = clearBatch(stored, await this.dependencies.jobs.getCursor(workspaceId as never));
+        const job = await this.dependencies.jobs.get(workspaceId, stored.activeJobId);
+        if (job === null || job.status === "PENDING" || job.status === "RUNNING") return this.resumeActive(stored, job);
+        const reset = clearBatch(stored, await this.dependencies.jobs.getCursor(workspaceId));
         if (!await this.dependencies.repository.compareAndSetState(stored.revision, reset)) continue;
         stored = reset;
       }
       const base = stored ?? freshState(workspaceId, this.dependencies.policy);
       const accepted = await this.dependencies.repository.listAcceptedEvents({
-        workspaceId: workspaceId as never, afterCursor: base.cursor, limit: MEMORY_FORMATION_RECOVERY_LIMIT,
+        workspaceId, afterCursor: base.cursor, limit: MEMORY_FORMATION_RECOVERY_LIMIT,
       });
       if (accepted.length === 0) {
         if (stored === null) return;
@@ -100,7 +101,8 @@ export class MemoryFormationScheduler {
           if (event.kind === "LIFECYCLE") {
             await this.dependencies.lifecycleCleanup?.(event.workspaceId, event.sourceEventId);
           }
-          next = { ...next, cursor: event.sourceSequence, lastSourceSequence: event.sourceSequence };
+          next = { ...next, cursor: event.sourceSequence, lastSourceSequence: event.sourceSequence,
+            newestAcceptedAt: event.acceptedAt };
           continue;
         }
         if (event.renderedUtf16 > this.dependencies.policy.renderedSizeCeilingUtf16) {
@@ -133,16 +135,7 @@ export class MemoryFormationScheduler {
           dispatchReason: next.dispatchReason ?? "SIZE" });
         if (!await this.dependencies.repository.compareAndSetState(stored?.revision ?? null, next)) continue;
         await this.dependencies.jobs.createOrGet(job);
-        if (terminalSkip) {
-          const claim = await this.dependencies.jobs.claimAttempt(job.workspaceId, job.id, this.dependencies.now());
-          if (claim.kind === "CLAIMED") {
-            const { attemptClaimedAt: _a, attemptLeaseExpiresAt: _e, ...withoutLease } = claim.job;
-            void _a; void _e;
-            await this.dependencies.jobs.finish({ ...withoutLease, status: "FAILED" },
-              { jobId: job.id, claimGeneration: claim.job.claimGeneration });
-          }
-          return;
-        }
+        if (terminalSkip) return this.finishTerminalSkip(job);
         await this.dependencies.workerDispatcher.dispatch({ workspaceId: job.workspaceId, jobId: job.id });
         return;
       }
@@ -184,7 +177,15 @@ export class MemoryFormationScheduler {
 
   async recover(now = this.dependencies.now()): Promise<number> {
     const candidates = await this.dependencies.repository.listRecoveryCandidates({ now, limit: MEMORY_FORMATION_RECOVERY_LIMIT });
-    for (const workspaceId of candidates) await this.reconcileWorkspace(workspaceId);
+    for (const workspaceId of candidates) {
+      const state = await this.dependencies.repository.getState(workspaceId);
+      if (state !== null && state.activeJobId === undefined && state.scheduledFor !== undefined &&
+          Date.parse(state.scheduledFor) <= Date.parse(now)) {
+        await this.wake({ workspaceId, generation: state.scheduleGeneration, policyVersion: state.policyVersion }, now);
+      } else {
+        await this.reconcileWorkspace(workspaceId);
+      }
+    }
     return candidates.length;
   }
 
@@ -223,12 +224,27 @@ export class MemoryFormationScheduler {
       id: `passive-memory-job:formation-${state.firstSourceSequence}-${state.lastSourceSequence}-g${generation}`,
       workspaceId: state.workspaceId, firstSourceSequence: state.firstSourceSequence,
       lastSourceSequence: state.lastSourceSequence, policyVersion: PASSIVE_MEMORY_POLICY_VERSION,
-      status: "PENDING", attempts: 0, claimGeneration: 0, createdAt: this.dependencies.now(),
+      status: "PENDING", attempts: 0, claimGeneration: 0,
+      createdAt: state.firstAcceptedAt ?? state.newestAcceptedAt ?? this.dependencies.now(),
     });
   }
 
-  private async dispatchPersisted(state: MemoryFormationState): Promise<void> {
+  private async resumeActive(state: MemoryFormationState, stored: PassiveMemoryJob | null): Promise<void> {
     if (state.activeJobId === undefined) return;
+    const job = stored ?? await this.dependencies.jobs.createOrGet(this.jobFor(state, state.scheduleGeneration));
+    if (state.renderedUtf16 > this.dependencies.policy.renderedSizeCeilingUtf16) {
+      await this.finishTerminalSkip(job);
+      return;
+    }
     await this.dependencies.workerDispatcher.dispatch({ workspaceId: state.workspaceId, jobId: state.activeJobId });
+  }
+
+  private async finishTerminalSkip(job: PassiveMemoryJob): Promise<void> {
+    const claim = await this.dependencies.jobs.claimAttempt(job.workspaceId, job.id, this.dependencies.now());
+    if (claim.kind !== "CLAIMED") return;
+    const { attemptClaimedAt: _a, attemptLeaseExpiresAt: _e, ...withoutLease } = claim.job;
+    void _a; void _e;
+    await this.dependencies.jobs.finish({ ...withoutLease, status: "FAILED" },
+      { jobId: job.id, claimGeneration: claim.job.claimGeneration });
   }
 }

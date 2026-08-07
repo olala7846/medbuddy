@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { PassiveMemoryJobIdSchema, SourceEventIdSchema, WorkspaceIdSchema } from "./ids.js";
-import type { SourceEvent } from "./continuity.js";
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 
@@ -50,36 +49,6 @@ export const MEMORY_FORMATION_POLICIES = {
 /** Mirrors the generator's JSON.stringify measurement, including surrogate pairs. */
 export function formationRenderedUtf16(value: unknown): number {
   return JSON.stringify(value).length;
-}
-
-/** Content-free notification derived inside the trusted source transaction. */
-export function acceptedFormationEventForSource(event: SourceEvent): AcceptedFormationEvent {
-  if (event.payload.kind === "TEXT" && event.authorMemberId !== "MEDBUDDY") {
-    const evidence = {
-      workspaceId: event.workspaceId,
-      canonicalSourceRef: event.id,
-      canonicalSource: event,
-      sourceSequence: event.sourceSequence,
-      providerMessageId: event.providerMessageId!,
-      authorMemberId: event.authorMemberId,
-      effectiveText: event.payload.body,
-      sourceKind: "TEXT",
-      lineageSourceRefs: [event.id],
-      acceptedAt: event.acceptedAt,
-    };
-    return AcceptedFormationEventSchema.parse({
-      workspaceId: event.workspaceId, sourceEventId: event.id, sourceSequence: event.sourceSequence,
-      acceptedAt: event.acceptedAt, kind: "ELIGIBLE_HUMAN_TEXT",
-      // A singleton JSON array; appending another singleton costs size - 1.
-      renderedUtf16: formationRenderedUtf16([evidence]),
-    });
-  }
-  return AcceptedFormationEventSchema.parse({
-    workspaceId: event.workspaceId, sourceEventId: event.id, sourceSequence: event.sourceSequence,
-    acceptedAt: event.acceptedAt,
-    kind: event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND" ? "LIFECYCLE" : "EXCLUDED",
-    renderedUtf16: 0,
-  });
 }
 
 export const AcceptedFormationEventSchema = z.object({

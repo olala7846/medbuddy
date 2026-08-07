@@ -74,9 +74,9 @@ export function createLineWebhookComposition(
     policy: MEMORY_FORMATION_POLICIES[continuityConfig.continuityPolicy.profile],
     now: () => new Date().toISOString(),
     lifecycleCleanup: async (workspaceId, sourceEventId) => {
-      const source = await continuity.getSourceEvent(workspaceId as never, sourceEventId as never);
+      const source = await continuity.getSourceEvent(workspaceId, sourceEventId);
       if (source === null) throw new Error("Formation lifecycle source is missing.");
-      await memoryService.applySourceMutation(workspaceId as never, source);
+      await memoryService.applySourceMutation(workspaceId, source);
     },
   });
   return new LineWebhookHandler({

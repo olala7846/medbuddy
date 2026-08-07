@@ -1,7 +1,6 @@
 import { Firestore } from "@google-cloud/firestore";
 import {
   AcceptSourceEventInputSchema,
-  acceptedFormationEventForSource,
   AcceptedFormationEventSchema,
   type AcceptSourceEventResult,
   COMPACTION_ATTEMPT_LEASE_MS,
@@ -25,6 +24,7 @@ import {
 } from "@medbuddy/contracts";
 
 import { dynamicMemorySourceFreshnessRef } from "./memory-source-freshness.js";
+import { acceptedFormationEventForSource } from "../memory-formation.js";
 
 function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
@@ -605,10 +605,13 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
     const state = MemoryFormationStateSchema.parse(value);
     return this.firestore.runTransaction(async (transaction) => {
       const ref = this.formationStateRef(state.workspaceId);
-      const snapshot = await transaction.get(ref);
+      const consumedQuery = this.workspaceRef(state.workspaceId).collection("memoryFormationOutbox")
+        .where("sourceSequence", "<=", state.cursor).limit(100);
+      const [snapshot, consumed] = await Promise.all([transaction.get(ref), transaction.get(consumedQuery)]);
       const current = snapshot.exists ? MemoryFormationStateSchema.parse(record(snapshot.data())) : null;
       if ((current?.revision ?? null) !== expectedRevision) return false;
       transaction.set(ref, state);
+      for (const document of consumed.docs) transaction.delete(document.ref);
       return true;
     });
   }
@@ -616,21 +619,18 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
   async listRecoveryCandidates(input: Parameters<MemoryFormationRepository["listRecoveryCandidates"]>[0]) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
     const [states, outbox] = await Promise.all([
-      this.firestore.collectionGroup("memoryFormationState").limit(input.limit).get(),
+      this.firestore.collectionGroup("memoryFormationState")
+        .where("scheduledFor", "<=", input.now).orderBy("scheduledFor").limit(input.limit).get(),
       this.firestore.collectionGroup("memoryFormationOutbox").limit(input.limit).get(),
     ]);
     const candidates = new Set<string>();
-    const cursors = new Map<string, number>();
     for (const document of states.docs) {
       const state = MemoryFormationStateSchema.parse(record(document.data()));
-      cursors.set(state.workspaceId, state.cursor);
-      if (state.activeJobId !== undefined || (state.scheduledFor !== undefined && Date.parse(state.scheduledFor) <= Date.parse(input.now))) {
-        candidates.add(state.workspaceId);
-      }
+      candidates.add(state.workspaceId);
     }
     for (const document of outbox.docs) {
       const event = AcceptedFormationEventSchema.parse(record(document.data()));
-      if (event.sourceSequence > (cursors.get(event.workspaceId) ?? 0)) candidates.add(event.workspaceId);
+      candidates.add(event.workspaceId);
     }
     return [...candidates].sort().slice(0, input.limit) as never[];
   }

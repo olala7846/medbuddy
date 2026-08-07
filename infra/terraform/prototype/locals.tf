@@ -8,6 +8,7 @@ locals {
   tasks_invoker_id       = "medbuddy-tasks-invoker"
 
   required_services = toset([
+    "cloudscheduler.googleapis.com",
     "cloudtasks.googleapis.com",
     "firestore.googleapis.com",
     "iamcredentials.googleapis.com",

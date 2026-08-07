@@ -111,6 +111,14 @@ describe("first-threshold-wins memory formation", () => {
     expect(h.getState()?.dispatchReason).toBe("QUIET");
   });
 
+  it("uses the bounded recovery sweep to execute a due persisted wake", async () => {
+    const h = harness([event(1, 10, at(0))]);
+    await h.scheduler.reconcileWorkspace(workspaceId);
+    await expect(h.scheduler.recover(at(10))).resolves.toBe(1);
+    expect(h.dispatches).toHaveLength(1);
+    expect(h.getState()?.dispatchReason).toBe("QUIET");
+  });
+
   it("dispatches an exactly-at-ceiling singleton and terminally skips one above it", async () => {
     const exact = harness([event(1, 30_000, at(0))]);
     await exact.scheduler.reconcileWorkspace(workspaceId);
@@ -136,9 +144,11 @@ describe("first-threshold-wins memory formation", () => {
     const dispatch = vi.spyOn(h.workerDispatcher, "dispatch")
       .mockRejectedValueOnce(new Error("temporary"));
     await expect(h.scheduler.reconcileWorkspace(workspaceId)).rejects.toThrow("temporary");
+    h.jobs.clear(); // crash/orphan after state CAS, before durable job creation is recoverable
     dispatch.mockResolvedValue(undefined);
     await h.scheduler.reconcileWorkspace(workspaceId);
     expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(h.jobs).toHaveLength(1);
     await expect(h.scheduler.wake({ workspaceId, generation: h.getState()!.scheduleGeneration,
       policyVersion: "memory-formation-v1-verification-small" }, at(1))).resolves.toBe("POLICY_MISMATCH");
   });

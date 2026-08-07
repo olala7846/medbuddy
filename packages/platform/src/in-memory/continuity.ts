@@ -1,6 +1,5 @@
 import {
   AcceptSourceEventInputSchema,
-  acceptedFormationEventForSource,
   AcceptedFormationEventSchema,
   type AcceptSourceEventResult,
   COMPACTION_ATTEMPT_LEASE_MS,
@@ -21,6 +20,8 @@ import {
   type SourceEvent,
   SourceEventSchema,
 } from "@medbuddy/contracts";
+
+import { acceptedFormationEventForSource } from "../memory-formation.js";
 
 import { InMemoryMemorySourceFreshnessStore } from "./memory-source-freshness.js";
 
@@ -433,6 +434,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
       const existing = this.formationStates.get(state.workspaceId);
       if ((existing?.revision ?? null) !== expectedRevision) return false;
       this.formationStates.set(state.workspaceId, clone(state));
+      for (const [key, event] of this.formationOutbox) {
+        if (event.workspaceId === state.workspaceId && event.sourceSequence <= state.cursor) this.formationOutbox.delete(key);
+      }
       return true;
     });
   }
@@ -440,10 +444,7 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
   async listRecoveryCandidates(input: Parameters<MemoryFormationRepository["listRecoveryCandidates"]>[0]) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
     const workspaces = new Set<string>();
-    for (const event of this.formationOutbox.values()) {
-      const state = this.formationStates.get(event.workspaceId);
-      if (event.sourceSequence > (state?.cursor ?? 0)) workspaces.add(event.workspaceId);
-    }
+    for (const event of this.formationOutbox.values()) workspaces.add(event.workspaceId);
     for (const state of this.formationStates.values()) {
       if (state.activeJobId !== undefined || (state.scheduledFor !== undefined && Date.parse(state.scheduledFor) <= Date.parse(input.now))) {
         workspaces.add(state.workspaceId);
