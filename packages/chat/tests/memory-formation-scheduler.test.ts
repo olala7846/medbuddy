@@ -92,6 +92,7 @@ describe("first-threshold-wins memory formation", () => {
     await h.repository.compareAndSetState(null, {
       workspaceId, policyVersion: "memory-formation-v1", continuityPolicyVersion: "continuity-v1",
       cursor: 1, revision: 0, firstSourceSequence: 1, lastSourceSequence: 1,
+      sourceMembers: [{ sourceEventId: "source-event:1" as never, sourceSequence: 1 }],
       humanTextCount: 1, renderedUtf16: 10, firstAcceptedAt: at(0), newestAcceptedAt: at(24 * 60 - 5),
       quietDeadline: at(24 * 60 + 5), maximumAgeDeadline: at(24 * 60), scheduleGeneration: 1, scheduledFor: at(24 * 60),
     });
@@ -108,6 +109,17 @@ describe("first-threshold-wins memory formation", () => {
     h.repository.listAcceptedEvents = async ({ afterCursor, limit }) => events.filter((item) => item.sourceSequence > afterCursor).slice(0, limit);
     await h.scheduler.reconcileWorkspace(workspaceId);
     expect(h.getState()).toMatchObject({ firstSourceSequence: 1, lastSourceSequence: 1, dispatchReason: "QUIET" });
+    expect(h.dispatches).toHaveLength(1);
+  });
+
+  it("replays pre-deadline queued traffic before applying the recovery clock", async () => {
+    const events = [event(1, 10, at(0))];
+    const h = harness(events);
+    await h.scheduler.reconcileWorkspace(workspaceId);
+    events.push(event(2, 10, at(5)));
+    await expect(h.scheduler.recover(at(30))).resolves.toBe(1);
+    expect(h.getState()).toMatchObject({ firstSourceSequence: 1, lastSourceSequence: 2,
+      quietDeadline: at(15), dispatchReason: "QUIET" });
     expect(h.dispatches).toHaveLength(1);
   });
 
@@ -132,6 +144,7 @@ describe("first-threshold-wins memory formation", () => {
     await h.repository.compareAndSetState(null, {
       workspaceId, policyVersion: "memory-formation-v1", continuityPolicyVersion: "continuity-v1",
       cursor: 1, revision: 0, firstSourceSequence: 1, lastSourceSequence: 1,
+      sourceMembers: [{ sourceEventId: "source-event:1" as never, sourceSequence: 1 }],
       humanTextCount: 1, renderedUtf16: 10, firstAcceptedAt: at(0), newestAcceptedAt: at(0),
       quietDeadline: at(10), maximumAgeDeadline: at(10), scheduleGeneration: 1, scheduledFor: at(10),
     });

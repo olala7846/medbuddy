@@ -69,6 +69,11 @@ export const AcceptedFormationEventSchema = z.object({
 
 export const FormationDispatchReasonSchema = z.enum(["SIZE", "COUNT", "QUIET", "MAX_AGE"]);
 
+export const FormationSourceMemberSchema = z.object({
+  sourceEventId: SourceEventIdSchema,
+  sourceSequence: z.number().int().positive(),
+}).strict();
+
 export const MemoryFormationStateSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   policyVersion: z.enum(["memory-formation-v1", "memory-formation-v1-verification-small"]),
@@ -77,6 +82,7 @@ export const MemoryFormationStateSchema = z.object({
   revision: z.number().int().nonnegative(),
   firstSourceSequence: z.number().int().positive().optional(),
   lastSourceSequence: z.number().int().positive().optional(),
+  sourceMembers: z.array(FormationSourceMemberSchema).max(100).optional(),
   humanTextCount: z.number().int().nonnegative(),
   renderedUtf16: z.number().int().nonnegative(),
   firstAcceptedAt: TimestampSchema.optional(),

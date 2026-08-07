@@ -12,18 +12,19 @@ The attachment bucket deliberately has no automatic expiry until a reviewed
 retention policy exists.
 
 After the callback service exists, supply its HTTPS memory-formation URL to
-provision the five-minute, OIDC-authenticated, content-free recovery sweep:
+provision independent five-minute, OIDC-authenticated, content-free recovery
+sweeps for both the production and verification-small policy namespaces:
 
 ```sh
 terraform -chdir=infra/terraform/prototype plan \
   -var='memory_formation_callback_url=https://<cloud-run-host>/api/internal/memory-formation'
 ```
 
-The default whole profile is `production`. A temporary fictional small-profile
-verification must also set `-var='memory_formation_profile=verification-small'`
-and restore production afterward. The scheduler is intentionally absent while
-the callback URL is null; enabling real traffic without it leaves dispatch
-recovery incomplete.
+Runtime acceptance still selects one whole paired profile through application
+configuration. Both recovery triggers remain provisioned so pending work from
+a previous profile can drain safely after a profile switch. The schedulers are
+intentionally absent while the callback URL is null; enabling real traffic
+without them leaves dispatch recovery incomplete.
 
 Cloud Tasks receives `roles/iam.serviceAccountUser` on the dedicated callback
 invoker identity, following the documented HTTP-target OIDC flow. The later

@@ -175,7 +175,8 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
       }
       if (job.workspaceId !== stored.workspaceId || job.id !== stored.id ||
           job.firstSourceSequence !== stored.firstSourceSequence || job.lastSourceSequence !== stored.lastSourceSequence ||
-          job.policyVersion !== stored.policyVersion || job.formationPolicyVersion !== stored.formationPolicyVersion || job.createdAt !== stored.createdAt) {
+          job.policyVersion !== stored.policyVersion || job.formationPolicyVersion !== stored.formationPolicyVersion ||
+          !same(job.sourceMembers, stored.sourceMembers) || job.createdAt !== stored.createdAt) {
         throw new Error("Passive-memory job identity conflict.");
       }
       if (terminal) {

@@ -9,14 +9,3 @@ variable "memory_formation_callback_url" {
     error_message = "The memory-formation callback URL must use HTTPS."
   }
 }
-
-variable "memory_formation_profile" {
-  description = "Whole paired continuity/formation profile used by the recovery callback."
-  type        = string
-  default     = "production"
-
-  validation {
-    condition     = contains(["production", "verification-small"], var.memory_formation_profile)
-    error_message = "The memory-formation profile must be production or verification-small."
-  }
-}

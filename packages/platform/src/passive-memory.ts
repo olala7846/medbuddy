@@ -106,9 +106,35 @@ export class PassiveMemoryEvidenceReaderAdapter implements PassiveMemoryEvidence
     const rangeSize = input.lastSourceSequence - input.firstSourceSequence + 1;
     if (rangeSize < 1 || rangeSize > PASSIVE_MEMORY_MAX_RANGE_SIZE) throw new Error("Passive source range exceeds its bound.");
     const range = await this.continuity.readPassiveSourceRange({ ...input, limit: PASSIVE_MEMORY_MAX_RANGE_SIZE });
-    const localMessageIds = new Set(range.flatMap((event) =>
+    if ((input.formationPolicyVersion === undefined) !== (input.sourceMembers === undefined)) {
+      throw new Error("Formation evidence requires both policy and exact source membership.");
+    }
+    if (input.formationPolicyVersion !== undefined && input.formationPolicyVersion !== "memory-formation-v1" &&
+        input.formationPolicyVersion !== "memory-formation-v1-verification-small") {
+      throw new Error("Formation evidence uses an unsupported policy profile.");
+    }
+    if (input.sourceMembers !== undefined && (input.sourceMembers.length < 1 ||
+        input.sourceMembers[0]?.sourceSequence !== input.firstSourceSequence ||
+        input.sourceMembers.at(-1)?.sourceSequence !== input.lastSourceSequence ||
+        new Set(input.sourceMembers.map((member) => member.sourceEventId)).size !== input.sourceMembers.length ||
+        input.sourceMembers.some((member, index) => index > 0 &&
+          member.sourceSequence <= input.sourceMembers![index - 1]!.sourceSequence))) {
+      throw new Error("Formation evidence membership must be unique, ordered, and match its bounds.");
+    }
+    const members = input.sourceMembers === undefined
+      ? undefined
+      : new Map(input.sourceMembers.map((member) => [member.sourceSequence, member.sourceEventId]));
+    if (members !== undefined && (members.size !== input.sourceMembers!.length ||
+        input.sourceMembers!.some((member) => member.sourceSequence < input.firstSourceSequence ||
+          member.sourceSequence > input.lastSourceSequence ||
+          !range.some((event) => event.workspaceId === input.workspaceId && event.sourceSequence === member.sourceSequence &&
+            event.id === member.sourceEventId)))) {
+      throw new Error("Formation evidence membership does not match the immutable workspace source ledger.");
+    }
+    const selectedRange = members === undefined ? range : range.filter((event) => members.get(event.sourceSequence) === event.id);
+    const localMessageIds = new Set(selectedRange.flatMap((event) =>
       event.payload.kind === "TEXT" && event.providerMessageId !== undefined ? [event.providerMessageId] : []));
-    const missingTargets = [...new Set(range.flatMap((event) =>
+    const missingTargets = [...new Set(selectedRange.flatMap((event) =>
       (event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND") && !localMessageIds.has(event.payload.targetMessageId)
         ? [event.payload.targetMessageId]
         : []))];
@@ -119,11 +145,13 @@ export class PassiveMemoryEvidenceReaderAdapter implements PassiveMemoryEvidence
         throughSourceSequence: input.firstSourceSequence - 1,
         limit: 32,
       })));
-    const throughRange = [...priorLineages.flat(), ...range]
+    const throughRange = [...priorLineages.flat(), ...selectedRange]
       .filter((event) => event.sourceSequence <= input.lastSourceSequence);
     const evidence = effectiveHumanText(input.workspaceId, throughRange)
-      .filter((item) => item.sourceSequence >= input.firstSourceSequence && item.sourceSequence <= input.lastSourceSequence);
-    return PassiveMemoryEvidenceBatchSchema.parse({ ...input, evidence });
+      .filter((item) => item.sourceSequence >= input.firstSourceSequence && item.sourceSequence <= input.lastSourceSequence &&
+        (members === undefined || members.get(item.sourceSequence) === item.canonicalSourceRef));
+    return PassiveMemoryEvidenceBatchSchema.parse({ workspaceId: input.workspaceId,
+      firstSourceSequence: input.firstSourceSequence, lastSourceSequence: input.lastSourceSequence, evidence });
   }
 }
 
@@ -357,7 +385,8 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
       throw new Error("Passive-memory attempt fencing conflict.");
     }
     if (job.firstSourceSequence !== stored.firstSourceSequence || job.lastSourceSequence !== stored.lastSourceSequence ||
-        job.policyVersion !== stored.policyVersion || job.formationPolicyVersion !== stored.formationPolicyVersion || job.createdAt !== stored.createdAt) {
+        job.policyVersion !== stored.policyVersion || job.formationPolicyVersion !== stored.formationPolicyVersion ||
+        !same(job.sourceMembers, stored.sourceMembers) || job.createdAt !== stored.createdAt) {
       throw new Error("Passive-memory job identity conflict.");
     }
     if (terminal) {

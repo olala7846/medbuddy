@@ -60,7 +60,7 @@ function freshState(workspaceId: WorkspaceId, policy: MemoryFormationPolicy, cur
   return MemoryFormationStateSchema.parse({
     workspaceId, policyVersion: policy.policyVersion,
     continuityPolicyVersion: policy.continuityPolicyVersion,
-    cursor, revision: 0, humanTextCount: 0, renderedUtf16: 0, scheduleGeneration: 0,
+    cursor, revision: 0, sourceMembers: [], humanTextCount: 0, renderedUtf16: 0, scheduleGeneration: 0,
   });
 }
 
@@ -68,7 +68,7 @@ function clearBatch(state: MemoryFormationState, cursor: number): MemoryFormatio
   return MemoryFormationStateSchema.parse({
     workspaceId: state.workspaceId, policyVersion: state.policyVersion,
     continuityPolicyVersion: state.continuityPolicyVersion,
-    cursor, revision: state.revision + 1, humanTextCount: 0, renderedUtf16: 0,
+    cursor, revision: state.revision + 1, sourceMembers: [], humanTextCount: 0, renderedUtf16: 0,
     scheduleGeneration: state.scheduleGeneration,
   });
 }
@@ -85,7 +85,7 @@ export class MemoryFormationScheduler {
     lifecycleCleanup?: (workspaceId: WorkspaceId, sourceEventId: SourceEventId) => Promise<void>;
   }) {}
 
-  async reconcileWorkspace(workspaceId: WorkspaceId): Promise<void> {
+  async reconcileWorkspace(workspaceId: WorkspaceId, observedNow = this.dependencies.now()): Promise<void> {
     for (let retry = 0; retry < 8; retry += 1) {
       let stored = await this.dependencies.repository.getState(workspaceId, this.dependencies.policy.policyVersion);
       if (stored !== null && (stored.policyVersion !== this.dependencies.policy.policyVersion ||
@@ -99,6 +99,16 @@ export class MemoryFormationScheduler {
         if (!await this.dependencies.repository.compareAndSetState(stored.revision, reset)) continue;
         stored = reset;
       }
+      if (stored !== null && stored.humanTextCount > 0 && stored.sourceMembers === undefined) {
+        const generation = stored.scheduleGeneration + 1;
+        const job = this.jobFor({ ...stored, dispatchReason: "SIZE" }, generation);
+        const fenced = MemoryFormationStateSchema.parse({ ...stored, revision: stored.revision + 1,
+          scheduleGeneration: generation, scheduledFor: observedNow, activeJobId: job.id, dispatchReason: "SIZE" });
+        if (!await this.dependencies.repository.compareAndSetState(stored.revision, fenced)) continue;
+        await this.dependencies.jobs.createOrGet(job);
+        await this.dependencies.workerDispatcher.dispatch({ workspaceId: job.workspaceId, jobId: job.id });
+        return;
+      }
       let base = stored ?? freshState(workspaceId, this.dependencies.policy);
       const accepted = await this.dependencies.repository.listAcceptedEvents({
         workspaceId, afterCursor: base.cursor, limit: MEMORY_FORMATION_RECOVERY_LIMIT,
@@ -106,6 +116,12 @@ export class MemoryFormationScheduler {
       });
       if (accepted.length === 0) {
         if (stored === null) return;
+        const due = this.deadlineReason(base, observedNow);
+        if (due !== undefined) {
+          await this.wake({ workspaceId, generation: base.scheduleGeneration,
+            policyVersion: base.policyVersion }, observedNow);
+          return;
+        }
         await this.ensureDelayedWake(base);
         return;
       }
@@ -123,7 +139,7 @@ export class MemoryFormationScheduler {
           throw new Error("Accepted-event outbox is not a strictly increasing workspace stream.");
         }
         if (next.humanTextCount > 0 && next.quietDeadline !== undefined && next.maximumAgeDeadline !== undefined) {
-          const observedAt = Math.max(Date.parse(event.acceptedAt), Date.parse(this.dependencies.now()));
+          const observedAt = Date.parse(event.acceptedAt);
           const quietDue = observedAt >= Date.parse(next.quietDeadline);
           const maxDue = observedAt >= Date.parse(next.maximumAgeDeadline);
           if (quietDue || maxDue) {
@@ -149,7 +165,7 @@ export class MemoryFormationScheduler {
             await this.dependencies.lifecycleCleanup?.(event.workspaceId, event.sourceEventId);
           }
           next = { ...next, cursor: event.sourceSequence, lastSourceSequence: event.sourceSequence,
-            newestAcceptedAt: event.acceptedAt };
+            sourceMembers: [...(next.sourceMembers ?? []), this.sourceMember(event)], newestAcceptedAt: event.acceptedAt };
           continue;
         }
         if (event.renderedUtf16 > this.dependencies.policy.renderedSizeCeilingUtf16) {
@@ -171,6 +187,13 @@ export class MemoryFormationScheduler {
         }
         if (next.humanTextCount >= this.dependencies.policy.humanTextCountCeiling) {
           next = { ...next, dispatchReason: "COUNT" }; dispatch = true; break;
+        }
+      }
+      if (!dispatch && !terminalSkip) {
+        const due = this.deadlineReason(next, observedNow);
+        if (due !== undefined) {
+          next = { ...next, dispatchReason: due };
+          dispatch = true;
         }
       }
       if (dispatch && next.dispatchReason === undefined) next = { ...next, dispatchReason: "SIZE" };
@@ -227,14 +250,7 @@ export class MemoryFormationScheduler {
       limit: MEMORY_FORMATION_RECOVERY_LIMIT, policyVersion: this.dependencies.policy.policyVersion });
     for (const workspaceId of candidates) {
       try {
-        const state = await this.dependencies.repository.getState(workspaceId, this.dependencies.policy.policyVersion);
-        if (state !== null && state.policyVersion === this.dependencies.policy.policyVersion &&
-            state.activeJobId === undefined && state.scheduledFor !== undefined &&
-            Date.parse(state.scheduledFor) <= Date.parse(now)) {
-          await this.wake({ workspaceId, generation: state.scheduleGeneration, policyVersion: state.policyVersion }, now);
-        } else {
-          await this.reconcileWorkspace(workspaceId);
-        }
+        await this.reconcileWorkspace(workspaceId, now);
       } catch {
         // Preserve this workspace's outbox/cursor for the next bounded sweep;
         // one poison workspace must not starve unrelated due work.
@@ -247,6 +263,7 @@ export class MemoryFormationScheduler {
     const firstAcceptedAt = state.firstAcceptedAt ?? event.acceptedAt;
     return MemoryFormationStateSchema.parse({ ...state, cursor: event.sourceSequence,
       lastSourceSequence: event.sourceSequence, humanTextCount: state.humanTextCount + 1,
+      sourceMembers: [...(state.sourceMembers ?? []), this.sourceMember(event)],
       renderedUtf16: state.humanTextCount === 0
         ? event.renderedUtf16
         : state.renderedUtf16 + event.renderedUtf16 - 1,
@@ -279,6 +296,7 @@ export class MemoryFormationScheduler {
       workspaceId: state.workspaceId, firstSourceSequence: state.firstSourceSequence,
       lastSourceSequence: state.lastSourceSequence, policyVersion: PASSIVE_MEMORY_POLICY_VERSION,
       formationPolicyVersion: state.policyVersion,
+      sourceMembers: state.sourceMembers,
       status: "PENDING", attempts: 0, claimGeneration: 0,
       createdAt: state.firstAcceptedAt ?? state.newestAcceptedAt ?? this.dependencies.now(),
     });
@@ -299,7 +317,20 @@ export class MemoryFormationScheduler {
     if (claim.kind !== "CLAIMED") return;
     const { attemptClaimedAt: _a, attemptLeaseExpiresAt: _e, ...withoutLease } = claim.job;
     void _a; void _e;
-    await this.dependencies.jobs.finish({ ...withoutLease, status: "FAILED" },
+    await this.dependencies.jobs.finish({ ...withoutLease, status: "FAILED", terminalOutcome: "EVIDENCE_SIZE_EXCEEDED" },
       { jobId: job.id, claimGeneration: claim.job.claimGeneration });
+  }
+
+  private sourceMember(event: AcceptedFormationEvent) {
+    return { sourceEventId: event.sourceEventId, sourceSequence: event.sourceSequence };
+  }
+
+  private deadlineReason(state: MemoryFormationState, observedAt: string): "QUIET" | "MAX_AGE" | undefined {
+    if (state.humanTextCount === 0 || state.quietDeadline === undefined || state.maximumAgeDeadline === undefined) return undefined;
+    const quietDue = Date.parse(observedAt) >= Date.parse(state.quietDeadline);
+    const maxDue = Date.parse(observedAt) >= Date.parse(state.maximumAgeDeadline);
+    if (!quietDue && !maxDue) return undefined;
+    return quietDue && (!maxDue || Date.parse(state.quietDeadline) <= Date.parse(state.maximumAgeDeadline))
+      ? "QUIET" : "MAX_AGE";
   }
 }

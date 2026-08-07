@@ -92,36 +92,13 @@ function durationClass(milliseconds: number): PassiveMemoryWorkerLogEntry["durat
 
 class PassiveProposalPolicyError extends Error {}
 class PassiveEvidenceCeilingError extends Error {}
+class PassiveMembershipError extends Error {}
 
 function evidenceCeiling(job: PassiveMemoryJob): number {
   if (job.formationPolicyVersion === MEMORY_FORMATION_POLICIES["verification-small"].policyVersion) {
     return MEMORY_FORMATION_POLICIES["verification-small"].renderedSizeCeilingUtf16;
   }
   return MEMORY_FORMATION_POLICIES.production.renderedSizeCeilingUtf16;
-}
-
-function partitionEvidence(
-  batch: Awaited<ReturnType<PassiveMemoryEvidenceReader["readEffectiveHumanText"]>>,
-  ceiling: number,
-) {
-  const chunks: typeof batch[] = [];
-  let current: typeof batch.evidence = [];
-  let skipped = 0;
-  for (const item of batch.evidence) {
-    const candidate = [...current, item];
-    if (JSON.stringify({ ...batch, evidence: candidate }).length <= ceiling) {
-      current = candidate;
-      continue;
-    }
-    if (current.length > 0) {
-      chunks.push({ ...batch, evidence: current });
-      current = [];
-    }
-    if (JSON.stringify({ ...batch, evidence: [item] }).length <= ceiling) current = [item];
-    else skipped += 1;
-  }
-  if (current.length > 0) chunks.push({ ...batch, evidence: current });
-  return { chunks, skipped };
 }
 
 /** One silent attempt over one persisted, leased source range. */
@@ -153,10 +130,15 @@ export class PassiveMemoryWorker {
     const startedAt = this.dependencies.clock?.() ?? Date.now();
     const rangeSize = job.lastSourceSequence - job.firstSourceSequence + 1;
     try {
+      if (job.formationPolicyVersion !== undefined && job.sourceMembers === undefined) {
+        throw new PassiveMembershipError("Formation job predates exact source membership.");
+      }
       const evidence = await this.dependencies.evidence.readEffectiveHumanText({
         workspaceId: job.workspaceId,
         firstSourceSequence: job.firstSourceSequence,
         lastSourceSequence: job.lastSourceSequence,
+        ...(job.sourceMembers === undefined ? {} : { sourceMembers: job.sourceMembers }),
+        ...(job.formationPolicyVersion === undefined ? {} : { formationPolicyVersion: job.formationPolicyVersion }),
       });
       this.dependencies.logger.write({
         event: "passive_memory_job_started",
@@ -165,20 +147,12 @@ export class PassiveMemoryWorker {
         rangeSize: rangeSizeClass(rangeSize),
         policyVersion: PASSIVE_MEMORY_POLICY_VERSION,
       });
-      const partitioned = partitionEvidence(evidence, evidenceCeiling(job));
-      if (partitioned.chunks.length === 0 && partitioned.skipped > 0) {
+      if (JSON.stringify(evidence.evidence).length > evidenceCeiling(job)) {
         throw new PassiveEvidenceCeilingError("Effective evidence exceeds the selected formation profile ceiling.");
       }
-      const proposals = [];
-      for (const chunk of partitioned.chunks) {
-        const generated = await this.dependencies.generator.generate(chunk);
-        const output = PassiveMemoryGeneratorOutputSchema.parse(generated.output);
-        const chunkSources = new Set(chunk.evidence.map((item) => item.canonicalSourceRef));
-        if (output.proposals.some((proposal) => !chunkSources.has(proposal.sourceRef))) {
-          throw new PassiveProposalPolicyError("Passive proposal crossed its ceiling-bounded evidence partition.");
-        }
-        proposals.push(...output.proposals);
-      }
+      const generated = await this.dependencies.generator.generate(evidence);
+      const output = PassiveMemoryGeneratorOutputSchema.parse(generated.output);
+      const proposals = output.proposals;
       const bySource = new Map(evidence.evidence.map((item) => [item.canonicalSourceRef, item]));
       const canonical = proposals.map((proposal) => ({
         proposal,
@@ -219,14 +193,18 @@ export class PassiveMemoryWorker {
       });
       return "COMPLETED";
     } catch (error) {
-      const exhausted = error instanceof PassiveEvidenceCeilingError || job.attempts >= PASSIVE_MEMORY_MAX_ATTEMPTS;
+      const exhausted = error instanceof PassiveEvidenceCeilingError || error instanceof PassiveMembershipError ||
+        job.attempts >= PASSIVE_MEMORY_MAX_ATTEMPTS;
       const next = PassiveMemoryJobSchema.parse({
         ...withoutLease(job),
         status: exhausted ? "FAILED" : "PENDING",
+        ...(error instanceof PassiveEvidenceCeilingError ? { terminalOutcome: "EVIDENCE_SIZE_EXCEEDED" } : {}),
+        ...(error instanceof PassiveMembershipError ? { terminalOutcome: "MEMBERSHIP_UNAVAILABLE" } : {}),
       });
       if (exhausted) await this.dependencies.jobs.finish(next, attemptFence);
       else await this.dependencies.jobs.releaseAttempt(next, attemptFence);
-      const code = error instanceof PassiveProposalPolicyError || error instanceof PassiveEvidenceCeilingError || error instanceof z.ZodError
+      const code = error instanceof PassiveProposalPolicyError || error instanceof PassiveEvidenceCeilingError ||
+          error instanceof PassiveMembershipError || error instanceof z.ZodError
           ? "CONTRACT_INVALID"
           : exhausted ? "EXHAUSTED" : "RETRYABLE";
       this.dependencies.logger.write({

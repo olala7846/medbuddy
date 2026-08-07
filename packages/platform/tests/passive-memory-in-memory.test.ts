@@ -33,6 +33,7 @@ describe("bounded passive-memory evidence access", () => {
     const makeJob = (formationPolicyVersion: "memory-formation-v1" | "memory-formation-v1-verification-small", first: number) =>
       PassiveMemoryJobSchema.parse({ id: `passive-memory-job:${formationPolicyVersion}-${first}`, workspaceId,
         firstSourceSequence: first, lastSourceSequence: first, policyVersion: "passive-memory-v1", formationPolicyVersion,
+        sourceMembers: [{ sourceEventId: `source-event:profile-${first}`, sourceSequence: first }],
         status: "PENDING", attempts: 0, claimGeneration: 0, createdAt: "2026-08-06T12:00:00.000Z" });
     const production = await jobs.createOrGet(makeJob("memory-formation-v1", 3));
     const small = await jobs.createOrGet(makeJob("memory-formation-v1-verification-small", 2));
