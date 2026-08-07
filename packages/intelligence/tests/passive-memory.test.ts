@@ -53,11 +53,18 @@ describe("dedicated passive structured generator", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]).not.toHaveProperty("tools");
     expect(requests[0]).not.toHaveProperty("toolConfig");
-    expect(requests[0]?.generationConfig?.responseFormat?.[0]?.text.mimeType).toBe("APPLICATION_JSON");
+    expect(requests[0]?.generationConfig).toEqual({
+      maxOutputTokens: 4_096,
+      responseMimeType: "application/json",
+    });
     expect(requests[0]?.systemInstruction).toContain("Never reply");
     expect(requests[0]?.systemInstruction).toContain("I confirm: <assertion>");
     expect(requests[0]?.systemInstruction).toContain("我確認：<assertion>");
     expect(requests[0]?.systemInstruction).toContain("equal the complete <assertion>");
+    expect(requests[0]?.systemInstruction).toContain("exactly sourceRef, payload, and tags");
+    expect(requests[0]?.systemInstruction).toContain("Do not add rationale, confidence, or any other field");
+    expect(requests[0]?.systemInstruction).toContain("preferenceKind is one literal from LANGUAGE");
+    expect(requests[0]?.systemInstruction).toContain("appliesTo is exactly ALL_RESPONSES or SUMMARIES");
   });
 
   it.each([
