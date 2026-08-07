@@ -273,6 +273,33 @@ The implementation uses LINE's documented `x-line-signature`, `webhookEventId`, 
 
 ## Fictional live smoke
 
+Prefer the automated fictional JSONL smoke. Do not require a real LINE user,
+DM, or group unless the test must verify provider delivery behavior that the
+signed in-process adapter cannot simulate. Use a manual LINE check only as a
+narrow fallback, and document why automation is not sufficient.
+
+Run the automated memory smoke against the target Firestore project with the
+explicit write acknowledgement:
+
+```bash
+MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION=I_ACKNOWLEDGE_FICTIONAL_TARGET_WRITES \
+MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802 \
+npm run verify:memory:target
+```
+
+The runner loads five bounded Traditional Chinese LINE events from JSONL. It
+uses signed LINE requests, a fake reply transport, the production memory domain
+services, and the target Firestore adapters. It tests the ten-minute passive
+trigger, same-workspace recall, explicit remember, source and trust attribution,
+MedBuddy source exclusion, and a decoy workspace. It checks for target-scope
+collisions before the first write. It removes and verifies its exact nonce-based
+workspace and receipt scope in a `finally` block. It does not use a LINE channel
+secret or call the LINE API.
+
+If the process stops before cleanup, it leaves a mode-`0600` manifest in the
+system temporary directory. Use `npm run verify:continuity:cleanup` with the
+manifest path and the same target acknowledgement.
+
 1. Confirm the deployed revision has the expected Secret Manager mappings and ADC-backed Vertex access.
 2. Use the LINE console **Verify** action and confirm HTTP `200`.
 3. Send a non-medical fictional DM and confirm one model-backed reply.
@@ -307,8 +334,8 @@ The deployed smoke proves the fictional text loop only. It does not remove the r
 
 ## Effort 3 deployed memory smoke record (2026-08-07)
 
-The source-backed memory revision is deployed, but the human LINE observations
-remain a required checkpoint until the fictional two-workspace script completes:
+The source-backed memory revision is deployed. The automated target smoke
+replaced the planned human LINE group exercise:
 
 | Item | Verified state |
 | --- | --- |
@@ -321,7 +348,8 @@ remain a required checkpoint until the fictional two-workspace script completes:
 | Rendered-size policies | Production 30,000 UTF-16 units; verification-small 1,800 UTF-16 units |
 | Dynamic-memory live evaluation | Traditional Chinese semantic, episodic, and allow-listed procedural scenarios passed against the configured Vertex model |
 | Effort 1/2 regression evaluation | The first counterfactual family-map attempt declined the required sparse inference. An identical rerun passed all three assertions. This result matches the documented stochastic model variance. The failure did not occur in a compaction, persistence, or infrastructure assertion. |
-| Fictional LINE memory observations | Pending: silent passive formation; same-workspace recall with source and trust attribution; explicit remember acknowledgment; cross-workspace isolation; proof that MedBuddy output is not a canonical source; and cleanup |
+| Automated fictional LINE memory observations | Five signed JSONL events passed against target Firestore: zero passive replies, two attributed recalls, one explicit acknowledgment, two primary memories, zero isolated-workspace memories, two human canonical sources, and five content-free operational log entries |
+| Synthetic cleanup | The exact two-workspace and five-receipt nonce scope was removed and verified; no recovery manifest remained |
 
 The first infrastructure apply also exposed an invalid composite declaration for
 the outbox policy lookup. Firestore correctly rejected it as unnecessary. The
@@ -332,5 +360,4 @@ after that index reached ready state.
 No real conversation data was enabled. Repository evidence contains no LINE
 identifier, credential, prompt, model output, or conversation content. The
 recovery jobs and indexes are intentionally retained as the deployed prototype
-foundation; fictional memory cleanup and final content-free log review remain
-part of the pending operator checkpoint.
+foundation. The automated target smoke removed all of its fictional data.
