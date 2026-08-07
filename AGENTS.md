@@ -39,6 +39,7 @@ Do **not** load full `docs/PRD.md` or `docs/TDD.md` by default. Open specific se
 ## Working Language and Context Preservation
 
 - Use English by default for project discussions, documentation, source code, code comments, commit messages, and pull requests.
+- Write all agent replies and created or edited documents in ASD-STE100 Simplified Technical English.
 - Use Traditional Chinese only for a specific discussion where preserving the exact original context or meaning requires it.
 - When that exception applies, preserve a Traditional Chinese backup of the relevant discussion before translating or summarizing it. The backup must follow the privacy and public-repository rules above.
 - Unless the user explicitly requests otherwise, keep English as the canonical language for resulting documentation and implementation.
