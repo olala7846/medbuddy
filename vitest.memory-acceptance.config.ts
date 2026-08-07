@@ -9,7 +9,9 @@ if (!inMemoryOnly && (process.env.FIRESTORE_EMULATOR_HOST?.trim().length ?? 0) =
 }
 
 const firestoreContracts = [
+  "packages/platform/tests/continuity-firestore.test.ts",
   "packages/platform/tests/dynamic-memory-firestore.test.ts",
+  "packages/platform/tests/firestore-emulator.test.ts",
   "packages/platform/tests/passive-memory-firestore.test.ts",
 ];
 
@@ -22,6 +24,7 @@ export default defineConfig({
   test: {
     include: [
       "apps/web/tests/memory-acceptance.test.ts",
+      "apps/web/tests/memory-acceptance-fixture.test.ts",
       "apps/web/tests/memory-tracer.test.ts",
       "apps/web/tests/line-webhook.test.ts",
       "apps/web/tests/passive-memory-direct-proof.test.ts",
@@ -45,6 +48,8 @@ export default defineConfig({
       "packages/intelligence/tests/tool-dispatcher.test.ts",
       "packages/intelligence/tests/vertex-adapter.test.ts",
       "packages/platform/tests/dynamic-memory-in-memory.test.ts",
+      "packages/platform/tests/continuity-in-memory.test.ts",
+      "packages/platform/tests/in-memory.test.ts",
       "packages/platform/tests/memory-formation-in-memory.test.ts",
       "packages/platform/tests/memory-source-freshness-in-memory.test.ts",
       "packages/platform/tests/passive-memory-in-memory.test.ts",

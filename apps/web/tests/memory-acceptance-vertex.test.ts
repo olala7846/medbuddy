@@ -9,22 +9,21 @@ import {
 } from "@medbuddy/intelligence";
 import { describe, expect, it } from "vitest";
 
+import {
+  type MemoryAcceptanceEvaluationScenario,
+  parseMemoryAcceptanceEvaluationScenarios,
+} from "./support/memory-acceptance-evaluation.js";
+
 const runEvaluation = process.env.MEDBUDDY_RUN_MEMORY_ACCEPTANCE_EVAL === "true";
 const configuration = runEvaluation ? loadVertexConfiguration() : null;
-
-type EvaluationScenario = {
-  scenario: "semantic" | "episodic" | "procedural";
-  body: string;
-  expected: Record<string, string> & { memoryType: "SEMANTIC" | "EPISODIC" | "PROCEDURAL" };
-};
 
 function normalizeTerminalPunctuation(value: string): string {
   return value.replace(/[。.!！?？]+$/u, "");
 }
 
-async function scenarios(): Promise<readonly EvaluationScenario[]> {
+async function scenarios(): Promise<readonly MemoryAcceptanceEvaluationScenario[]> {
   const raw = await readFile(new URL("./fixtures/memory-acceptance-zh-TW.jsonl", import.meta.url), "utf8");
-  return raw.trim().split("\n").map((line) => JSON.parse(line) as EvaluationScenario);
+  return parseMemoryAcceptanceEvaluationScenarios(raw);
 }
 
 describe.runIf(runEvaluation)("Traditional Chinese dynamic-memory Vertex evaluation", () => {
@@ -60,7 +59,8 @@ describe.runIf(runEvaluation)("Traditional Chinese dynamic-memory Vertex evaluat
     for (const [index, scenario] of (await scenarios()).entries()) {
       providerStatus = undefined;
       providerIssuePaths = [];
-      const sourceRef = `source-event:memory-eval-${scenario.scenario}`;
+      const scenarioId = scenario.memoryType.toLowerCase();
+      const sourceRef = `source-event:memory-eval-${scenarioId}`;
       let output: Awaited<ReturnType<VertexPassiveMemoryGenerator["generate"]>>;
       try {
         output = await generator.generate(PassiveMemoryEvidenceBatchSchema.parse({
@@ -76,12 +76,12 @@ describe.runIf(runEvaluation)("Traditional Chinese dynamic-memory Vertex evaluat
             sourceSequence: index + 1,
             occurredAt: `2026-08-06T12:0${index}:00.000Z`,
             acceptedAt: `2026-08-06T12:0${index}:01.000Z`,
-            providerMessageId: `message:memory-eval-${scenario.scenario}`,
+            providerMessageId: `message:memory-eval-${scenarioId}`,
             authorMemberId: "member:memory-eval-fictional",
             payload: { kind: "TEXT", body: scenario.body, replyRequested: false },
           },
           sourceSequence: index + 1,
-          providerMessageId: `message:memory-eval-${scenario.scenario}`,
+          providerMessageId: `message:memory-eval-${scenarioId}`,
           authorMemberId: "member:memory-eval-fictional",
           effectiveText: scenario.body,
           sourceKind: "TEXT",
@@ -101,13 +101,23 @@ describe.runIf(runEvaluation)("Traditional Chinese dynamic-memory Vertex evaluat
       const proposal = output.output.proposals[0]!;
       expect(proposal.sourceRef).toBe(sourceRef);
       expect(proposal.payload.memoryType).toBe(scenario.expected.memoryType);
-      const actualPayload = proposal.payload as unknown as Record<string, unknown>;
-      for (const field of ["statement", "event", "preference", "preferenceKind", "appliesTo"] as const) {
-        const expected = scenario.expected[field];
-        if (expected !== undefined) {
-          expect(normalizeTerminalPunctuation(String(actualPayload[field])))
-            .toBe(normalizeTerminalPunctuation(expected));
-        }
+      if (scenario.memoryType === "SEMANTIC") {
+        expect(proposal.payload.memoryType).toBe("SEMANTIC");
+        if (proposal.payload.memoryType !== "SEMANTIC") throw new Error("Expected a semantic proposal.");
+        expect(normalizeTerminalPunctuation(proposal.payload.statement))
+          .toBe(normalizeTerminalPunctuation(scenario.expected.statement));
+      } else if (scenario.memoryType === "EPISODIC") {
+        expect(proposal.payload.memoryType).toBe("EPISODIC");
+        if (proposal.payload.memoryType !== "EPISODIC") throw new Error("Expected an episodic proposal.");
+        expect(normalizeTerminalPunctuation(proposal.payload.event))
+          .toBe(normalizeTerminalPunctuation(scenario.expected.event));
+      } else {
+        expect(proposal.payload.memoryType).toBe("PROCEDURAL");
+        if (proposal.payload.memoryType !== "PROCEDURAL") throw new Error("Expected a procedural proposal.");
+        expect(normalizeTerminalPunctuation(proposal.payload.preference))
+          .toBe(normalizeTerminalPunctuation(scenario.expected.preference));
+        expect(proposal.payload.preferenceKind).toBe(scenario.expected.preferenceKind);
+        expect(proposal.payload.appliesTo).toBe(scenario.expected.appliesTo);
       }
       expect([...proposal.payload.subjectLabels, ...proposal.tags].every((span) => scenario.body.includes(span)))
         .toBe(true);
