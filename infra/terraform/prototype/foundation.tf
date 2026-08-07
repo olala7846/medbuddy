@@ -163,20 +163,37 @@ resource "google_firestore_index" "memory_formation_due" {
   }
 }
 
-resource "google_firestore_index" "memory_formation_outbox_policy" {
-  project     = local.project_id
-  database    = google_firestore_database.default.name
-  collection  = "memoryFormationOutbox"
-  query_scope = "COLLECTION_GROUP"
+resource "google_firestore_field" "memory_formation_outbox_policy" {
+  project    = local.project_id
+  database   = google_firestore_database.default.name
+  collection = "memoryFormationOutbox"
+  field      = "policyVersion"
 
-  fields {
-    field_path = "policyVersion"
-    order      = "ASCENDING"
-  }
-
-  fields {
-    field_path = "__name__"
-    order      = "ASCENDING"
+  index_config {
+    indexes {
+      order       = "ASCENDING"
+      query_scope = "COLLECTION"
+    }
+    indexes {
+      order       = "DESCENDING"
+      query_scope = "COLLECTION"
+    }
+    indexes {
+      array_config = "CONTAINS"
+      query_scope  = "COLLECTION"
+    }
+    indexes {
+      order       = "ASCENDING"
+      query_scope = "COLLECTION_GROUP"
+    }
+    indexes {
+      order       = "DESCENDING"
+      query_scope = "COLLECTION_GROUP"
+    }
+    indexes {
+      array_config = "CONTAINS"
+      query_scope  = "COLLECTION_GROUP"
+    }
   }
 }
 
