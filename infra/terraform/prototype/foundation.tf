@@ -172,27 +172,7 @@ resource "google_firestore_field" "memory_formation_outbox_policy" {
   index_config {
     indexes {
       order       = "ASCENDING"
-      query_scope = "COLLECTION"
-    }
-    indexes {
-      order       = "DESCENDING"
-      query_scope = "COLLECTION"
-    }
-    indexes {
-      array_config = "CONTAINS"
-      query_scope  = "COLLECTION"
-    }
-    indexes {
-      order       = "ASCENDING"
       query_scope = "COLLECTION_GROUP"
-    }
-    indexes {
-      order       = "DESCENDING"
-      query_scope = "COLLECTION_GROUP"
-    }
-    indexes {
-      array_config = "CONTAINS"
-      query_scope  = "COLLECTION_GROUP"
     }
   }
 }

@@ -320,8 +320,8 @@ remain a required checkpoint until the fictional two-workspace script completes:
 | Recovery automation | Production and verification-small OIDC jobs enabled every five minutes; both automatic attempts completed with status code `0` |
 | Rendered-size policies | Production 30,000 UTF-16 units; verification-small 1,800 UTF-16 units |
 | Dynamic-memory live evaluation | Traditional Chinese semantic, episodic, and allow-listed procedural scenarios passed against the configured Vertex model |
-| Effort 1/2 regression evaluation | The first counterfactual family-map attempt declined the required sparse inference; an identical rerun passed all three assertions, matching the documented stochastic model variance rather than a compaction, persistence, or infrastructure failure |
-| Fictional LINE memory observations | Pending: silent passive formation, attributed same-workspace recall, explicit remember acknowledgment, cross-workspace isolation, and cleanup |
+| Effort 1/2 regression evaluation | The first counterfactual family-map attempt declined the required sparse inference. An identical rerun passed all three assertions. This result matches the documented stochastic model variance. The failure did not occur in a compaction, persistence, or infrastructure assertion. |
+| Fictional LINE memory observations | Pending: silent passive formation; same-workspace recall with source and trust attribution; explicit remember acknowledgment; cross-workspace isolation; proof that MedBuddy output is not a canonical source; and cleanup |
 
 The first infrastructure apply also exposed an invalid composite declaration for
 the outbox policy lookup. Firestore correctly rejected it as unnecessary. The
