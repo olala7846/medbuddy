@@ -55,6 +55,8 @@ describe("dedicated passive structured generator", () => {
     expect(requests[0]).not.toHaveProperty("toolConfig");
     expect(requests[0]?.generationConfig?.responseFormat?.[0]?.text.mimeType).toBe("APPLICATION_JSON");
     expect(requests[0]?.systemInstruction).toContain("Never reply");
+    expect(requests[0]?.systemInstruction).toContain("I confirm: <assertion>");
+    expect(requests[0]?.systemInstruction).toContain("我確認：<assertion>");
   });
 
   it.each([
