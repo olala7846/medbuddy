@@ -13,15 +13,15 @@ import {
   type ContinuityRepository,
   MemoryFormationStateSchema,
   type AcceptedFormationEvent,
+  type AcceptedFormationEventProjector,
   type MemoryFormationRepository,
   type MemoryFormationState,
+  type WorkspaceId,
   type OutboundCandidate,
   OutboundCandidateSchema,
   type SourceEvent,
   SourceEventSchema,
 } from "@medbuddy/contracts";
-
-import { acceptedFormationEventForSource } from "../memory-formation.js";
 
 import { InMemoryMemorySourceFreshnessStore } from "./memory-source-freshness.js";
 
@@ -87,7 +87,10 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
   private readonly formationStates = new Map<string, MemoryFormationState>();
   private readonly queue = new WorkspaceQueue();
 
-  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore()) {}
+  constructor(
+    private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore(),
+    private readonly formationProjector?: AcceptedFormationEventProjector,
+  ) {}
 
   async acceptSourceEvent(inputValue: Parameters<ContinuityRepository["acceptSourceEvent"]>[0]): Promise<AcceptSourceEventResult> {
     const input = AcceptSourceEventInputSchema.parse(inputValue);
@@ -104,8 +107,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
       workspaceEvents.push(clone(event));
       this.events.set(input.workspaceId, workspaceEvents);
       this.receipts.set(input.receiptKey, clone(event));
-      this.formationOutbox.set(this.key(event.workspaceId, String(event.sourceSequence)),
-        acceptedFormationEventForSource(event));
+      if (this.formationProjector !== undefined) {
+        this.formationOutbox.set(this.key(event.workspaceId, String(event.sourceSequence)), this.formationProjector(event));
+      }
       this.memoryFreshness.recordAccepted(event);
       return { kind: "ACCEPTED", event };
     }));
@@ -205,8 +209,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
         state: "PUBLISHED",
         publishedSourceEventId: event.id,
       }));
-      this.formationOutbox.set(this.key(event.workspaceId, String(event.sourceSequence)),
-        acceptedFormationEventForSource(event));
+      if (this.formationProjector !== undefined) {
+        this.formationOutbox.set(this.key(event.workspaceId, String(event.sourceSequence)), this.formationProjector(event));
+      }
       return event;
     });
   }
@@ -443,14 +448,14 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
 
   async listRecoveryCandidates(input: Parameters<MemoryFormationRepository["listRecoveryCandidates"]>[0]) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
-    const workspaces = new Set<string>();
+    const workspaces = new Set<WorkspaceId>();
     for (const event of this.formationOutbox.values()) workspaces.add(event.workspaceId);
     for (const state of this.formationStates.values()) {
       if (state.activeJobId !== undefined || (state.scheduledFor !== undefined && Date.parse(state.scheduledFor) <= Date.parse(input.now))) {
         workspaces.add(state.workspaceId);
       }
     }
-    return [...workspaces].sort().slice(0, input.limit) as never[];
+    return [...workspaces].sort().slice(0, input.limit);
   }
 
   private key(workspaceId: string, id: string): string {

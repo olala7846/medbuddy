@@ -10,6 +10,7 @@ import {
   CloudTasksPassiveMemoryDispatcher,
   type CloudTasksDispatcherOptions,
 } from "./cloud-tasks/dispatcher.js";
+import type { AcceptedFormationEventProjector } from "@medbuddy/contracts";
 import { FirestorePersistence } from "./firestore/repositories.js";
 import { FirestoreContinuityRepository } from "./firestore/continuity.js";
 import { FirestoreDynamicMemoryRepository } from "./firestore/dynamic-memory.js";
@@ -24,11 +25,11 @@ export interface ProductionPlatformOptions extends CloudTasksDispatcherOptions {
 }
 
 /** Minimal Firestore-only platform for synchronous external conversations. */
-export function createConversationPlatform(projectId: string) {
+export function createConversationPlatform(projectId: string, formationProjector?: AcceptedFormationEventProjector) {
   const firestore = new Firestore({ projectId });
   return {
     persistence: new FirestorePersistence(firestore),
-    continuity: new FirestoreContinuityRepository(firestore),
+    continuity: new FirestoreContinuityRepository(firestore, formationProjector),
     memory: new FirestoreDynamicMemoryRepository(firestore),
     passiveJobs: new FirestorePassiveMemoryJobRepository(firestore),
   };

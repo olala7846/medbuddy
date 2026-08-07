@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryContinuityRepository } from "../src/index.js";
 
+const projector = (event: { workspaceId: string; id: string; sourceSequence: number; acceptedAt: string;
+  authorMemberId: string; payload: { kind: string } }) => ({ workspaceId: event.workspaceId, sourceEventId: event.id,
+  sourceSequence: event.sourceSequence, acceptedAt: event.acceptedAt,
+  kind: event.payload.kind === "TEXT" && event.authorMemberId !== "MEDBUDDY" ? "ELIGIBLE_HUMAN_TEXT" as const
+    : event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND" ? "LIFECYCLE" as const : "EXCLUDED" as const,
+  renderedUtf16: event.payload.kind === "TEXT" && event.authorMemberId !== "MEDBUDDY" ? 100 : 0 });
+
 describe("in-memory accepted-event formation outbox", () => {
   it("atomically emits content-free eligibility metadata and deduplicates provider retries", async () => {
-    const repository = new InMemoryContinuityRepository();
+    const repository = new InMemoryContinuityRepository(undefined, projector as never);
     const input = {
       receiptKey: "event:formation-one", id: "source-event:formation-one",
       workspaceId: "workspace:formation-one", occurredAt: "2026-08-06T12:00:00.000Z",
@@ -19,7 +26,7 @@ describe("in-memory accepted-event formation outbox", () => {
   });
 
   it("excludes bot text and attachments and schedules lifecycle metadata without count or size", async () => {
-    const repository = new InMemoryContinuityRepository();
+    const repository = new InMemoryContinuityRepository(undefined, projector as never);
     const common = { workspaceId: "workspace:formation-excluded", occurredAt: "2026-08-06T12:00:00.000Z",
       acceptedAt: "2026-08-06T12:00:01.000Z" };
     await repository.acceptSourceEvent({ ...common, receiptKey: "event:bot", id: "source-event:bot",

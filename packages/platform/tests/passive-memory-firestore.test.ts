@@ -18,7 +18,10 @@ describeEmulator("Firestore passive memory", () => {
   describePassiveMemoryAdapterContract(() => {
     const firestore = new Firestore({ projectId: `medbuddy-passive-memory-${randomUUID()}` });
     clients.push(firestore);
-    const continuity = new FirestoreContinuityRepository(firestore);
+    const continuity = new FirestoreContinuityRepository(firestore, (event) => ({
+      workspaceId: event.workspaceId, sourceEventId: event.id, sourceSequence: event.sourceSequence,
+      acceptedAt: event.acceptedAt, kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
+    }));
     const jobs = new FirestorePassiveMemoryJobRepository(firestore, true);
     return {
       continuity,
@@ -32,7 +35,10 @@ describeEmulator("Firestore passive memory", () => {
   it("persists formation outbox and CAS state through Firestore", async () => {
     const firestore = new Firestore({ projectId: `medbuddy-formation-${randomUUID()}` });
     clients.push(firestore);
-    const continuity = new FirestoreContinuityRepository(firestore);
+    const continuity = new FirestoreContinuityRepository(firestore, (event) => ({
+      workspaceId: event.workspaceId, sourceEventId: event.id, sourceSequence: event.sourceSequence,
+      acceptedAt: event.acceptedAt, kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
+    }));
     const workspaceId = WorkspaceIdSchema.parse("workspace:formation-firestore");
     await continuity.acceptSourceEvent({ receiptKey: "event:formation-firestore", id: "source-event:formation-firestore",
       workspaceId, occurredAt: "2026-08-06T12:00:00.000Z", acceptedAt: "2026-08-06T12:00:01.000Z",

@@ -15,6 +15,8 @@ import {
   MemoryFormationStateSchema,
   type MemoryFormationRepository,
   type MemoryFormationState,
+  type AcceptedFormationEventProjector,
+  type WorkspaceId,
   DynamicMemoryWorkspaceScopeError,
   MessageDocumentSchema,
   type OutboundCandidate,
@@ -24,7 +26,6 @@ import {
 } from "@medbuddy/contracts";
 
 import { dynamicMemorySourceFreshnessRef } from "./memory-source-freshness.js";
-import { acceptedFormationEventForSource } from "../memory-formation.js";
 
 function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
@@ -74,7 +75,10 @@ function nonnegativeInteger(value: unknown, label: string): number {
  * Source: https://firebase.google.com/docs/firestore/manage-data/transactions
  */
 export class FirestoreContinuityRepository implements ContinuityRepository, MemoryFormationRepository {
-  constructor(private readonly firestore: Firestore) {}
+  constructor(
+    private readonly firestore: Firestore,
+    private readonly formationProjector?: AcceptedFormationEventProjector,
+  ) {}
 
   async acceptSourceEvent(inputValue: Parameters<ContinuityRepository["acceptSourceEvent"]>[0]): Promise<AcceptSourceEventResult> {
     const input = AcceptSourceEventInputSchema.parse(inputValue);
@@ -110,7 +114,9 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
       transaction.create(this.sourceEventRef(input.workspaceId, event.id), event);
       transaction.set(counterRef, { nextSourceSequence: sourceSequence });
       transaction.create(receiptRef, { workspaceId: input.workspaceId, sourceEventId: event.id });
-      transaction.create(this.formationOutboxRef(event.workspaceId, event.id), acceptedFormationEventForSource(event));
+      if (this.formationProjector !== undefined) {
+        transaction.create(this.formationOutboxRef(event.workspaceId, event.id), this.formationProjector(event));
+      }
       const freshnessRef = this.memorySourceFreshnessRef(event);
       if (freshnessRef !== null) {
         transaction.set(freshnessRef, {
@@ -283,7 +289,9 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
         payload: { kind: "TEXT", body: candidate.body, replyRequested: false },
       });
       transaction.create(this.sourceEventRef(workspaceId, event.id), event);
-      transaction.create(this.formationOutboxRef(workspaceId, event.id), acceptedFormationEventForSource(event));
+      if (this.formationProjector !== undefined) {
+        transaction.create(this.formationOutboxRef(workspaceId, event.id), this.formationProjector(event));
+      }
       transaction.set(counterRef, { nextSourceSequence: sourceSequence });
       transaction.set(candidateRef, {
         ...candidate,
@@ -623,7 +631,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
         .where("scheduledFor", "<=", input.now).orderBy("scheduledFor").limit(input.limit).get(),
       this.firestore.collectionGroup("memoryFormationOutbox").limit(input.limit).get(),
     ]);
-    const candidates = new Set<string>();
+    const candidates = new Set<WorkspaceId>();
     for (const document of states.docs) {
       const state = MemoryFormationStateSchema.parse(record(document.data()));
       candidates.add(state.workspaceId);
@@ -632,7 +640,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
       const event = AcceptedFormationEventSchema.parse(record(document.data()));
       candidates.add(event.workspaceId);
     }
-    return [...candidates].sort().slice(0, input.limit) as never[];
+    return [...candidates].sort().slice(0, input.limit);
   }
 
   private workspaceRef(workspaceId: string) {

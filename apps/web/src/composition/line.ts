@@ -1,4 +1,4 @@
-import { ContinuityThreadConversationService, DynamicMemoryService, MemoryFormationScheduler, ThreadConversationService } from "@medbuddy/chat";
+import { acceptedFormationEventForSource, ContinuityThreadConversationService, DynamicMemoryService, MemoryFormationScheduler, ThreadConversationService } from "@medbuddy/chat";
 import { MEMORY_FORMATION_POLICIES } from "@medbuddy/contracts";
 import {
   CommittedSourceCardGrounding,
@@ -28,7 +28,7 @@ export function createLineWebhookComposition(
   if (vertex.model !== "gemini-3.6-flash") {
     throw new LineConfigurationError(["MEDBUDDY_VERTEX_MODEL"]);
   }
-  const { persistence, continuity, memory, passiveJobs } = createConversationPlatform(line.projectId);
+  const { persistence, continuity, memory, passiveJobs } = createConversationPlatform(line.projectId, acceptedFormationEventForSource);
   const conversationClient = applyLangSmithVertexTracing(environment, {
     client: new VertexRestClient(vertex),
     boundary: "conversation",

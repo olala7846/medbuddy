@@ -8,7 +8,6 @@ export * from "./firestore/continuity.js";
 export * from "./firestore/dynamic-memory.js";
 export * from "./firestore/passive-memory.js";
 export * from "./passive-memory.js";
-export * from "./memory-formation.js";
 export * from "./firestore/attachment-locator.js";
 export * from "./cloud-tasks/dispatcher.js";
 export * from "./cloud-tasks/verify.js";

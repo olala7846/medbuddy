@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { PassiveMemoryJobIdSchema, SourceEventIdSchema, WorkspaceIdSchema } from "./ids.js";
+import type { SourceEvent } from "./continuity.js";
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 
@@ -101,6 +102,7 @@ export const MemoryFormationRecoveryInputSchema = z.object({
 export type AcceptedFormationEvent = z.infer<typeof AcceptedFormationEventSchema>;
 export type MemoryFormationState = z.infer<typeof MemoryFormationStateSchema>;
 export type MemoryFormationWakeInput = z.infer<typeof MemoryFormationWakeInputSchema>;
+export type AcceptedFormationEventProjector = (event: SourceEvent) => AcceptedFormationEvent;
 
 export interface MemoryFormationRepository {
   listAcceptedEvents(input: { workspaceId: z.infer<typeof WorkspaceIdSchema>; afterCursor: number; limit: number }): Promise<readonly AcceptedFormationEvent[]>;

@@ -1,4 +1,4 @@
-import { DynamicMemoryService, MemoryFormationScheduler } from "@medbuddy/chat";
+import { acceptedFormationEventForSource, DynamicMemoryService, MemoryFormationScheduler } from "@medbuddy/chat";
 import {
   MEMORY_FORMATION_POLICIES,
   MemoryFormationRecoveryInputSchema,
@@ -45,7 +45,7 @@ export class MemoryFormationTaskHandler {
 
 export function createMemoryFormationTaskComposition(environment: Record<string, string | undefined>) {
   const config = loadContinuityConfiguration(environment);
-  const platform = createConversationPlatform(config.projectId);
+  const platform = createConversationPlatform(config.projectId, acceptedFormationEventForSource);
   const dispatchers = createMemoryFormationDispatchers({
     projectId: config.projectId, location: config.tasksLocation, queue: config.tasksQueue,
     formationCallbackUrl: config.memoryFormationCallbackUrl,
