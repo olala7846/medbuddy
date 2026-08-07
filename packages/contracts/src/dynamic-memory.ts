@@ -19,7 +19,15 @@ export const DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16 = 8_000;
 export const DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16 = 300;
 export const DYNAMIC_MEMORY_TRACER_QUERY_LIMIT = 1;
 
-const TimestampSchema = z.iso.datetime({ offset: true });
+const TimestampSchema = z.iso.datetime({ offset: true })
+  .transform((value) => new Date(value).toISOString());
+
+export class DynamicMemoryWorkspaceScopeError extends Error {
+  constructor() {
+    super("Dynamic-memory evidence does not match its trusted workspace scope.");
+    this.name = "DynamicMemoryWorkspaceScopeError";
+  }
+}
 
 function normalizedBoundedText(maximum: number) {
   return z.string().transform((value) => value.normalize("NFKC").replace(/\s+/gu, " ").trim())

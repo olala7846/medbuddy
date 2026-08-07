@@ -5,6 +5,7 @@ import {
   DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16,
   DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
   DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16,
+  DynamicMemoryWorkspaceScopeError,
   DynamicMemoryRecordSchema,
   ModelVisibleDynamicMemoryRecordSchema,
   MemoryRecordIdSchema,
@@ -73,8 +74,16 @@ function matchesQuery(record: DynamicMemoryRecord, query: ReturnType<typeof Quer
 
 function boundedExactExcerpt(body: string, content: string): string {
   const index = body.indexOf(content);
-  if (index >= 0) return body.slice(index, index + DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16);
-  return body.slice(0, DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16);
+  return sliceUtf16(body, index >= 0 ? index : 0, DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16);
+}
+
+function sliceUtf16(value: string, start: number, maximum: number): string {
+  let end = Math.min(value.length, start + maximum);
+  if (end < value.length) {
+    const trailing = value.charCodeAt(end - 1);
+    if (trailing >= 0xD800 && trailing <= 0xDBFF) end -= 1;
+  }
+  return value.slice(start, end);
 }
 
 type IncompleteReason = Extract<QueryMemoryResult, { kind: "RESULT" }>["incompleteReasons"][number];
@@ -280,7 +289,10 @@ export class DynamicMemoryService {
         parsed.data.order,
         DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof DynamicMemoryWorkspaceScopeError) {
+        return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+      }
       return { kind: "TECHNICAL_FAILURE" };
     }
     if (scanned.some((record) => record.workspaceId !== workspaceId)) {
@@ -327,7 +339,10 @@ export class DynamicMemoryService {
             };
           }
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof DynamicMemoryWorkspaceScopeError) {
+          return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+        }
         reasons.add("ADAPTER_PARTIAL_FAILURE");
         provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
       }
@@ -352,7 +367,7 @@ export class DynamicMemoryService {
         const excess = JSON.stringify(render()).length - DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16;
         if (excess <= 0) break;
         const keep = provenance.exactExcerpt.length - excess;
-        if (keep > 0) provenance.exactExcerpt = provenance.exactExcerpt.slice(0, keep);
+        if (keep > 0) provenance.exactExcerpt = sliceUtf16(provenance.exactExcerpt, 0, keep);
         else delete (provenance as { exactExcerpt?: string }).exactExcerpt;
       }
       while (records.length > 0 && JSON.stringify(render()).length > DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16) {

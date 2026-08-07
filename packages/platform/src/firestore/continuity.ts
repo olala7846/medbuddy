@@ -11,6 +11,7 @@ import {
   type ContinuityAttachment,
   ContinuityAttachmentSchema,
   type ContinuityRepository,
+  DynamicMemoryWorkspaceScopeError,
   MessageDocumentSchema,
   type OutboundCandidate,
   OutboundCandidateSchema,
@@ -142,7 +143,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     if (!snapshot.exists) return null;
     const event = SourceEventSchema.parse(record(snapshot.data()));
     if (event.workspaceId !== workspaceId || event.id !== sourceEventId) {
-      throw new Error("Stored source event does not match its workspace path.");
+      throw new DynamicMemoryWorkspaceScopeError();
     }
     return event;
   }

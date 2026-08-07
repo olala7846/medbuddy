@@ -1,5 +1,6 @@
 import {
   DynamicMemoryRecordSchema,
+  DynamicMemoryWorkspaceScopeError,
   ProposeMemoryInputSchema,
   ProposeMemoryResultSchema,
   QueryMemoryInputSchema,
@@ -509,6 +510,60 @@ describe("DynamicMemoryService", () => {
     });
     await expect(service.query({ kind: "AUTHORIZED", workspaceId: source.workspaceId }, QueryMemoryInputSchema.parse({})))
       .resolves.toEqual({ kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" });
+  });
+
+  it("preserves typed fail-closed scope errors from memory and evidence adapters", async () => {
+    const failingRepository = {
+      async get() { return null; },
+      async createOrGet() { throw new Error("not used"); },
+      async listActive() { return []; },
+      async scanCurrent(): Promise<never> { throw new DynamicMemoryWorkspaceScopeError(); },
+    };
+    await expect(new DynamicMemoryService(failingRepository).query(
+      { kind: "AUTHORIZED", workspaceId: source.workspaceId },
+      QueryMemoryInputSchema.parse({}),
+    )).resolves.toEqual({ kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" });
+
+    const repository = new InMemoryDynamicMemoryRepository();
+    await repository.createOrGet(record({
+      id: "memory-record:scope-error",
+      text: "A fictional detail.",
+      acceptedAt: "2026-08-06T12:00:00.000Z",
+    }));
+    const service = new DynamicMemoryService(repository, undefined, {
+      async getSourceEvent(): Promise<never> { throw new DynamicMemoryWorkspaceScopeError(); },
+    });
+    await expect(service.query(
+      { kind: "AUTHORIZED", workspaceId: source.workspaceId },
+      QueryMemoryInputSchema.parse({}),
+    )).resolves.toEqual({ kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" });
+  });
+
+  it("bounds exact excerpts in UTF-16 units without splitting a surrogate pair", async () => {
+    const repository = new InMemoryDynamicMemoryRepository();
+    const stored = record({
+      id: "memory-record:utf16-excerpt",
+      text: "A fictional detail.",
+      acceptedAt: "2026-08-06T12:00:00.000Z",
+    });
+    await repository.createOrGet(stored);
+    const service = new DynamicMemoryService(repository, undefined, {
+      async getSourceEvent() {
+        return SourceEventSchema.parse({
+          ...source,
+          id: stored.canonicalSource.sourceRef,
+          acceptedAt: stored.canonicalSource.acceptedAt,
+          payload: { ...source.payload, body: `${"x".repeat(299)}😀tail` },
+        });
+      },
+    });
+    const result = await service.query(
+      { kind: "AUTHORIZED", workspaceId: source.workspaceId },
+      QueryMemoryInputSchema.parse({}),
+    );
+    if (result.kind !== "RESULT") throw new Error("Expected records.");
+    const provenance = result.records[0]!.provenance[0]!;
+    expect(provenance).toMatchObject({ sourceStatus: "AVAILABLE", exactExcerpt: "x".repeat(299) });
   });
 
   it("returns persisted provenance with typed incomplete reasons when exact excerpt reads are unavailable", async () => {

@@ -107,6 +107,12 @@ describe("dynamic memory contracts", () => {
     });
   });
 
+  it("canonicalizes accepted-time offsets before deterministic comparison", () => {
+    expect(QueryMemoryInputSchema.parse({
+      acceptedAt: { fromInclusive: "2026-08-06T05:00:00-07:00" },
+    }).acceptedAt).toEqual({ fromInclusive: "2026-08-06T12:00:00.000Z" });
+  });
+
   it("rejects reversed time bounds and result limits above the hard cap", () => {
     expect(QueryMemoryInputSchema.safeParse({
       acceptedAt: {

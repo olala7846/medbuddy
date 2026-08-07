@@ -3,6 +3,7 @@ import {
   CreateDynamicMemoryResultSchema,
   DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT,
   DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
+  DynamicMemoryWorkspaceScopeError,
   DynamicMemoryRecordSchema,
   type DynamicMemoryRecord,
   type DynamicMemoryRepository,
@@ -74,7 +75,7 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
       .map((document) => DynamicMemoryRecordSchema.parse(record(document.data())))
       .map((memory) => {
         if (memory.workspaceId !== workspaceId) {
-          throw new Error("Stored dynamic memory does not match its workspace path.");
+          throw new DynamicMemoryWorkspaceScopeError();
         }
         return memory;
       })
