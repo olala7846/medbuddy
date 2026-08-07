@@ -1,0 +1,154 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  PassiveMemoryJobSchema,
+  WorkspaceIdSchema,
+  type ContinuityRepository,
+  type PassiveMemoryEvidenceReader,
+  type PassiveMemoryJobRepository,
+} from "../src/index.js";
+
+const workspaceId = WorkspaceIdSchema.parse("workspace:passive-contract");
+const createdAt = "2026-08-06T12:00:00.000Z";
+
+async function seed(continuity: ContinuityRepository) {
+  const events = [
+    {
+      receiptKey: "event:passive-original",
+      id: "source-event:passive-original",
+      workspaceId,
+      occurredAt: createdAt,
+      acceptedAt: createdAt,
+      providerMessageId: "message:passive-original",
+      authorMemberId: "member:fictional-a",
+      payload: { kind: "TEXT", body: "Fictional original preference.", replyRequested: false },
+    },
+    {
+      receiptKey: "event:passive-bot",
+      id: "source-event:passive-bot",
+      workspaceId,
+      occurredAt: "2026-08-06T12:01:00.000Z",
+      acceptedAt: "2026-08-06T12:01:00.000Z",
+      providerMessageId: "message:passive-bot",
+      authorMemberId: "MEDBUDDY",
+      payload: { kind: "TEXT", body: "Fictional bot text.", replyRequested: false },
+    },
+    {
+      receiptKey: "event:passive-edit",
+      id: "source-event:passive-edit",
+      workspaceId,
+      occurredAt: "2026-08-06T12:02:00.000Z",
+      acceptedAt: "2026-08-06T12:02:00.000Z",
+      providerMessageId: "message:passive-edit",
+      authorMemberId: "member:fictional-a",
+      payload: {
+        kind: "TEXT_EDIT",
+        targetMessageId: "message:passive-original",
+        body: "Fictional corrected preference.",
+      },
+    },
+    {
+      receiptKey: "event:passive-attachment",
+      id: "source-event:passive-attachment",
+      workspaceId,
+      occurredAt: "2026-08-06T12:03:00.000Z",
+      acceptedAt: "2026-08-06T12:03:00.000Z",
+      authorMemberId: "member:fictional-a",
+      payload: { kind: "ATTACHMENT", attachmentId: "attachment:fictional", mediaClass: "IMAGE" },
+    },
+  ] as const;
+  for (const event of events) await continuity.acceptSourceEvent(event as never);
+}
+
+function job(overrides: Record<string, unknown> = {}) {
+  return PassiveMemoryJobSchema.parse({
+    id: "passive-memory-job:first",
+    workspaceId,
+    firstSourceSequence: 1,
+    lastSourceSequence: 4,
+    policyVersion: "passive-memory-v1",
+    status: "PENDING",
+    attempts: 0,
+    claimGeneration: 0,
+    createdAt,
+    ...overrides,
+  });
+}
+
+export function describePassiveMemoryAdapterContract(create: () => {
+  continuity: ContinuityRepository;
+  evidence: PassiveMemoryEvidenceReader;
+  jobs: PassiveMemoryJobRepository;
+}) {
+  describe("passive-memory adapter contract", () => {
+    it("returns only effective immutable human text/edit evidence with lineage", async () => {
+      const { continuity, evidence } = create();
+      await seed(continuity);
+      await expect(evidence.readEffectiveHumanText({
+        workspaceId,
+        firstSourceSequence: 1,
+        lastSourceSequence: 4,
+      })).resolves.toEqual({
+        workspaceId,
+        firstSourceSequence: 1,
+        lastSourceSequence: 4,
+        evidence: [{
+          workspaceId,
+          canonicalSourceRef: "source-event:passive-edit",
+          sourceSequence: 3,
+          providerMessageId: "message:passive-original",
+          authorMemberId: "member:fictional-a",
+          effectiveText: "Fictional corrected preference.",
+          sourceKind: "TEXT_EDIT",
+          lineageSourceRefs: ["source-event:passive-original", "source-event:passive-edit"],
+          acceptedAt: "2026-08-06T12:02:00.000Z",
+        }],
+      });
+    });
+
+    it("fences competing claims and expired owners", async () => {
+      const { jobs } = create();
+      const stored = await jobs.createOrGet(job());
+      const first = await jobs.claimAttempt(workspaceId, stored.id, "2026-08-06T12:01:00.000Z");
+      expect(first.kind).toBe("CLAIMED");
+      await expect(jobs.claimAttempt(workspaceId, stored.id, "2026-08-06T12:01:30.000Z"))
+        .resolves.toMatchObject({ kind: "BUSY" });
+      const successor = await jobs.claimAttempt(workspaceId, stored.id, "2026-08-06T12:02:01.000Z");
+      expect(successor).toMatchObject({ kind: "CLAIMED", job: { attempts: 2, claimGeneration: 2 } });
+      if (first.kind !== "CLAIMED" || successor.kind !== "CLAIMED") throw new Error("Expected claims.");
+      await expect(jobs.releaseAttempt({ ...first.job, status: "PENDING", attemptClaimedAt: undefined, attemptLeaseExpiresAt: undefined }, {
+        jobId: first.job.id,
+        claimGeneration: first.job.claimGeneration,
+      })).rejects.toThrow(/fenc/i);
+    });
+
+    it("advances the cursor atomically for a failed poison range and admits the next range", async () => {
+      const { jobs } = create();
+      const firstJob = await jobs.createOrGet(job({ attempts: 2, claimGeneration: 2 }));
+      const claim = await jobs.claimAttempt(workspaceId, firstJob.id, "2026-08-06T12:01:00.000Z");
+      if (claim.kind !== "CLAIMED") throw new Error("Expected claim.");
+      await jobs.finish({
+        ...claim.job,
+        status: "FAILED",
+        attemptClaimedAt: undefined,
+        attemptLeaseExpiresAt: undefined,
+      }, { jobId: claim.job.id, claimGeneration: claim.job.claimGeneration });
+      await expect(jobs.getCursor(workspaceId)).resolves.toBe(4);
+      await expect(jobs.createOrGet(job({
+        id: "passive-memory-job:second",
+        firstSourceSequence: 5,
+        lastSourceSequence: 6,
+        attempts: 0,
+        claimGeneration: 0,
+      }))).resolves.toMatchObject({ firstSourceSequence: 5, status: "PENDING" });
+    });
+
+    it("fails closed for a mismatched workspace path or skipped cursor", async () => {
+      const { jobs } = create();
+      await jobs.createOrGet(job());
+      await expect(jobs.get("workspace:other" as never, "passive-memory-job:first" as never)).resolves.toBeNull();
+      await expect(jobs.createOrGet(job({ id: "passive-memory-job:skipped", firstSourceSequence: 2 })))
+        .rejects.toThrow();
+    });
+  });
+}
