@@ -27,7 +27,7 @@ describe.runIf(runEvaluation)("Traditional Chinese dynamic-memory Vertex evaluat
   it("classifies all three governed record types from fictional exact source spans", async () => {
     if (configuration === null) throw new Error("Vertex configuration is required for this evaluation.");
     let providerStatus: number | undefined;
-    let providerIssuePaths: string[] = [];
+    let providerIssuePaths: string[];
     const diagnosticRequest: typeof fetch = async (...request) => {
       const response = await fetch(...request);
       providerStatus = response.status;
@@ -54,6 +54,8 @@ describe.runIf(runEvaluation)("Traditional Chinese dynamic-memory Vertex evaluat
     }, undefined, diagnosticRequest));
 
     for (const [index, scenario] of (await scenarios()).entries()) {
+      providerStatus = undefined;
+      providerIssuePaths = [];
       const sourceRef = `source-event:memory-eval-${scenario.scenario}`;
       let output: Awaited<ReturnType<VertexPassiveMemoryGenerator["generate"]>>;
       try {

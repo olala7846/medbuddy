@@ -14,7 +14,11 @@ uses an isolated cleanup scope. All content is fictional and nonmedical.
 
 ## Dynamic-memory acceptance gate
 
-Run `npm run verify:memory:acceptance` for the Effort 3.7 synthetic gate. The
+Run `FIRESTORE_EMULATOR_HOST=127.0.0.1:8787 npm run verify:memory:acceptance`
+against a freshly started local emulator for the complete Effort 3.7 synthetic
+gate. It fails instead of silently skipping parity when the emulator variable is
+absent. `npm run verify:memory:acceptance:memory` is the explicit deterministic
+in-memory-only subset. The
 top-level tracer in `../memory-acceptance.test.ts` sends signed provider-shaped
 LINE events through the real webhook, continuity, formation, passive-worker,
 memory, and reply boundaries with fixed providers and no network access. It
