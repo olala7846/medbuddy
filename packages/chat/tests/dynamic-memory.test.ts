@@ -307,6 +307,7 @@ describe("DynamicMemoryService", () => {
       async get() { return null; },
       async createOrGet() { throw new Error("not used"); },
       async listActive() { reads += 1; return []; },
+      async scanCurrent() { reads += 1; return []; },
     });
     await expect(service.query(source.workspaceId, QueryMemoryInputSchema.parse({
       subjectLabels: ["Grandparent"],
@@ -490,6 +491,7 @@ describe("active memory capabilities", () => {
         async get() { return null; },
         async createOrGet() { throw new Error("fictional storage failure"); },
         async listActive() { return []; },
+        async scanCurrent() { return []; },
       }),
       workspaceId: source.workspaceId,
       focalSource: source,

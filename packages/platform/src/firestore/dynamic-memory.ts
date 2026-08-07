@@ -1,7 +1,8 @@
-import { Firestore } from "@google-cloud/firestore";
+import { FieldPath, Firestore } from "@google-cloud/firestore";
 import {
   CreateDynamicMemoryResultSchema,
   DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT,
+  DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
   DynamicMemoryRecordSchema,
   type DynamicMemoryRecord,
   type DynamicMemoryRepository,
@@ -50,8 +51,25 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
     limit: number,
   ): Promise<readonly DynamicMemoryRecord[]> {
     const boundedLimit = Math.min(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT, Math.max(0, limit));
-    if (boundedLimit === 0) return [];
-    const snapshot = await this.workspaceRef(workspaceId).collection("dynamicMemoryRecords").get();
+    return this.scanCurrent(workspaceId, "NEWEST_FIRST", boundedLimit);
+  }
+
+  async scanCurrent(
+    workspaceId: Parameters<DynamicMemoryRepository["scanCurrent"]>[0],
+    order: Parameters<DynamicMemoryRepository["scanCurrent"]>[1],
+    limit: number,
+  ): Promise<readonly DynamicMemoryRecord[]> {
+    if (!Number.isInteger(limit) || limit < 0 || limit > DYNAMIC_MEMORY_QUERY_SCAN_LIMIT) {
+      throw new Error(`Dynamic-memory scans are capped at ${DYNAMIC_MEMORY_QUERY_SCAN_LIMIT} records.`);
+    }
+    if (limit === 0) return [];
+    const timestampDirection = order === "NEWEST_FIRST" ? "desc" : "asc";
+    const snapshot = await this.workspaceRef(workspaceId).collection("dynamicMemoryRecords")
+      .orderBy("canonicalSource.acceptedAt", timestampDirection)
+      .orderBy("recordedAt", timestampDirection)
+      .orderBy(FieldPath.documentId(), "asc")
+      .limit(limit)
+      .get();
     return snapshot.docs
       .map((document) => DynamicMemoryRecordSchema.parse(record(document.data())))
       .map((memory) => {
@@ -60,12 +78,7 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
         }
         return memory;
       })
-      .filter((memory) => memory.lifecycle === "ACTIVE")
-      .sort((left, right) =>
-        right.canonicalSource.acceptedAt.localeCompare(left.canonicalSource.acceptedAt)
-        || right.recordedAt.localeCompare(left.recordedAt)
-        || left.id.localeCompare(right.id))
-      .slice(0, boundedLimit);
+      .filter((memory) => memory.lifecycle === "ACTIVE");
   }
 
   private workspaceRef(workspaceId: string) {

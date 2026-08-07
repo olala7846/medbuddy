@@ -1,6 +1,7 @@
 import {
   CreateDynamicMemoryResultSchema,
   DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT,
+  DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
   DynamicMemoryRecordSchema,
   type DynamicMemoryRecord,
   type DynamicMemoryRepository,
@@ -42,13 +43,25 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
     limit: number,
   ): Promise<readonly DynamicMemoryRecord[]> {
     const boundedLimit = Math.min(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT, Math.max(0, limit));
+    return this.scanCurrent(workspaceId, "NEWEST_FIRST", boundedLimit);
+  }
+
+  async scanCurrent(
+    workspaceId: Parameters<DynamicMemoryRepository["scanCurrent"]>[0],
+    order: Parameters<DynamicMemoryRepository["scanCurrent"]>[1],
+    limit: number,
+  ): Promise<readonly DynamicMemoryRecord[]> {
+    if (!Number.isInteger(limit) || limit < 0 || limit > DYNAMIC_MEMORY_QUERY_SCAN_LIMIT) {
+      throw new Error(`Dynamic-memory scans are capped at ${DYNAMIC_MEMORY_QUERY_SCAN_LIMIT} records.`);
+    }
+    const timestampDirection = order === "NEWEST_FIRST" ? -1 : 1;
     return [...this.#records.values()]
       .filter((record) => record.workspaceId === workspaceId && record.lifecycle === "ACTIVE")
       .sort((left, right) =>
-        right.canonicalSource.acceptedAt.localeCompare(left.canonicalSource.acceptedAt)
-        || right.recordedAt.localeCompare(left.recordedAt)
+        timestampDirection * left.canonicalSource.acceptedAt.localeCompare(right.canonicalSource.acceptedAt)
+        || timestampDirection * left.recordedAt.localeCompare(right.recordedAt)
         || left.id.localeCompare(right.id))
-      .slice(0, boundedLimit)
+      .slice(0, limit)
       .map(clone);
   }
 }

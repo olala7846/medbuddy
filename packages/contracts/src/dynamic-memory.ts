@@ -102,10 +102,12 @@ export const QueryMemoryInputSchema = z.object({
   trustClasses: z.array(z.literal("UNREVIEWED_DERIVED"))
     .max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT).default([]),
   memberRefs: z.array(MemberIdSchema).max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT).default([]),
-  acceptedAt: z.object({
-    fromInclusive: TimestampSchema.optional(),
-    toExclusive: TimestampSchema.optional(),
-  }).strict().default({}),
+  acceptedAt: z.union([
+    z.object({ fromInclusive: TimestampSchema, toExclusive: TimestampSchema }).strict(),
+    z.object({ fromInclusive: TimestampSchema }).strict(),
+    z.object({ toExclusive: TimestampSchema }).strict(),
+    z.object({}).strict(),
+  ]).default({}),
   tagsAll: z.array(MemoryTagSchema).max(DYNAMIC_MEMORY_TAG_MAX_COUNT).default([]),
   textTerms: z.array(normalizedBoundedText(DYNAMIC_MEMORY_LABEL_MAX_UTF16))
     .max(DYNAMIC_MEMORY_TAG_MAX_COUNT).default([]),
@@ -114,8 +116,8 @@ export const QueryMemoryInputSchema = z.object({
     .default(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT),
 }).strict().superRefine((query, context) => {
   if (
-    query.acceptedAt.fromInclusive !== undefined
-    && query.acceptedAt.toExclusive !== undefined
+    "fromInclusive" in query.acceptedAt
+    && "toExclusive" in query.acceptedAt
     && query.acceptedAt.fromInclusive >= query.acceptedAt.toExclusive
   ) {
     context.addIssue({
@@ -168,6 +170,11 @@ export interface DynamicMemoryRepository {
   createOrGet(record: DynamicMemoryRecord): Promise<CreateDynamicMemoryResult>;
   listActive(
     workspaceId: z.infer<typeof WorkspaceIdSchema>,
+    limit: number,
+  ): Promise<readonly DynamicMemoryRecord[]>;
+  scanCurrent(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+    order: z.infer<typeof QueryMemoryInputSchema>["order"],
     limit: number,
   ): Promise<readonly DynamicMemoryRecord[]>;
 }

@@ -258,6 +258,7 @@ describe("signed active memory tracer", () => {
         async get() { return null; },
         async createOrGet() { throw new Error("fictional repository failure"); },
         async listActive() { return []; },
+        async scanCurrent() { return []; },
       }),
       responder,
       systemInstructions: "Preserve workspace isolation and deterministic medical safety.",
