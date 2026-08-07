@@ -21,6 +21,7 @@ import {
   type DynamicMemoryRepository,
   type DynamicMemoryScanResult,
   type MemoryRecordId,
+  type MessageId,
   type ProposeMemoryInput,
   type ProposeMemoryResult,
   type QueryMemoryInput,
@@ -43,7 +44,11 @@ export type DynamicMemoryQueryScope =
 
 export interface DynamicMemorySourceEvidenceReader {
   getSourceEvent(workspaceId: WorkspaceId, sourceEventId: SourceEventId): Promise<SourceEvent | null>;
-  listSourceEvents?(workspaceId: WorkspaceId, afterSequence?: number): Promise<readonly SourceEvent[]>;
+  listSourceLineageForMessage?(
+    workspaceId: WorkspaceId,
+    messageId: MessageId,
+    limit: number,
+  ): Promise<readonly SourceEvent[]>;
 }
 
 type DynamicMemoryStore = Pick<DynamicMemoryRepository,
@@ -69,6 +74,24 @@ function isRelationshipMaterial(payload: DynamicMemoryPayload): boolean {
 
 function normalizedSpan(value: string): string {
   return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
+}
+
+function isExplicitCorrectionSource(sourceBody: string): boolean {
+  const body = normalizedSpan(sourceBody).replace(/^@\S+\s+/u, "");
+  return /^(?:please\s+)?(?:correct|correction\s*:)/u.test(body)
+    || /^(?:請)?(?:更正|修正)/u.test(body);
+}
+
+function isExplicitSupersedeSource(
+  sourceBody: string,
+  reason: "WITHDRAWN" | "FORGOTTEN" | "DELETED",
+): boolean {
+  const body = normalizedSpan(sourceBody).replace(/^@\S+\s+/u, "");
+  switch (reason) {
+    case "WITHDRAWN": return /^(?:please\s+)?(?:withdraw|retract)\b/u.test(body) || /^(?:請)?撤回/u.test(body);
+    case "FORGOTTEN": return /^(?:please\s+)?forget\b/u.test(body) || /^(?:請)?忘記/u.test(body);
+    case "DELETED": return /^(?:please\s+)?(?:delete|remove)\b/u.test(body) || /^(?:請)?刪除/u.test(body);
+  }
 }
 
 function matchesQuery(record: DynamicMemoryRecord, query: ReturnType<typeof QueryMemoryInputSchema.parse>): boolean {
@@ -277,6 +300,9 @@ export class DynamicMemoryService {
     };
     let target: DynamicMemoryRecord | null = null;
     if (proposal.supersedesRecordId !== undefined) {
+      if (!isExplicitCorrectionSource(sourceBody)) {
+        return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
+      }
       try {
         target = await this.repository.get(context.workspaceId, proposal.supersedesRecordId);
       } catch {
@@ -365,6 +391,12 @@ export class DynamicMemoryService {
   ): Promise<ProposeMemoryResult> {
     if (this.repository.applyLifecycleTransition === undefined) return { kind: "TECHNICAL_FAILURE" };
     const action = input.reason;
+    const sourceBody = source.payload.kind === "TEXT" || source.payload.kind === "TEXT_EDIT"
+      ? source.payload.body
+      : "";
+    if (!isExplicitSupersedeSource(sourceBody, action)) {
+      return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
+    }
     const ids = lifecycleIds(context.workspaceId, input.targetRecordId, action, source.id);
     try {
       const outcome = await this.repository.applyLifecycleTransition({
@@ -398,16 +430,16 @@ export class DynamicMemoryService {
     if (
       mutation.workspaceId !== workspaceId
       || (mutation.payload.kind !== "TEXT_EDIT" && mutation.payload.kind !== "UNSEND")
-      || this.sourceEvidence?.listSourceEvents === undefined
+      || this.sourceEvidence?.listSourceLineageForMessage === undefined
       || this.repository.listBySourceLineage === undefined
       || this.repository.applyLifecycleTransition === undefined
     ) throw new DynamicMemoryWorkspaceScopeError();
     const targetMessageId = mutation.payload.targetMessageId;
-    const sources = await this.sourceEvidence.listSourceEvents(workspaceId);
-    const targetRefs = sources.filter((source) =>
-      (source.payload.kind === "TEXT" && source.providerMessageId === targetMessageId)
-      || (source.payload.kind === "TEXT_EDIT" && source.payload.targetMessageId === targetMessageId))
-      .map((source) => source.id);
+    const targetRefs = (await this.sourceEvidence.listSourceLineageForMessage(workspaceId, targetMessageId, 32))
+      .map((source) => {
+        if (source.workspaceId !== workspaceId) throw new DynamicMemoryWorkspaceScopeError();
+        return source.id;
+      });
     const dependent = new Map<MemoryRecordId, DynamicMemoryRecord>();
     for (const sourceRef of targetRefs) {
       for (const record of await this.repository.listBySourceLineage(workspaceId, sourceRef)) {
@@ -477,44 +509,8 @@ export class DynamicMemoryService {
         authorMemberRef: snapshot.authorMemberRef,
         acceptedAt: snapshot.acceptedAt,
       };
-      let provenance: typeof baseProvenance & (
-        { sourceStatus: "AVAILABLE"; exactExcerpt: string }
-        | { sourceStatus: "UNAVAILABLE" }
-      );
-      try {
-        const evidence = await this.sourceEvidence?.getSourceEvent(workspaceId, snapshot.sourceRef) ?? null;
-        if (evidence === null) {
-          reasons.add("SOURCE_EXCERPT_UNAVAILABLE");
-          provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
-        } else {
-          if (
-            evidence.workspaceId !== workspaceId
-            || evidence.id !== snapshot.sourceRef
-            || evidence.authorMemberId !== snapshot.authorMemberRef
-            || evidence.acceptedAt !== snapshot.acceptedAt
-          ) return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
-          const body = evidence.payload.kind === "TEXT" || evidence.payload.kind === "TEXT_EDIT"
-            ? evidence.payload.body
-            : undefined;
-          if (body === undefined) {
-            reasons.add("SOURCE_EXCERPT_UNAVAILABLE");
-            provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
-          } else {
-            provenance = {
-              ...baseProvenance,
-              sourceStatus: "AVAILABLE",
-              exactExcerpt: boundedExactExcerpt(body, payloadText(record.payload)),
-            };
-          }
-        }
-      } catch (error) {
-        if (error instanceof DynamicMemoryWorkspaceScopeError) {
-          return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
-        }
-        reasons.add("ADAPTER_PARTIAL_FAILURE");
-        provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
-      }
       let lifecycleEvents: NonNullable<QueryMemoryRecord["lifecycleEvents"]> = [];
+      let lifecycleAvailable = true;
       if (parsed.data.includeHistory && this.repository.listLifecycleEvents !== undefined) {
         try {
           const events = await this.repository.listLifecycleEvents(workspaceId, record.id);
@@ -530,6 +526,51 @@ export class DynamicMemoryService {
             return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
           }
           reasons.add("ADAPTER_PARTIAL_FAILURE");
+          lifecycleAvailable = false;
+        }
+      }
+      let provenance: typeof baseProvenance & (
+        { sourceStatus: "AVAILABLE"; exactExcerpt: string }
+        | { sourceStatus: "UNAVAILABLE" }
+        | { sourceStatus: "UNSENT" }
+      );
+      if (lifecycleEvents.some((event) => event.action === "UNSENT")) {
+        provenance = { ...baseProvenance, sourceStatus: "UNSENT" };
+      } else if (!lifecycleAvailable) {
+        provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
+      } else {
+        try {
+          const evidence = await this.sourceEvidence?.getSourceEvent(workspaceId, snapshot.sourceRef) ?? null;
+          if (evidence === null) {
+            reasons.add("SOURCE_EXCERPT_UNAVAILABLE");
+            provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
+          } else {
+            if (
+              evidence.workspaceId !== workspaceId
+              || evidence.id !== snapshot.sourceRef
+              || evidence.authorMemberId !== snapshot.authorMemberRef
+              || evidence.acceptedAt !== snapshot.acceptedAt
+            ) return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+            const body = evidence.payload.kind === "TEXT" || evidence.payload.kind === "TEXT_EDIT"
+              ? evidence.payload.body
+              : undefined;
+            if (body === undefined) {
+              reasons.add("SOURCE_EXCERPT_UNAVAILABLE");
+              provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
+            } else {
+              provenance = {
+                ...baseProvenance,
+                sourceStatus: "AVAILABLE",
+                exactExcerpt: boundedExactExcerpt(body, payloadText(record.payload)),
+              };
+            }
+          }
+        } catch (error) {
+          if (error instanceof DynamicMemoryWorkspaceScopeError) {
+            return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+          }
+          reasons.add("ADAPTER_PARTIAL_FAILURE");
+          provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
         }
       }
       records.push({

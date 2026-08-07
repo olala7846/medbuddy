@@ -95,6 +95,40 @@ export function describeContinuityRepositoryContract(
       )).resolves.toBeNull();
     });
 
+    it("reads only one bounded message lineage for lifecycle cleanup", async () => {
+      const { continuity } = createHarness();
+      await continuity.acceptSourceEvent(inbound());
+      await continuity.acceptSourceEvent(inbound({
+        receiptKey: "event:fictional-edit",
+        id: "source-event:fictional-edit",
+        providerMessageId: "message:fictional-edit-event",
+        payload: { kind: "TEXT_EDIT", targetMessageId: "message:fictional-1", body: "Edited fictional update." },
+      }));
+      await continuity.acceptSourceEvent(inbound({
+        receiptKey: "event:fictional-unrelated",
+        id: "source-event:fictional-unrelated",
+        providerMessageId: "message:fictional-unrelated",
+      }));
+      await expect(continuity.listSourceLineageForMessage(
+        "workspace:orchard" as never,
+        "message:fictional-1" as never,
+        32,
+      )).resolves.toMatchObject([
+        { id: "source-event:fictional-1", payload: { kind: "TEXT" } },
+        { id: "source-event:fictional-edit", payload: { kind: "TEXT_EDIT" } },
+      ]);
+      await expect(continuity.listSourceLineageForMessage(
+        "workspace:meadow" as never,
+        "message:fictional-1" as never,
+        32,
+      )).resolves.toEqual([]);
+      await expect(continuity.listSourceLineageForMessage(
+        "workspace:orchard" as never,
+        "message:fictional-1" as never,
+        33,
+      )).rejects.toThrow(/32/);
+    });
+
     it("publishes outbound evidence once and only after an explicit acceptance call", async () => {
       const { continuity } = createHarness();
       await continuity.acceptSourceEvent(inbound());

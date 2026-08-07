@@ -101,6 +101,22 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       .map(clone);
   }
 
+  async listSourceLineageForMessage(
+    workspaceId: Parameters<ContinuityRepository["listSourceLineageForMessage"]>[0],
+    messageId: Parameters<ContinuityRepository["listSourceLineageForMessage"]>[1],
+    limit: number,
+  ): Promise<readonly SourceEvent[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 32) throw new Error("Source lineage reads are capped at 32 events.");
+    return (this.events.get(workspaceId) ?? [])
+      .filter((event) =>
+        (event.payload.kind === "TEXT" && event.providerMessageId === messageId)
+        || ((event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND")
+          && event.payload.targetMessageId === messageId))
+      .sort((left, right) => left.sourceSequence - right.sourceSequence)
+      .slice(0, limit)
+      .map(clone);
+  }
+
   async getSourceEvent(
     workspaceId: Parameters<ContinuityRepository["getSourceEvent"]>[0],
     sourceEventId: Parameters<ContinuityRepository["getSourceEvent"]>[1],

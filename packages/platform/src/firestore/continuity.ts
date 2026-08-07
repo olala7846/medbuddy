@@ -135,6 +135,28 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     });
   }
 
+  async listSourceLineageForMessage(
+    workspaceId: Parameters<ContinuityRepository["listSourceLineageForMessage"]>[0],
+    messageId: Parameters<ContinuityRepository["listSourceLineageForMessage"]>[1],
+    limit: number,
+  ): Promise<readonly SourceEvent[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 32) throw new Error("Source lineage reads are capped at 32 events.");
+    const collection = this.workspaceRef(workspaceId).collection("sourceEvents");
+    const [originals, mutations] = await Promise.all([
+      collection.where("providerMessageId", "==", messageId).limit(limit).get(),
+      collection.where("payload.targetMessageId", "==", messageId).limit(limit).get(),
+    ]);
+    const byId = new Map([...originals.docs, ...mutations.docs].map((document) => {
+      const event = SourceEventSchema.parse(record(document.data()));
+      if (event.workspaceId !== workspaceId) throw new DynamicMemoryWorkspaceScopeError();
+      return [event.id, event] as const;
+    }));
+    return [...byId.values()]
+      .filter((event) => event.payload.kind === "TEXT" || event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND")
+      .sort((left, right) => left.sourceSequence - right.sourceSequence)
+      .slice(0, limit);
+  }
+
   async getSourceEvent(
     workspaceId: Parameters<ContinuityRepository["getSourceEvent"]>[0],
     sourceEventId: Parameters<ContinuityRepository["getSourceEvent"]>[1],

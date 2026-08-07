@@ -841,6 +841,32 @@ describe("dynamic memory lifecycle", () => {
       ] });
   });
 
+  it("rejects model-requested supersession from an ordinary contradictory message", async () => {
+    const repository = new InMemoryDynamicMemoryRepository();
+    const service = new DynamicMemoryService(repository);
+    const original = await service.propose({ workspaceId: source.workspaceId, focalSource: source }, semanticProposal);
+    if (original.kind !== "STORED") throw new Error("Expected stored original.");
+    const contradiction = SourceEventSchema.parse({
+      ...source,
+      id: "source-event:unmarked-contradiction",
+      sourceSequence: 2,
+      providerMessageId: "message:unmarked-contradiction",
+      payload: { ...source.payload, body: "The fictional folder is green." },
+    });
+    await expect(service.propose({ workspaceId: source.workspaceId, focalSource: contradiction }, ProposeMemoryInputSchema.parse({
+      operation: "STORE",
+      supersedesRecordId: original.record.id,
+      payload: { memoryType: "SEMANTIC", statement: "The fictional folder is green", subjectLabels: [] },
+    }))).resolves.toEqual({ kind: "REJECTED", code: "INELIGIBLE_CONTENT" });
+    await expect(service.propose({ workspaceId: source.workspaceId, focalSource: contradiction }, ProposeMemoryInputSchema.parse({
+      operation: "SUPERSEDE_ONLY",
+      targetRecordId: original.record.id,
+      reason: "FORGOTTEN",
+    }))).resolves.toEqual({ kind: "REJECTED", code: "INELIGIBLE_CONTENT" });
+    await expect(repository.get(source.workspaceId, original.record.id))
+      .resolves.toMatchObject({ lifecycle: "ACTIVE" });
+  });
+
   it.each(["TEXT_EDIT", "UNSEND"] as const)("stales dependent records on LINE %s without deleting history", async (kind) => {
     const repository = new InMemoryDynamicMemoryRepository();
     const mutation = SourceEventSchema.parse({
@@ -854,8 +880,11 @@ describe("dynamic memory lifecycle", () => {
         : { kind, targetMessageId: source.providerMessageId! },
     });
     const service = new DynamicMemoryService(repository, undefined, {
-      async getSourceEvent() { return null; },
-      async listSourceEvents() { return [source, mutation]; },
+      async getSourceEvent() {
+        if (kind === "UNSEND") throw new Error("Unsent evidence must not be dereferenced.");
+        return source;
+      },
+      async listSourceLineageForMessage() { return [source, mutation]; },
     });
     const original = await service.propose({ workspaceId: source.workspaceId, focalSource: source }, semanticProposal);
     if (original.kind !== "STORED") throw new Error("Expected stored original.");
@@ -865,6 +894,16 @@ describe("dynamic memory lifecycle", () => {
       .resolves.toMatchObject({ records: [] });
     await expect(repository.listLifecycleEvents(source.workspaceId, original.record.id))
       .resolves.toMatchObject([{ action: kind === "TEXT_EDIT" ? "EDITED" : "UNSENT" }]);
+    await expect(service.query(
+      { kind: "AUTHORIZED", workspaceId: source.workspaceId },
+      QueryMemoryInputSchema.parse({ includeHistory: true }),
+    )).resolves.toMatchObject({
+      kind: "RESULT",
+      records: [{
+        id: original.record.id,
+        provenance: [{ sourceStatus: kind === "TEXT_EDIT" ? "AVAILABLE" : "UNSENT" }],
+      }],
+    });
   });
 });
 
