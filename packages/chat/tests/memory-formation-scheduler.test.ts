@@ -100,6 +100,9 @@ describe("first-threshold-wins memory formation", () => {
       expect(h.getState()).toMatchObject({ ...expectedPolicy(), dispatchReason: "QUIET",
         firstSourceSequence: 1, lastSourceSequence: 1, quietDeadline: at(10), maximumAgeDeadline: at(10) });
       expect(h.dispatches).toHaveLength(1);
+      expect([...h.jobs.values()]).toMatchObject([{
+        formationPolicyVersion: policy.policyVersion, firstSourceSequence: 1, lastSourceSequence: 1,
+      }]);
     });
 
     it("dispatches COUNT on the exact count boundary with its full source range and deadlines", async () => {
@@ -112,6 +115,9 @@ describe("first-threshold-wins memory formation", () => {
         firstSourceSequence: 1, lastSourceSequence: 30,
         quietDeadline: at(10), maximumAgeDeadline: at(24 * 60) });
       expect(h.dispatches).toHaveLength(1);
+      expect([...h.jobs.values()]).toMatchObject([{
+        formationPolicyVersion: policy.policyVersion, firstSourceSequence: 1, lastSourceSequence: 30,
+      }]);
     });
 
     it("dispatches SIZE on the exact UTF-16 boundary with its singleton range and deadlines", async () => {
@@ -124,6 +130,9 @@ describe("first-threshold-wins memory formation", () => {
         firstSourceSequence: 1, lastSourceSequence: 1,
         quietDeadline: at(10), maximumAgeDeadline: at(24 * 60) });
       expect(h.dispatches).toHaveLength(1);
+      expect([...h.jobs.values()]).toMatchObject([{
+        formationPolicyVersion: policy.policyVersion, firstSourceSequence: 1, lastSourceSequence: 1,
+      }]);
     });
 
     it("dispatches MAX_AGE at its exact boundary while preserving the durable range and later quiet deadline", async () => {
@@ -146,6 +155,9 @@ describe("first-threshold-wins memory formation", () => {
         firstSourceSequence: 1, lastSourceSequence: 2,
         quietDeadline: at(24 * 60 + 5), maximumAgeDeadline: at(24 * 60) });
       expect(h.dispatches).toHaveLength(1);
+      expect([...h.jobs.values()]).toMatchObject([{
+        formationPolicyVersion: policy.policyVersion, firstSourceSequence: 1, lastSourceSequence: 2,
+      }]);
     });
   });
 
