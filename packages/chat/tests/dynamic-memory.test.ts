@@ -1,5 +1,6 @@
 import {
   ProposeMemoryInputSchema,
+  PassiveMemoryEvidenceSchema,
   ProposeMemoryResultSchema,
   QueryMemoryInputSchema,
   QueryMemoryResultSchema,
@@ -82,7 +83,7 @@ describe("DynamicMemoryService", () => {
     await expect(repository.listActive(source.workspaceId, 10)).resolves.toHaveLength(2);
   });
 
-  it("returns the first record when a replay proposes different derived content for the same source", async () => {
+  it("returns a typed conflict when a replay changes a valid operation", async () => {
     const repository = new InMemoryDynamicMemoryRepository();
     const service = new DynamicMemoryService(repository);
     await expect(service.propose({ workspaceId: source.workspaceId, focalSource: source }, semanticProposal))
@@ -93,11 +94,8 @@ describe("DynamicMemoryService", () => {
         statement: "fictional appointment folder is blue",
         subjectLabels: [],
       },
-      tags: ["different-retry-tag"],
-    }))).resolves.toMatchObject({
-      kind: "EXISTING",
-      record: { payload: semanticProposal.payload, tags: semanticProposal.tags },
-    });
+      tags: [],
+    }))).resolves.toEqual({ kind: "CONFLICT" });
     await expect(repository.listActive(source.workspaceId, 10)).resolves.toHaveLength(1);
   });
 
@@ -236,6 +234,54 @@ describe("DynamicMemoryService", () => {
     await expect(service.propose({ workspaceId: source.workspaceId, focalSource }, ProposeMemoryInputSchema.parse({
       payload: { memoryType: "EPISODIC", event: "Mei called Kai yesterday.", subjectLabels: [] },
     }))).resolves.toEqual({ kind: "REJECTED", code: "INELIGIBLE_CONTENT" });
+  });
+
+  it("stores edited passive evidence with immutable lineage in deterministic proposal slots", async () => {
+    const repository = new InMemoryDynamicMemoryRepository();
+    const service = new DynamicMemoryService(repository, () => "2026-08-06T13:00:00.000Z");
+    const evidence = PassiveMemoryEvidenceSchema.parse({
+      workspaceId: source.workspaceId,
+      canonicalSourceRef: "source-event:memory-edit",
+      sourceSequence: 2,
+      providerMessageId: source.providerMessageId!,
+      authorMemberId: source.authorMemberId,
+      effectiveText: "Please remember the fictional folder is green.",
+      sourceKind: "TEXT_EDIT" as const,
+      lineageSourceRefs: [source.id, "source-event:memory-edit"],
+      acceptedAt: "2026-08-06T12:05:00.000Z",
+    });
+    const proposal = ProposeMemoryInputSchema.parse({
+      payload: { memoryType: "SEMANTIC", statement: "the fictional folder is green", subjectLabels: [] },
+    });
+    const first = await service.proposePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 0 }, proposal);
+    const replay = await service.proposePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 0 }, proposal);
+    const secondSlot = await service.proposePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 1 }, proposal);
+    expect(first).toMatchObject({ kind: "STORED", record: { canonicalSource: { lineageSourceRefs: evidence.lineageSourceRefs } } });
+    expect(replay).toMatchObject({ kind: "EXISTING", record: { id: (first as { record: { id: string } }).record.id } });
+    expect(secondSlot).toMatchObject({ kind: "STORED" });
+    expect((secondSlot as { record: { id: string } }).record.id).not.toBe((first as { record: { id: string } }).record.id);
+  });
+
+  it("returns a typed conflict when a passive slot changes across retries", async () => {
+    const service = new DynamicMemoryService(new InMemoryDynamicMemoryRepository());
+    const evidence = PassiveMemoryEvidenceSchema.parse({
+      workspaceId: source.workspaceId,
+      canonicalSourceRef: source.id,
+      sourceSequence: source.sourceSequence,
+      providerMessageId: source.providerMessageId!,
+      authorMemberId: source.authorMemberId,
+      effectiveText: "The fictional folder is blue and the fictional folder is green.",
+      sourceKind: "TEXT" as const,
+      lineageSourceRefs: [source.id],
+      acceptedAt: source.acceptedAt,
+    });
+    const context = { workspaceId: source.workspaceId, evidence, proposalSlot: 0 };
+    await service.proposePassive(context, ProposeMemoryInputSchema.parse({
+      payload: { memoryType: "SEMANTIC", statement: "The fictional folder is blue", subjectLabels: [] },
+    }));
+    await expect(service.proposePassive(context, ProposeMemoryInputSchema.parse({
+      payload: { memoryType: "SEMANTIC", statement: "the fictional folder is green", subjectLabels: [] },
+    }))).resolves.toEqual({ kind: "CONFLICT" });
   });
 
   it.each([

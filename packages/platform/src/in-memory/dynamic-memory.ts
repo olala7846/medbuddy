@@ -12,6 +12,14 @@ function clone<Value>(value: Value): Value {
   return structuredClone(value);
 }
 
+function sameOperation(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {
+  const { recordedAt: _leftRecordedAt, ...leftIdentity } = left;
+  const { recordedAt: _rightRecordedAt, ...rightIdentity } = right;
+  void _leftRecordedAt;
+  void _rightRecordedAt;
+  return JSON.stringify(leftIdentity) === JSON.stringify(rightIdentity);
+}
+
 export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository {
   readonly #records = new Map<string, DynamicMemoryRecord>();
   readonly #transactions = new InMemoryTransactionQueue();
@@ -30,7 +38,10 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
       const key = `${record.workspaceId}\u0000${record.id}`;
       const existing = this.#records.get(key);
       if (existing !== undefined) {
-        return CreateDynamicMemoryResultSchema.parse({ kind: "EXISTING", record: clone(existing) });
+        return CreateDynamicMemoryResultSchema.parse({
+          kind: sameOperation(existing, record) ? "EXISTING" : "CONFLICT",
+          record: clone(existing),
+        });
       }
       this.#records.set(key, clone(record));
       return CreateDynamicMemoryResultSchema.parse({ kind: "STORED", record: clone(record) });
