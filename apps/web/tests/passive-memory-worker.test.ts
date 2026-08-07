@@ -30,6 +30,7 @@ async function harness(options: {
   fail?: boolean;
   attempts?: number;
   block?: boolean;
+  evidenceFailure?: Error;
 } = {}) {
   const continuity = new InMemoryContinuityRepository();
   const bodies = options.bodies ?? ["Please use Traditional Chinese for responses."];
@@ -69,7 +70,9 @@ async function harness(options: {
   const called = new Promise<void>((resolve) => { started = resolve; });
   const worker = new PassiveMemoryWorker({
     jobs,
-    evidence: new PassiveMemoryEvidenceReaderAdapter(continuity),
+    evidence: options.evidenceFailure === undefined
+      ? new PassiveMemoryEvidenceReaderAdapter(continuity)
+      : { async readEffectiveHumanText() { throw options.evidenceFailure; } },
     generator: {
       async generate(input) {
         calls.push(input);
@@ -254,6 +257,22 @@ describe("silent passive-memory worker", () => {
     });
     await expect(worker.run({ workspaceId, jobId })).resolves.toBe("EXHAUSTED");
     await expect(memories.listActive(workspaceId, 10)).resolves.toEqual([]);
+  });
+
+  it("retries an unrepresentable exact edit lineage without invoking the model or completing empty evidence", async () => {
+    const retryable = await harness({ evidenceFailure: new Error("Passive text lineage exceeds its exact bounded representation.") });
+    await expect(retryable.worker.run({ workspaceId, jobId })).rejects.toThrow(/lineage/i);
+    await expect(retryable.jobs.get(workspaceId, jobId)).resolves.toMatchObject({ status: "PENDING", attempts: 1 });
+    expect(retryable.calls).toHaveLength(0);
+
+    const exhausted = await harness({
+      attempts: 2,
+      evidenceFailure: new Error("Passive text lineage exceeds its exact bounded representation."),
+    });
+    await expect(exhausted.worker.run({ workspaceId, jobId })).resolves.toBe("EXHAUSTED");
+    await expect(exhausted.jobs.get(workspaceId, jobId)).resolves.toMatchObject({ status: "FAILED", attempts: 3 });
+    await expect(exhausted.memories.listActive(workspaceId, 10)).resolves.toEqual([]);
+    expect(exhausted.calls).toHaveLength(0);
   });
 
   it("does not allow an expired stale owner to write before its fenced finish", async () => {

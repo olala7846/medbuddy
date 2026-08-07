@@ -110,11 +110,15 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
 
   async readPassiveTextLineage(input: { workspaceId: string; targetMessageId: string; throughSourceSequence: number; limit: number }): Promise<readonly SourceEvent[]> {
     if (input.limit < 1 || input.limit > 32) throw new Error("Passive lineage query limit is invalid.");
-    return (this.events.get(input.workspaceId) ?? []).filter((event) =>
-      event.sourceSequence <= input.throughSourceSequence &&
-      ((event.payload.kind === "TEXT" && event.providerMessageId === input.targetMessageId) ||
-       ((event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND") && event.payload.targetMessageId === input.targetMessageId)))
-      .slice(-input.limit).map(clone);
+    const events = this.events.get(input.workspaceId) ?? [];
+    const original = events.find((event) => event.sourceSequence <= input.throughSourceSequence &&
+      event.payload.kind === "TEXT" && event.providerMessageId === input.targetMessageId);
+    const edits = events.filter((event) => event.sourceSequence <= input.throughSourceSequence &&
+      (event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND") &&
+      event.payload.targetMessageId === input.targetMessageId).slice(-input.limit);
+    if (edits.length >= input.limit) throw new Error("Passive text lineage exceeds its exact bounded representation.");
+    if (original === undefined) return [];
+    return [original, ...edits].map(clone);
   }
 
   async getSourceEvent(

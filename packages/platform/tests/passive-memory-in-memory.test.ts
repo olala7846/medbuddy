@@ -15,6 +15,7 @@ describePassiveMemoryAdapterContract(() => {
     evidence: new PassiveMemoryEvidenceReaderAdapter(continuity),
     jobs,
     memory: jobs,
+    ledger: continuity,
   };
 });
 

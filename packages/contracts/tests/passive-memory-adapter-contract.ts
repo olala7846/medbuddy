@@ -7,6 +7,7 @@ import {
   type ContinuityRepository,
   type PassiveMemoryEvidenceReader,
   type PassiveMemoryJobRepository,
+  type PassiveMemorySourceLedger,
   type DynamicMemoryRepository,
 } from "../src/index.js";
 
@@ -82,6 +83,7 @@ export function describePassiveMemoryAdapterContract(create: () => {
   evidence: PassiveMemoryEvidenceReader;
   jobs: PassiveMemoryJobRepository;
   memory: DynamicMemoryRepository;
+  ledger: PassiveMemorySourceLedger;
 }) {
   describe("passive-memory adapter contract", () => {
     it("returns only effective immutable human text/edit evidence with lineage", async () => {
@@ -121,6 +123,70 @@ export function describePassiveMemoryAdapterContract(create: () => {
           acceptedAt: "2026-08-06T12:02:00.000Z",
         }],
       });
+    });
+
+    it("reserves one bounded lineage slot for the original and rejects edit overflow", async () => {
+      const boundary = create();
+      await boundary.continuity.acceptSourceEvent({
+        receiptKey: "event:lineage-original",
+        id: "source-event:lineage-original",
+        workspaceId,
+        occurredAt: createdAt,
+        acceptedAt: createdAt,
+        providerMessageId: "message:lineage-original",
+        authorMemberId: "member:fictional-a",
+        payload: { kind: "TEXT", body: "I confirm: fictional value zero.", replyRequested: false },
+      } as never);
+      for (let index = 1; index <= 31; index += 1) {
+        await boundary.continuity.acceptSourceEvent({
+          receiptKey: `event:lineage-edit-${index}`,
+          id: `source-event:lineage-edit-${index}`,
+          workspaceId,
+          occurredAt: createdAt,
+          acceptedAt: createdAt,
+          providerMessageId: `message:lineage-edit-${index}`,
+          authorMemberId: "member:fictional-a",
+          payload: { kind: "TEXT_EDIT", targetMessageId: "message:lineage-original", body: `I confirm: fictional value ${index}.` },
+        } as never);
+      }
+      const exact = await boundary.ledger.readPassiveTextLineage({
+        workspaceId,
+        targetMessageId: "message:lineage-original" as never,
+        throughSourceSequence: 32,
+        limit: 32,
+      });
+      expect(exact).toHaveLength(32);
+      expect(exact[0]?.id).toBe("source-event:lineage-original");
+
+      const overflow = create();
+      await overflow.continuity.acceptSourceEvent({
+        receiptKey: "event:lineage-original",
+        id: "source-event:lineage-original",
+        workspaceId,
+        occurredAt: createdAt,
+        acceptedAt: createdAt,
+        providerMessageId: "message:lineage-original",
+        authorMemberId: "member:fictional-a",
+        payload: { kind: "TEXT", body: "I confirm: fictional value zero.", replyRequested: false },
+      } as never);
+      for (let index = 1; index <= 32; index += 1) {
+        await overflow.continuity.acceptSourceEvent({
+          receiptKey: `event:lineage-edit-${index}`,
+          id: `source-event:lineage-edit-${index}`,
+          workspaceId,
+          occurredAt: createdAt,
+          acceptedAt: createdAt,
+          providerMessageId: `message:lineage-edit-${index}`,
+          authorMemberId: "member:fictional-a",
+          payload: { kind: "TEXT_EDIT", targetMessageId: "message:lineage-original", body: `I confirm: fictional value ${index}.` },
+        } as never);
+      }
+      await expect(overflow.ledger.readPassiveTextLineage({
+        workspaceId,
+        targetMessageId: "message:lineage-original" as never,
+        throughSourceSequence: 33,
+        limit: 32,
+      })).rejects.toThrow(/lineage.*bound|overflow/i);
     });
 
     it("fences competing claims and expired owners", async () => {

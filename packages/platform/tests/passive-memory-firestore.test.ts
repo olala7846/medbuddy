@@ -24,6 +24,7 @@ describeEmulator("Firestore passive memory", () => {
       evidence: new PassiveMemoryEvidenceReaderAdapter(continuity),
       jobs,
       memory: new FirestoreDynamicMemoryRepository(firestore),
+      ledger: continuity,
     };
   });
 

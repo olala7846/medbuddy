@@ -153,11 +153,14 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
         .where("sourceSequence", "<=", input.throughSourceSequence)
         .orderBy("sourceSequence", "desc").limit(input.limit).get(),
     ]);
-    return [...originals.docs, ...edits.docs]
-      .map((document) => this.pathBoundEvent(input.workspaceId, document.data()))
-      .filter((event) => event.sourceSequence <= input.throughSourceSequence)
-      .sort((left, right) => left.sourceSequence - right.sourceSequence)
-      .slice(-input.limit);
+    const original = originals.docs.map((document) => this.pathBoundEvent(input.workspaceId, document.data()))
+      .find((event) => event.sourceSequence <= input.throughSourceSequence && event.payload.kind === "TEXT");
+    const lineageEdits = edits.docs.map((document) => this.pathBoundEvent(input.workspaceId, document.data()));
+    if (lineageEdits.length >= input.limit) {
+      throw new Error("Passive text lineage exceeds its exact bounded representation.");
+    }
+    if (original === undefined) return [];
+    return [original, ...lineageEdits].sort((left, right) => left.sourceSequence - right.sourceSequence);
   }
 
   private pathBoundEvent(workspaceId: string, value: unknown): SourceEvent {
