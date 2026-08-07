@@ -1,8 +1,8 @@
 # ADR-0002: Deliver a LINE-First Conversational Prototype
 
-> **Follow-up:** ADR-0003 implements the first bounded memory/tool increment: one
-> workspace family map and one server-bound replacement tool. The broader
-> deferrals below remain in force.
+> **Follow-up:** ADR-0003 adds the first bounded memory/tool increment: one
+> workspace family map and one server-bound replacement tool. The other
+> deferrals below still apply.
 
 ## Status
 
@@ -14,7 +14,7 @@ Accepted; supersedes ADR-0001 for channel and delivery sequence.
 
 ## Context
 
-ADR-0001 selected Telegram and sequenced structured capture, consent, review, and visit briefs before richer conversation. The latest product direction instead prioritizes learning whether a general conversational agent is useful in the communication channel the intended users already use. LINE is now the first live channel, and live credentials should not block a synthetic end-to-end proof.
+ADR-0001 selected Telegram and sequenced structured capture, consent, review, and visit briefs before richer conversation. The current product direction instead tests whether a general conversational agent is useful in the users' existing communication channel. LINE is the first live channel. Live credentials must not block a synthetic end-to-end proof.
 
 ## Decision
 
@@ -27,4 +27,4 @@ ADR-0001 selected Telegram and sequenced structured capture, consent, review, an
 
 ## Consequences
 
-The Telegram spec is historical rather than executable. Existing care-record and capture modules remain available but are not on the critical path. The first production limitation is at-most-once claimed event processing: a crash after claim may lose a reply, while duplicate replies are prevented. A durable recovery design can be added only after the conversation loop proves useful.
+The Telegram specification is historical, not executable. Existing care-record and capture modules remain available but are not on the critical path. The first production limitation is at-most-once claimed-event processing: a crash after a claim can lose a reply, but duplicate replies are prevented. Add durable recovery only after the conversation loop proves useful.
