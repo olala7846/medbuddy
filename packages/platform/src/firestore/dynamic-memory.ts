@@ -16,6 +16,14 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function sameOperation(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {
+  const { recordedAt: _leftRecordedAt, ...leftIdentity } = left;
+  const { recordedAt: _rightRecordedAt, ...rightIdentity } = right;
+  void _leftRecordedAt;
+  void _rightRecordedAt;
+  return JSON.stringify(leftIdentity) === JSON.stringify(rightIdentity);
+}
+
 /** Workspace-path-bound storage for the narrow active-memory tracer. */
 export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository {
   constructor(private readonly firestore: Firestore) {}
@@ -43,7 +51,10 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
         if (existing.workspaceId !== memory.workspaceId || existing.id !== memory.id) {
           throw new Error("A dynamic-memory identity already exists with different content.");
         }
-        return CreateDynamicMemoryResultSchema.parse({ kind: "EXISTING", record: existing });
+        return CreateDynamicMemoryResultSchema.parse({
+          kind: sameOperation(existing, memory) ? "EXISTING" : "CONFLICT",
+          record: existing,
+        });
       }
       transaction.create(reference, memory);
       return CreateDynamicMemoryResultSchema.parse({ kind: "STORED", record: memory });

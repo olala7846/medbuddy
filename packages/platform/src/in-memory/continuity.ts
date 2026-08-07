@@ -117,6 +117,26 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       .map(clone);
   }
 
+  async readPassiveSourceRange(input: { workspaceId: string; firstSourceSequence: number; lastSourceSequence: number; limit: number }): Promise<readonly SourceEvent[]> {
+    if (input.limit < 1 || input.limit > 100) throw new Error("Passive source query limit is invalid.");
+    return (this.events.get(input.workspaceId) ?? [])
+      .filter((event) => event.sourceSequence >= input.firstSourceSequence && event.sourceSequence <= input.lastSourceSequence)
+      .slice(0, input.limit).map(clone);
+  }
+
+  async readPassiveTextLineage(input: { workspaceId: string; targetMessageId: string; throughSourceSequence: number; limit: number }): Promise<readonly SourceEvent[]> {
+    if (input.limit < 1 || input.limit > 32) throw new Error("Passive lineage query limit is invalid.");
+    const events = this.events.get(input.workspaceId) ?? [];
+    const original = events.find((event) => event.sourceSequence <= input.throughSourceSequence &&
+      event.payload.kind === "TEXT" && event.providerMessageId === input.targetMessageId);
+    const edits = events.filter((event) => event.sourceSequence <= input.throughSourceSequence &&
+      (event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND") &&
+      event.payload.targetMessageId === input.targetMessageId).slice(-input.limit);
+    if (edits.length >= input.limit) throw new Error("Passive text lineage exceeds its exact bounded representation.");
+    if (original === undefined) return [];
+    return [original, ...edits].map(clone);
+  }
+
   async getSourceEvent(
     workspaceId: Parameters<ContinuityRepository["getSourceEvent"]>[0],
     sourceEventId: Parameters<ContinuityRepository["getSourceEvent"]>[1],

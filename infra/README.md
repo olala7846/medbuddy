@@ -5,10 +5,11 @@ Terraform manages only the selected prototype foundation in project
 Cloud Run service, configure a callback URL, provision Vertex, or authorize
 real health data.
 
-The foundation creates the Native-mode default Firestore database, a private
-attachment bucket, the capture queue, and keyless runtime/task-invoker service
-accounts. The attachment bucket deliberately has no automatic expiry until a
-reviewed retention policy exists.
+The foundation creates the Native-mode default Firestore database, the managed
+dynamic-memory scan and passive source-lineage indexes, a private attachment
+bucket, the capture queue, and keyless runtime/task-invoker service accounts.
+The attachment bucket deliberately has no automatic expiry until a reviewed
+retention policy exists.
 
 Cloud Tasks receives `roles/iam.serviceAccountUser` on the dedicated callback
 invoker identity, following the documented HTTP-target OIDC flow. The later

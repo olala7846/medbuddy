@@ -12,6 +12,13 @@ auditable metadata; correction successors and source-lineage lookups remain
 workspace-path-bound. The adapters do not search raw conversation, continuity
 compaction, relationship maps, or reviewed-care records.
 
+Passive-memory adapters expose only capped effective human text/edit ranges and
+bounded edit lineage, reserving one lineage slot for the original and at most 31
+edits. Overflow fails closed for retry rather than producing empty evidence.
+Successful dynamic-memory records, terminal state, and the cursor commit
+atomically behind the attempt fence; failed or stale attempts create no active
+records.
+
 ## Public entry
 
 - `.` → adapters and `createProductionPlatform`

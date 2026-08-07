@@ -72,10 +72,10 @@ export const CanonicalMemorySourceSchema = z.object({
   authorMemberRef: MemberIdSchema,
   acceptedAt: TimestampSchema,
 }).strict().superRefine((source, context) => {
-  if (!source.lineageSourceRefs.includes(source.sourceRef)) {
+  if (source.lineageSourceRefs.at(-1) !== source.sourceRef) {
     context.addIssue({
       code: "custom",
-      message: "Memory source lineage must contain its canonical source.",
+      message: "The memory source lineage must terminate at its canonical source.",
       path: ["lineageSourceRefs"],
     });
   }
@@ -173,6 +173,7 @@ export const QueryMemoryInputSchema = z.object({
 export const CreateDynamicMemoryResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("STORED"), record: DynamicMemoryRecordSchema }).strict(),
   z.object({ kind: z.literal("EXISTING"), record: DynamicMemoryRecordSchema }).strict(),
+  z.object({ kind: z.literal("CONFLICT"), record: DynamicMemoryRecordSchema }).strict(),
 ]);
 
 export const ProposeMemoryResultSchema = z.discriminatedUnion("kind", [
@@ -181,6 +182,7 @@ export const ProposeMemoryResultSchema = z.discriminatedUnion("kind", [
     kind: z.literal("REJECTED"),
     code: z.enum(["INELIGIBLE_SOURCE", "INELIGIBLE_CONTENT", "UNSAFE_PROCEDURAL_PREFERENCE"]),
   }).strict(),
+  z.object({ kind: z.literal("CONFLICT") }).strict(),
   z.object({ kind: z.literal("TECHNICAL_FAILURE") }).strict(),
   z.object({
     kind: z.literal("SUPERSEDED"),

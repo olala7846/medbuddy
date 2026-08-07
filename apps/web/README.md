@@ -11,6 +11,19 @@ OIDC-authenticated Cloud Tasks boundaries. They compact bounded conversation
 history and ingest validated LINE image/PDF bytes into private Cloud Storage;
 neither accepts public browser traffic.
 
+`POST /api/internal/passive-memory` is a separate OIDC-authenticated, structured-only
+worker boundary. It processes one pre-created workspace source range without a
+reply capability. OIDC is verified before its request body is consumed, and the
+body is streamed under a hard 16 KiB bound. Threshold planning and dispatch
+remain outside this endpoint.
+
+The credential-free direct worker proof uses only fictional Traditional Chinese
+JSONL and in-memory adapters:
+
+```bash
+npm run verify:passive-memory:worker
+```
+
 Run the credential-free signed synthetic path with:
 
 ```bash

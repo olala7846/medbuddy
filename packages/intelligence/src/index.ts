@@ -34,6 +34,7 @@ export * from "./capture/readable-label.js";
 export * from "./capture/validate.js";
 export * from "./conversation/responder.js";
 export * from "./conversation/compaction.js";
+export * from "./conversation/passive-memory.js";
 export * from "./conversation/tools.js";
 export * from "./adapters/fixed-model.js";
 export * from "./adapters/vertex.js";

@@ -8,6 +8,7 @@
     "./adapter-contract-tests": "./tests/adapter-contract.ts",
     "./continuity-adapter-contract-tests": "./tests/continuity-adapter-contract.ts",
     "./dynamic-memory-adapter-contract-tests": "./tests/dynamic-memory-adapter-contract.ts",
+    "./passive-memory-adapter-contract-tests": "./tests/passive-memory-adapter-contract.ts",
     "./workspace-family-map-adapter-contract-tests": "./tests/workspace-family-map-adapter-contract.ts",
     "./transaction-contract-tests": "./tests/transaction-contract.ts"
   },
