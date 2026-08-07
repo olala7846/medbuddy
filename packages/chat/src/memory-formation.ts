@@ -24,7 +24,10 @@ import {
 type WakeOutcome = "DISPATCHED" | "RESCHEDULED" | "STALE" | "EMPTY" | "POLICY_MISMATCH";
 
 /** Domain projection supplied to the trusted transactional source adapter. */
-export const acceptedFormationEventForSource: AcceptedFormationEventProjector = (event: SourceEvent) => {
+export function createAcceptedFormationEventProjector(
+  policy: MemoryFormationPolicy,
+): AcceptedFormationEventProjector {
+  return (event: SourceEvent) => {
   if (event.payload.kind === "TEXT" && event.authorMemberId !== "MEDBUDDY") {
     const evidence = {
       workspaceId: event.workspaceId, canonicalSourceRef: event.id, canonicalSource: event,
@@ -34,13 +37,16 @@ export const acceptedFormationEventForSource: AcceptedFormationEventProjector = 
     };
     return AcceptedFormationEventSchema.parse({ workspaceId: event.workspaceId, sourceEventId: event.id,
       sourceSequence: event.sourceSequence, acceptedAt: event.acceptedAt, kind: "ELIGIBLE_HUMAN_TEXT",
+      policyVersion: policy.policyVersion,
       renderedUtf16: formationRenderedUtf16([evidence]) });
   }
   return AcceptedFormationEventSchema.parse({ workspaceId: event.workspaceId, sourceEventId: event.id,
     sourceSequence: event.sourceSequence, acceptedAt: event.acceptedAt,
+    policyVersion: policy.policyVersion,
     kind: event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND" ? "LIFECYCLE" : "EXCLUDED",
     renderedUtf16: 0 });
-};
+  };
+}
 
 function addMilliseconds(timestamp: string, milliseconds: number): string {
   return new Date(Date.parse(timestamp) + milliseconds).toISOString();
@@ -106,6 +112,9 @@ export class MemoryFormationScheduler {
       let dispatch = false;
       let terminalSkip = false;
       for (const event of accepted) {
+        if (event.policyVersion !== this.dependencies.policy.policyVersion) {
+          throw new Error("Accepted-event outbox policy does not match the selected formation profile.");
+        }
         if (event.workspaceId !== workspaceId || event.sourceSequence !== next.cursor + 1) {
           throw new Error("Accepted-event outbox is not a contiguous workspace stream.");
         }

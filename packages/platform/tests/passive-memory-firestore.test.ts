@@ -20,7 +20,8 @@ describeEmulator("Firestore passive memory", () => {
     clients.push(firestore);
     const continuity = new FirestoreContinuityRepository(firestore, (event) => ({
       workspaceId: event.workspaceId, sourceEventId: event.id, sourceSequence: event.sourceSequence,
-      acceptedAt: event.acceptedAt, kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
+      acceptedAt: event.acceptedAt, policyVersion: "memory-formation-v1",
+      kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
     }));
     const jobs = new FirestorePassiveMemoryJobRepository(firestore, true);
     return {
@@ -37,7 +38,8 @@ describeEmulator("Firestore passive memory", () => {
     clients.push(firestore);
     const continuity = new FirestoreContinuityRepository(firestore, (event) => ({
       workspaceId: event.workspaceId, sourceEventId: event.id, sourceSequence: event.sourceSequence,
-      acceptedAt: event.acceptedAt, kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
+      acceptedAt: event.acceptedAt, policyVersion: "memory-formation-v1",
+      kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
     }));
     const workspaceId = WorkspaceIdSchema.parse("workspace:formation-firestore");
     await continuity.acceptSourceEvent({ receiptKey: "event:formation-firestore", id: "source-event:formation-firestore",
@@ -59,6 +61,37 @@ describeEmulator("Firestore passive memory", () => {
     await expect(continuity.listRecoveryCandidates({ now: state.scheduledFor, limit: 100,
       policyVersion: "memory-formation-v1" }))
       .resolves.toContain(workspaceId);
+  });
+
+  it("paginates past a full mismatched-policy outbox page", async () => {
+    const firestore = new Firestore({ projectId: `medbuddy-formation-fairness-${randomUUID()}` });
+    clients.push(firestore);
+    const batch = firestore.batch();
+    for (let index = 0; index < 100; index += 1) {
+      const workspaceId = `workspace:a${String(index).padStart(3, "0")}`;
+      batch.set(firestore.doc(`workspaces/${workspaceId}/memoryFormationState/current`), {
+        workspaceId, policyVersion: "memory-formation-v1-verification-small",
+        continuityPolicyVersion: "continuity-v1-verification-small", cursor: 0, revision: 0,
+        humanTextCount: 0, renderedUtf16: 0, scheduleGeneration: 0,
+      });
+      batch.set(firestore.doc(`workspaces/${workspaceId}/memoryFormationOutbox/source-event:o${index}`), {
+        workspaceId, sourceEventId: `source-event:o${index}`, sourceSequence: 1,
+        acceptedAt: "2026-08-06T12:00:00.000Z", policyVersion: "memory-formation-v1",
+        kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
+      });
+    }
+    const goodWorkspace = WorkspaceIdSchema.parse("workspace:z-good");
+    batch.set(firestore.doc(`workspaces/${goodWorkspace}/memoryFormationOutbox/source-event:good`), {
+      workspaceId: goodWorkspace, sourceEventId: "source-event:good", sourceSequence: 1,
+      acceptedAt: "2026-08-06T12:00:00.000Z", policyVersion: "memory-formation-v1",
+      kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
+    });
+    await batch.commit();
+    const continuity = new FirestoreContinuityRepository(firestore);
+    await expect(continuity.listRecoveryCandidates({ now: "2026-08-06T12:00:00.000Z", limit: 100,
+      policyVersion: "memory-formation-v1" })).resolves.toEqual([]);
+    await expect(continuity.listRecoveryCandidates({ now: "2026-08-06T12:00:00.000Z", limit: 100,
+      policyVersion: "memory-formation-v1" })).resolves.toContain(goodWorkspace);
   });
 
   it("atomically rejects a passive batch after its source is unsent", async () => {

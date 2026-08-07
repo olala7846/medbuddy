@@ -14,7 +14,7 @@ const at = (minutes: number) => new Date(Date.parse("2026-08-06T12:00:00.000Z") 
 
 function event(sequence: number, size: number, acceptedAt = at(sequence)): AcceptedFormationEvent {
   return { workspaceId, sourceEventId: `source-event:${sequence}` as never, sourceSequence: sequence,
-    acceptedAt, kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: size };
+    acceptedAt, policyVersion: "memory-formation-v1", kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: size };
 }
 
 function harness(events: AcceptedFormationEvent[], lifecycleCleanup = vi.fn(async () => {})) {
@@ -170,7 +170,8 @@ describe("first-threshold-wins memory formation", () => {
   it("retries durable lifecycle cleanup without inflating count or rendered size", async () => {
     const cleanup = vi.fn().mockRejectedValueOnce(new Error("temporary")).mockResolvedValue(undefined);
     const lifecycle: AcceptedFormationEvent = { workspaceId, sourceEventId: "source-event:edit" as never,
-      sourceSequence: 1, acceptedAt: at(0), kind: "LIFECYCLE", renderedUtf16: 0 };
+      sourceSequence: 1, acceptedAt: at(0), policyVersion: "memory-formation-v1",
+      kind: "LIFECYCLE", renderedUtf16: 0 };
     const h = harness([lifecycle], cleanup);
     await expect(h.scheduler.reconcileWorkspace(workspaceId)).rejects.toThrow("temporary");
     await h.scheduler.reconcileWorkspace(workspaceId);

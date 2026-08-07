@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { acceptedFormationEventForSource, MemoryFormationScheduler } from "@medbuddy/chat";
+import { createAcceptedFormationEventProjector, MemoryFormationScheduler } from "@medbuddy/chat";
 import { MEMORY_FORMATION_POLICIES } from "@medbuddy/contracts";
 import {
   InMemoryContinuityRepository,
@@ -14,7 +14,8 @@ describe("memory-formation-direct-proof", () => {
       const fixture = JSON.parse((await readFile(new URL(`./fixtures/${filename}`, import.meta.url), "utf8")).trim()) as {
         profile: "production" | "verification-small"; targetRenderedUtf16: number; bodySeed: string;
       };
-      const continuity = new InMemoryContinuityRepository(undefined, acceptedFormationEventForSource);
+      const projector = createAcceptedFormationEventProjector(MEMORY_FORMATION_POLICIES[fixture.profile]);
+      const continuity = new InMemoryContinuityRepository(undefined, projector);
       const jobs = new InMemoryPassiveMemoryJobRepository(InMemoryMemorySourceFreshnessStore.untrackedForTests());
       const workspaceId = `workspace:formation-${fixture.profile}` as never;
       const input = { receiptKey: `event:${fixture.profile}`, id: `source-event:${fixture.profile}`, workspaceId,
@@ -26,7 +27,7 @@ describe("memory-formation-direct-proof", () => {
       const requiredDelta = fixture.targetRenderedUtf16 - initial.renderedUtf16;
       expect(requiredDelta % 2).toBe(0);
       const padding = "字".repeat(requiredDelta / 2);
-      const exactContinuity = new InMemoryContinuityRepository(undefined, acceptedFormationEventForSource);
+      const exactContinuity = new InMemoryContinuityRepository(undefined, projector);
       await exactContinuity.acceptSourceEvent({ ...input, payload: { ...input.payload, body: input.payload.body + padding } } as never);
       const [exact] = await exactContinuity.listAcceptedEvents({ workspaceId, afterCursor: 0, limit: 1 });
       expect(exact?.renderedUtf16).toBe(fixture.targetRenderedUtf16);

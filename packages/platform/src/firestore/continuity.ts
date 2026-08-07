@@ -626,12 +626,20 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
 
   async listRecoveryCandidates(input: Parameters<MemoryFormationRepository["listRecoveryCandidates"]>[0]) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
-    const [states, outbox] = await Promise.all([
-      this.firestore.collectionGroup("memoryFormationState")
-        .where("policyVersion", "==", input.policyVersion)
-        .where("scheduledFor", "<=", input.now).orderBy("scheduledFor").limit(input.limit).get(),
-      this.firestore.collectionGroup("memoryFormationOutbox").limit(input.limit).get(),
-    ]);
+    const cursorSnapshot = await this.formationRecoveryCursorRef().get();
+    const cursorPath = cursorSnapshot.data()?.[input.policyVersion];
+    const baseOutboxQuery = this.firestore.collectionGroup("memoryFormationOutbox")
+      .where("policyVersion", "==", input.policyVersion).orderBy("__name__").limit(input.limit);
+    let outbox = await (typeof cursorPath === "string"
+      ? baseOutboxQuery.startAfter(this.firestore.doc(cursorPath)).get()
+      : baseOutboxQuery.get());
+    if (outbox.empty && typeof cursorPath === "string") outbox = await baseOutboxQuery.get();
+    const states = await this.firestore.collectionGroup("memoryFormationState")
+      .where("policyVersion", "==", input.policyVersion)
+      .where("scheduledFor", "<=", input.now).orderBy("scheduledFor").limit(input.limit).get();
+    await this.formationRecoveryCursorRef().set({
+      [input.policyVersion]: outbox.size === input.limit ? outbox.docs.at(-1)!.ref.path : null,
+    }, { merge: true });
     const candidates = new Set<WorkspaceId>();
     for (const document of states.docs) {
       const state = MemoryFormationStateSchema.parse(record(document.data()));
@@ -675,6 +683,10 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
 
   private formationStateRef(workspaceId: string) {
     return this.workspaceRef(workspaceId).collection("memoryFormationState").doc("current");
+  }
+
+  private formationRecoveryCursorRef() {
+    return this.firestore.collection("platformMemoryFormation").doc("recoveryCursor");
   }
 
   private memorySourceFreshnessRef(event: SourceEvent) {

@@ -4,6 +4,7 @@ import { InMemoryContinuityRepository } from "../src/index.js";
 const projector = (event: { workspaceId: string; id: string; sourceSequence: number; acceptedAt: string;
   authorMemberId: string; payload: { kind: string } }) => ({ workspaceId: event.workspaceId, sourceEventId: event.id,
   sourceSequence: event.sourceSequence, acceptedAt: event.acceptedAt,
+  policyVersion: "memory-formation-v1" as const,
   kind: event.payload.kind === "TEXT" && event.authorMemberId !== "MEDBUDDY" ? "ELIGIBLE_HUMAN_TEXT" as const
     : event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND" ? "LIFECYCLE" as const : "EXCLUDED" as const,
   renderedUtf16: event.payload.kind === "TEXT" && event.authorMemberId !== "MEDBUDDY" ? 100 : 0 });

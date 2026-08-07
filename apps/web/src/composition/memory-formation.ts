@@ -1,4 +1,4 @@
-import { acceptedFormationEventForSource, DynamicMemoryService, MemoryFormationScheduler } from "@medbuddy/chat";
+import { createAcceptedFormationEventProjector, DynamicMemoryService, MemoryFormationScheduler } from "@medbuddy/chat";
 import {
   MEMORY_FORMATION_POLICIES,
   MemoryFormationRecoveryInputSchema,
@@ -45,7 +45,8 @@ export class MemoryFormationTaskHandler {
 
 export function createMemoryFormationTaskComposition(environment: Record<string, string | undefined>) {
   const config = loadContinuityConfiguration(environment);
-  const platform = createConversationPlatform(config.projectId, acceptedFormationEventForSource);
+  const policy = MEMORY_FORMATION_POLICIES[config.continuityPolicy.profile];
+  const platform = createConversationPlatform(config.projectId, createAcceptedFormationEventProjector(policy));
   const dispatchers = createMemoryFormationDispatchers({
     projectId: config.projectId, location: config.tasksLocation, queue: config.tasksQueue,
     formationCallbackUrl: config.memoryFormationCallbackUrl,
@@ -58,7 +59,7 @@ export function createMemoryFormationTaskComposition(environment: Record<string,
     verifier: new GoogleTaskTokenVerifier(),
     scheduler: new MemoryFormationScheduler({ repository: platform.continuity, jobs: platform.passiveJobs,
       wakeDispatcher: dispatchers.wake, workerDispatcher: dispatchers.worker,
-      policy: MEMORY_FORMATION_POLICIES[config.continuityPolicy.profile], now: () => new Date().toISOString(),
+      policy, now: () => new Date().toISOString(),
       lifecycleCleanup: async (workspaceId, sourceEventId) => {
         const source = await platform.continuity.getSourceEvent(workspaceId, sourceEventId);
         if (source === null) throw new Error("Formation lifecycle source is missing.");

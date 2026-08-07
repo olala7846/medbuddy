@@ -57,6 +57,7 @@ export const AcceptedFormationEventSchema = z.object({
   sourceEventId: SourceEventIdSchema,
   sourceSequence: z.number().int().positive(),
   acceptedAt: TimestampSchema,
+  policyVersion: z.enum(["memory-formation-v1", "memory-formation-v1-verification-small"]),
   kind: z.enum(["ELIGIBLE_HUMAN_TEXT", "LIFECYCLE", "EXCLUDED"]),
   renderedUtf16: z.number().int().nonnegative().max(250_000),
   terminalReason: z.literal("ABOVE_SIZE_CEILING").optional(),

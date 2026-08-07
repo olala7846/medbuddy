@@ -1,4 +1,4 @@
-import { acceptedFormationEventForSource, ContinuityThreadConversationService, DynamicMemoryService, MemoryFormationScheduler, ThreadConversationService } from "@medbuddy/chat";
+import { createAcceptedFormationEventProjector, ContinuityThreadConversationService, DynamicMemoryService, MemoryFormationScheduler, ThreadConversationService } from "@medbuddy/chat";
 import { MEMORY_FORMATION_POLICIES } from "@medbuddy/contracts";
 import {
   CommittedSourceCardGrounding,
@@ -28,7 +28,11 @@ export function createLineWebhookComposition(
   if (vertex.model !== "gemini-3.6-flash") {
     throw new LineConfigurationError(["MEDBUDDY_VERTEX_MODEL"]);
   }
-  const { persistence, continuity, memory, passiveJobs } = createConversationPlatform(line.projectId, acceptedFormationEventForSource);
+  const formationPolicy = MEMORY_FORMATION_POLICIES[continuityConfig.continuityPolicy.profile];
+  const { persistence, continuity, memory, passiveJobs } = createConversationPlatform(
+    line.projectId,
+    createAcceptedFormationEventProjector(formationPolicy),
+  );
   const conversationClient = applyLangSmithVertexTracing(environment, {
     client: new VertexRestClient(vertex),
     boundary: "conversation",
@@ -71,7 +75,7 @@ export function createLineWebhookComposition(
     jobs: passiveJobs,
     wakeDispatcher: formationDispatchers.wake,
     workerDispatcher: formationDispatchers.worker,
-    policy: MEMORY_FORMATION_POLICIES[continuityConfig.continuityPolicy.profile],
+    policy: formationPolicy,
     now: () => new Date().toISOString(),
     lifecycleCleanup: async (workspaceId, sourceEventId) => {
       const source = await continuity.getSourceEvent(workspaceId, sourceEventId);
