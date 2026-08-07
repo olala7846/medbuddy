@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyActiveMemoryIntent,
+  classifyExplicitMemoryLifecycle,
   DynamicMemoryService,
   MEMORY_QUERY_FAILURE_TEXT,
   SUBJECT_FILTER_DEFERRED_TEXT,
@@ -436,7 +437,7 @@ describe("DynamicMemoryService", () => {
     ["Don't forget that the folder is blue.", "EXPLICIT_WRITE"],
     ["請記住資料夾是藍色的。", "EXPLICIT_WRITE"],
     ["別忘記資料夾是藍色的。", "EXPLICIT_WRITE"],
-    ["Please correct it: the folder is green.", "EXPLICIT_WRITE"],
+    ["Please correct it: we confirm that the folder is green.", "EXPLICIT_WRITE"],
     ["請刪除那筆資料夾記憶。", "EXPLICIT_WRITE"],
     ["Correct me if I’m wrong: the folder is green?", "NEUTRAL"],
     ["Correction: is the folder green?", "NEUTRAL"],
@@ -448,9 +449,35 @@ describe("DynamicMemoryService", () => {
     ["如果我錯了，請更正：資料夾是綠色的？", "NEUTRAL"],
     ["Please correct the folder memory to green.", "EXPLICIT_WRITE"],
     ["Correction: set the label to “green”.", "EXPLICIT_WRITE"],
+    ["請更正我們的虛構資料夾為綠色。", "EXPLICIT_WRITE"],
+    ["修正我們的虛構資料夾成綠色。", "EXPLICIT_WRITE"],
     ["The folder is blue. What should I bring?", "NEUTRAL"],
   ])("classifies one precedence-ordered active-memory intent: %s", (body, expected) => {
     expect(classifyActiveMemoryIntent(body)).toBe(expected);
+  });
+
+  it.each([
+    "Correction: according to Mei, our fictional appointment folder is green.",
+    "Correction: per Mei, our fictional appointment folder is green.",
+    "Correction: based on Mei's note, our fictional appointment folder is green.",
+    "更正：根據美玲，虛構的資料夾是綠色。",
+    "更正：依照美玲，虛構的資料夾是綠色。",
+    "更正：按照美玲，虛構的資料夾是綠色。",
+    "Correct our folder according to Mei to green.",
+    "Correct our folder based on Mei to green.",
+    "請更正我們的虛構資料夾根據美玲為綠色。",
+  ])("does not grant explicit correction authority to attributed text: %s", (body) => {
+    expect(classifyExplicitMemoryLifecycle(body)).toBeNull();
+    expect(classifyActiveMemoryIntent(body)).toBe("NEUTRAL");
+  });
+
+  it.each([
+    "Correction: our nurse insists the fictional folder is green.",
+    "Correction: I have a note from Mei saying the folder is green.",
+    "更正：我們聽美玲說虛構資料夾是綠色。",
+  ])("defers ambiguous reported correction clauses: %s", (body) => {
+    expect(classifyExplicitMemoryLifecycle(body)).toBeNull();
+    expect(classifyActiveMemoryIntent(body)).toBe("NEUTRAL");
   });
 
   it("rejects deferred subject filtering before repository access", async () => {
@@ -789,6 +816,8 @@ describe("dynamic memory lifecycle", () => {
   it.each([
     ["Please correct the folder memory to green.", "the folder memory to green"],
     ["Correction: set the fictional label to “green”.", "set the fictional label to “green”"],
+    ["請更正我們的虛構資料夾為綠色。", "我們的虛構資料夾"],
+    ["修正我們的虛構資料夾成綠色。", "我們的虛構資料夾"],
   ])("accepts an affirmative correction form: %s", async (body, statement) => {
     const repository = untrackedMemoryRepository();
     const service = new DynamicMemoryService(repository);
@@ -807,6 +836,8 @@ describe("dynamic memory lifecycle", () => {
       payload: { memoryType: "SEMANTIC", statement, subjectLabels: [] },
       tags: [],
     })).resolves.toMatchObject({ kind: "STORED", record: { supersedesRecordId: original.record.id } });
+    await expect(repository.get(source.workspaceId, original.record.id))
+      .resolves.toMatchObject({ lifecycle: "SUPERSEDED" });
   });
 
   it.each([
@@ -818,6 +849,8 @@ describe("dynamic memory lifecycle", () => {
     ["她說「請忘記那筆記憶」。", "FORGOTTEN"],
     ["請刪除那筆記憶，照媽媽說的。", "DELETED"],
     ["如果我錯了，請更正：我們的虛構資料夾是綠色的？", "CORRECTION"],
+    ["Correction: according to Mei, our fictional appointment folder is green.", "CORRECTION"],
+    ["更正：根據美玲，虛構的資料夾是綠色。", "CORRECTION"],
   ] as const)("does not supersede memory for non-affirmative lifecycle text: %s", async (body, action) => {
     const repository = untrackedMemoryRepository();
     const service = new DynamicMemoryService(repository);
@@ -856,7 +889,7 @@ describe("dynamic memory lifecycle", () => {
       providerMessageId: "message:memory-correction",
       authorMemberId: "member:memory-b",
       acceptedAt: "2026-08-06T13:00:00.000Z",
-      payload: { ...source.payload, body: "Please correct it: our fictional appointment folder is green." },
+      payload: { ...source.payload, body: "Please correct it: we confirm that our fictional appointment folder is green." },
     });
     const service = new DynamicMemoryService(repository, undefined, {
       async getSourceEvent(_workspaceId, sourceRef) {
@@ -960,7 +993,7 @@ describe("dynamic memory lifecycle", () => {
       sourceSequence: index + 2,
       providerMessageId: `message:memory-race-${color}`,
       acceptedAt: `2026-08-06T13:00:0${index}.000Z`,
-      payload: { ...source.payload, body: `Please correct it: the fictional folder is ${color}.` },
+      payload: { ...source.payload, body: `Please correct it: we confirm that the fictional folder is ${color}.` },
     }));
     const outcomes = await Promise.all(corrections.map((correction, index) => service.propose(
       { workspaceId: source.workspaceId, focalSource: correction },
