@@ -21,6 +21,7 @@ Load only what the current task needs. Prefer short maps over whole specs.
 | Review the proposed agent memory architecture | [proposals/AGENT_MEMORY_ARCHITECTURE.md](./proposals/AGENT_MEMORY_ARCHITECTURE.md) | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md); current Intelligence and Chat packages |
 | Package boundaries / deps | [engineering/ARCHITECTURE.md](./engineering/ARCHITECTURE.md) | [TDD.md](./TDD.md) §4–5, §17 |
 | Implement a workflow | ARCHITECTURE + owning package README | [TDD.md](./TDD.md) matching section; [../tasks/todo.md](../tasks/todo.md) |
+| Write or revise development documentation | [ASD-STE100-inspired agent quick reference](./ASD_STE100_AGENT_QUICK_REFERENCE.md) | [../AGENTS.md](../AGENTS.md) for scope and exclusions |
 | Safety / medication limits | PROTOTYPE_CHALLENGE + ARCHITECTURE trust boundaries | TDD §5; `packages/intelligence` README |
 | Deploy or GCP adapters | [infra/README.md](../infra/README.md) | [DEPLOYMENT_READINESS.md](./DEPLOYMENT_READINESS.md), [GCP_ADAPTERS.md](./GCP_ADAPTERS.md) |
 | Configure or smoke-test LINE | [LINE_SETUP.md](./LINE_SETUP.md) | [LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md](./LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md) |

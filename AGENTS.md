@@ -39,6 +39,8 @@ Do **not** load full `docs/PRD.md` or `docs/TDD.md` by default. Open specific se
 ## Working Language and Context Preservation
 
 - Use English by default for project discussions, documentation, source code, code comments, commit messages, and pull requests.
+- For coding-agent replies and Markdown documents in `docs/`, use the practical [ASD-STE100-inspired quick reference](./docs/ASD_STE100_AGENT_QUICK_REFERENCE.md). It improves clear development communication; it does not require formal ASD-STE100 compliance.
+- Do not apply this house style to MedBuddy user-facing text, including LINE replies and the prompts or templates that produce them.
 - Use Traditional Chinese only for a specific discussion where preserving the exact original context or meaning requires it.
 - When that exception applies, preserve a Traditional Chinese backup of the relevant discussion before translating or summarizing it. The backup must follow the privacy and public-repository rules above.
 - Unless the user explicitly requests otherwise, keep English as the canonical language for resulting documentation and implementation.
