@@ -19,6 +19,8 @@ import {
   SourceEventSchema,
 } from "@medbuddy/contracts";
 
+import { dynamicMemorySourceFreshnessRef } from "./memory-source-freshness.js";
+
 function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
@@ -597,7 +599,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
         : undefined;
     return messageRef === undefined
       ? null
-      : this.workspaceRef(event.workspaceId).collection("dynamicMemorySourceFreshness").doc(messageRef);
+      : dynamicMemorySourceFreshnessRef(this.firestore, event.workspaceId, messageRef);
   }
 
   private compatibilityMessageRef(workspaceId: string, messageId: string) {

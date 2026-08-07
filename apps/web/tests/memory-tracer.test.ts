@@ -14,6 +14,7 @@ import {
 import {
   InMemoryContinuityRepository,
   InMemoryDynamicMemoryRepository,
+  InMemoryMemorySourceFreshnessStore,
   InMemoryPersistence,
 } from "@medbuddy/platform";
 import { describe, expect, it } from "vitest";
@@ -128,8 +129,9 @@ describe("signed active memory tracer", () => {
     ]);
     const provider = new FixedConversationProvider(outputs);
     const persistence = new InMemoryPersistence();
-    const continuity = new InMemoryContinuityRepository();
-    const memories = new InMemoryDynamicMemoryRepository();
+    const freshness = new InMemoryMemorySourceFreshnessStore();
+    const continuity = new InMemoryContinuityRepository(freshness);
+    const memories = new InMemoryDynamicMemoryRepository(freshness);
     const replies: string[] = [];
     const logs: LineOperationalLogEntry[] = [];
     const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);

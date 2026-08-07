@@ -15,6 +15,10 @@ export class InMemoryMemorySourceFreshnessStore {
 
   constructor(private readonly allowUntracked = false) {}
 
+  static untrackedForTests(): InMemoryMemorySourceFreshnessStore {
+    return new InMemoryMemorySourceFreshnessStore(true);
+  }
+
   run<Result>(operation: () => Promise<Result> | Result): Promise<Result> {
     return this.#transactions.run(async () => operation());
   }

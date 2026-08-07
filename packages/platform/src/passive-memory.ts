@@ -143,7 +143,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
   readonly #lifecycleOperations = new Map<string, { fingerprint: string; result: unknown }>();
   readonly #lifecycleEvents = new Map<string, import("@medbuddy/contracts").MemoryLifecycleEvent>();
 
-  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore(true)) {}
+  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore()) {}
 
   async claimAttempt(
     workspaceId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[0],

@@ -30,7 +30,7 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
   readonly #lifecycleEvents = new Map<string, import("@medbuddy/contracts").MemoryLifecycleEvent>();
   readonly #transactions = new InMemoryTransactionQueue();
 
-  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore(true)) {}
+  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore()) {}
 
   async get(
     workspaceId: Parameters<DynamicMemoryRepository["get"]>[0],

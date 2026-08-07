@@ -16,7 +16,7 @@ import {
   ThreadConversationService,
 } from "../src/index.js";
 import { InMemoryContinuityRepository } from "@medbuddy/platform";
-import { InMemoryDynamicMemoryRepository, InMemoryPersistence } from "@medbuddy/platform";
+import { InMemoryDynamicMemoryRepository, InMemoryMemorySourceFreshnessStore, InMemoryPersistence } from "@medbuddy/platform";
 
 const timestamp = "2026-08-03T12:00:00.000Z";
 const input = ThreadConversationInputSchema.parse({
@@ -238,9 +238,11 @@ describe("ContinuityThreadConversationService", () => {
 
   it("binds active memory tools to the accepted focal human source", async () => {
     const persistence = new InMemoryPersistence();
-    const memories = new InMemoryDynamicMemoryRepository();
+    const freshness = new InMemoryMemorySourceFreshnessStore();
+    const continuity = new InMemoryContinuityRepository(freshness);
+    const memories = new InMemoryDynamicMemoryRepository(freshness);
     const service = new ContinuityThreadConversationService({
-      continuity: new InMemoryContinuityRepository(),
+      continuity,
       messages: persistence.messages,
       familyMaps: persistence.familyMaps,
       memory: new DynamicMemoryService(memories, () => timestamp),
@@ -290,8 +292,9 @@ describe("ContinuityThreadConversationService", () => {
 
   it("stales focal-source memory when the accepted LINE event is edited", async () => {
     const persistence = new InMemoryPersistence();
-    const continuity = new InMemoryContinuityRepository();
-    const memories = new InMemoryDynamicMemoryRepository();
+    const freshness = new InMemoryMemorySourceFreshnessStore();
+    const continuity = new InMemoryContinuityRepository(freshness);
+    const memories = new InMemoryDynamicMemoryRepository(freshness);
     const memory = new DynamicMemoryService(memories, () => timestamp, continuity);
     const service = new ContinuityThreadConversationService({
       continuity,

@@ -12,6 +12,11 @@ import {
   type DynamicMemoryRepository,
 } from "@medbuddy/contracts";
 
+import {
+  assertCurrentDynamicMemorySource,
+  dynamicMemorySourceFreshnessRef,
+} from "./memory-source-freshness.js";
+
 function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
@@ -22,16 +27,6 @@ function sameOperation(left: DynamicMemoryRecord, right: DynamicMemoryRecord): b
   void _leftRecordedAt;
   void _rightRecordedAt;
   return JSON.stringify(leftIdentity) === JSON.stringify(rightIdentity);
-}
-
-function assertCurrentSource(value: unknown, memory: DynamicMemoryRecord): void {
-  const freshness = record(value);
-  const source = memory.canonicalSource;
-  if (freshness.workspaceId !== memory.workspaceId || freshness.messageRef !== source.messageRef ||
-      freshness.currentSourceRef !== source.sourceRef || freshness.sourceSequence !== source.sourceSequence ||
-      freshness.status !== "ACTIVE") {
-    throw new Error("Dynamic-memory source freshness is stale.");
-  }
 }
 
 /** Workspace-path-bound storage for the narrow active-memory tracer. */
@@ -60,7 +55,7 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
       const reference = this.memoryRef(memory.workspaceId, memory.id);
       const [snapshot, freshness] = await Promise.all([
         transaction.get(reference),
-        transaction.get(this.sourceFreshnessRef(memory.workspaceId, memory.canonicalSource.messageRef)),
+        transaction.get(dynamicMemorySourceFreshnessRef(this.firestore, memory.workspaceId, memory.canonicalSource.messageRef)),
       ]);
       if (snapshot.exists) {
         const existing = DynamicMemoryRecordSchema.parse(record(snapshot.data()));
@@ -73,7 +68,7 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
         });
       }
       if (!freshness.exists && !this.allowUntrackedSources) throw new Error("Dynamic-memory source freshness is missing.");
-      if (freshness.exists) assertCurrentSource(freshness.data(), memory);
+      if (freshness.exists) assertCurrentDynamicMemorySource(freshness.data(), memory);
       transaction.create(reference, memory);
       return CreateDynamicMemoryResultSchema.parse({ kind: "STORED", record: memory });
     });
@@ -149,11 +144,15 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
         const successorRef = this.memoryRef(input.event.workspaceId, input.successor.id);
         const [successorSnapshot, freshness] = await Promise.all([
           transaction.get(successorRef),
-          transaction.get(this.sourceFreshnessRef(input.successor.workspaceId, input.successor.canonicalSource.messageRef)),
+          transaction.get(dynamicMemorySourceFreshnessRef(
+            this.firestore,
+            input.successor.workspaceId,
+            input.successor.canonicalSource.messageRef,
+          )),
         ]);
         if (successorSnapshot.exists) return { kind: "LIFECYCLE_CONFLICT" as const };
         if (!freshness.exists && !this.allowUntrackedSources) throw new Error("Dynamic-memory source freshness is missing.");
-        if (freshness.exists) assertCurrentSource(freshness.data(), input.successor);
+        if (freshness.exists) assertCurrentDynamicMemorySource(freshness.data(), input.successor);
         transaction.create(successorRef, input.successor);
       }
       transaction.update(targetRef, {
@@ -217,7 +216,4 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
     return this.workspaceRef(workspaceId).collection("dynamicMemoryLifecycleOperations").doc(operationId);
   }
 
-  private sourceFreshnessRef(workspaceId: string, messageRef: string) {
-    return this.workspaceRef(workspaceId).collection("dynamicMemorySourceFreshness").doc(messageRef);
-  }
 }

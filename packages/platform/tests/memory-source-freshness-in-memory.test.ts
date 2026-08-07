@@ -57,7 +57,7 @@ describe("memory source freshness fences", () => {
     const memory = new InMemoryDynamicMemoryRepository(freshness);
     const original = await acceptOriginal(continuity);
     const record = staleRecord(original.sourceSequence);
-    const edit = (await continuity.acceptSourceEvent({
+    const mutation = continuity.acceptSourceEvent({
       receiptKey: "event:freshness-edit",
       id: "source-event:freshness-edit",
       workspaceId,
@@ -66,9 +66,13 @@ describe("memory source freshness fences", () => {
       providerMessageId: "message:freshness-edit",
       authorMemberId: "member:freshness-author",
       payload: { kind: "TEXT_EDIT", targetMessageId: "message:freshness-original", body: "I confirm: the fictional folder is green." },
-    } as never)).event;
-
-    await expect(memory.createOrGet(record)).rejects.toThrow(/source.*stale|freshness/i);
+    } as never);
+    const publication = memory.createOrGet(record);
+    const [acceptedEdit] = await Promise.all([
+      mutation,
+      expect(publication).rejects.toThrow(/source.*stale|freshness/i),
+    ]);
+    const edit = acceptedEdit.event;
     await expect(memory.listActive(workspaceId, 10)).resolves.toEqual([]);
     const regenerated = DynamicMemoryRecordSchema.parse({
       ...record,
@@ -105,7 +109,7 @@ describe("memory source freshness fences", () => {
     }));
     const claim = await jobs.claimAttempt(workspaceId, stored.id, "2026-08-06T12:00:03.000Z");
     if (claim.kind !== "CLAIMED") throw new Error("Expected claimed passive job.");
-    await continuity.acceptSourceEvent({
+    const mutation = continuity.acceptSourceEvent({
       receiptKey: "event:freshness-unsend",
       id: "source-event:freshness-unsend",
       workspaceId,
@@ -114,14 +118,16 @@ describe("memory source freshness fences", () => {
       authorMemberId: "member:freshness-author",
       payload: { kind: "UNSEND", targetMessageId: "message:freshness-original" },
     } as never);
-
-    await expect(jobs.finish({
+    const publication = jobs.finish({
       ...claim.job,
       status: "COMPLETED",
       attemptClaimedAt: undefined,
       attemptLeaseExpiresAt: undefined,
-    }, { jobId: claim.job.id, claimGeneration: claim.job.claimGeneration }, [staleRecord(original.sourceSequence)]))
-      .rejects.toThrow(/source.*stale|freshness/i);
+    }, { jobId: claim.job.id, claimGeneration: claim.job.claimGeneration }, [staleRecord(original.sourceSequence)]);
+    await Promise.all([
+      mutation,
+      expect(publication).rejects.toThrow(/source.*stale|freshness/i),
+    ]);
     await expect(jobs.listActive(workspaceId, 10)).resolves.toEqual([]);
   });
 });

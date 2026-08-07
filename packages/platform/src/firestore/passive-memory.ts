@@ -11,22 +11,17 @@ import {
   type PassiveMemoryJobRepository,
 } from "@medbuddy/contracts";
 
+import {
+  assertCurrentDynamicMemorySource,
+  dynamicMemorySourceFreshnessRef,
+} from "./memory-source-freshness.js";
+
 function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
 function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function assertCurrentSource(value: unknown, memory: DynamicMemoryRecord): void {
-  const freshness = record(value);
-  const source = memory.canonicalSource;
-  if (freshness.workspaceId !== memory.workspaceId || freshness.messageRef !== source.messageRef ||
-      freshness.currentSourceRef !== source.sourceRef || freshness.sourceSequence !== source.sourceSequence ||
-      freshness.status !== "ACTIVE") {
-    throw new Error("Dynamic-memory source freshness is stale.");
-  }
 }
 
 function cursor(value: unknown): number {
@@ -157,7 +152,11 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
       const stateRef = this.stateRef(job.workspaceId);
       const jobRef = this.jobRef(job.workspaceId, job.id);
       const memoryRefs = records.map((memory) => this.memoryRef(memory.workspaceId, memory.id));
-      const freshnessRefs = records.map((memory) => this.sourceFreshnessRef(memory.workspaceId, memory.canonicalSource.messageRef));
+      const freshnessRefs = records.map((memory) => dynamicMemorySourceFreshnessRef(
+        this.firestore,
+        memory.workspaceId,
+        memory.canonicalSource.messageRef,
+      ));
       const [state, snapshot, memorySnapshots, freshnessSnapshots] = await Promise.all([
         transaction.get(stateRef), transaction.get(jobRef), memoryRefs.length === 0 ? Promise.resolve([]) : transaction.getAll(...memoryRefs),
         freshnessRefs.length === 0 ? Promise.resolve([]) : transaction.getAll(...freshnessRefs),
@@ -191,7 +190,7 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
         } else {
           const freshness = freshnessSnapshots[index];
           if (!freshness?.exists && !this.allowUntrackedSources) throw new Error("Dynamic-memory source freshness is missing.");
-          if (freshness?.exists) assertCurrentSource(freshness.data(), memory);
+          if (freshness?.exists) assertCurrentDynamicMemorySource(freshness.data(), memory);
         }
       });
       records.forEach((memory, index) => {
@@ -218,9 +217,6 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     return this.workspaceRef(workspaceId).collection("dynamicMemoryRecords").doc(memoryId);
   }
 
-  private sourceFreshnessRef(workspaceId: string, messageRef: string) {
-    return this.workspaceRef(workspaceId).collection("dynamicMemorySourceFreshness").doc(messageRef);
-  }
 }
 
 function sameMemoryOperation(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {

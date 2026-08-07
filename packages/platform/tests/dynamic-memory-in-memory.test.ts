@@ -1,5 +1,7 @@
 import { describeDynamicMemoryRepositoryContract } from "@medbuddy/contracts/dynamic-memory-adapter-contract-tests";
 
-import { InMemoryDynamicMemoryRepository } from "../src/index.js";
+import { InMemoryDynamicMemoryRepository, InMemoryMemorySourceFreshnessStore } from "../src/index.js";
 
-describeDynamicMemoryRepositoryContract(() => new InMemoryDynamicMemoryRepository());
+describeDynamicMemoryRepositoryContract(() => new InMemoryDynamicMemoryRepository(
+  InMemoryMemorySourceFreshnessStore.untrackedForTests(),
+));
