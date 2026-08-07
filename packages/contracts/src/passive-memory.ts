@@ -97,6 +97,7 @@ export const PassiveMemoryJobSchema = z.object({
   firstSourceSequence: z.number().int().positive(),
   lastSourceSequence: z.number().int().positive(),
   policyVersion: z.literal(PASSIVE_MEMORY_POLICY_VERSION),
+  formationPolicyVersion: z.enum(["memory-formation-v1", "memory-formation-v1-verification-small"]).optional(),
   status: z.enum(["PENDING", "RUNNING", "COMPLETED", "FAILED"]),
   attempts: z.number().int().min(0).max(PASSIVE_MEMORY_MAX_ATTEMPTS),
   claimGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
@@ -181,5 +182,8 @@ export interface PassiveMemoryJobRepository {
     fence: PassiveMemoryAttemptFence,
     records?: readonly DynamicMemoryRecord[],
   ): Promise<PassiveMemoryJob>;
-  getCursor(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<number>;
+  getCursor(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+    formationPolicyVersion?: PassiveMemoryJob["formationPolicyVersion"],
+  ): Promise<number>;
 }

@@ -6,11 +6,11 @@ locals {
 }
 
 resource "google_cloud_scheduler_job" "memory_formation_recovery" {
-  count = var.memory_formation_callback_url == null ? 0 : 1
+  for_each = var.memory_formation_callback_url == null ? {} : local.memory_formation_policy_versions
 
   project          = local.project_id
   region           = local.region
-  name             = "medbuddy-memory-formation-recovery"
+  name             = "medbuddy-memory-formation-recovery-${each.key}"
   description      = "Bounded content-free recovery for passive memory formation"
   schedule         = "*/5 * * * *"
   time_zone        = "Etc/UTC"
@@ -31,7 +31,7 @@ resource "google_cloud_scheduler_job" "memory_formation_recovery" {
     }
     body = base64encode(jsonencode({
       kind          = "RECOVERY"
-      policyVersion = local.memory_formation_policy_versions[var.memory_formation_profile]
+      policyVersion = each.value
     }))
 
     oidc_token {

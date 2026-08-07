@@ -158,7 +158,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
       if (job.status === "COMPLETED" || job.status === "FAILED" || job.attempts >= PASSIVE_MEMORY_MAX_ATTEMPTS) {
         return PassiveMemoryAttemptClaimSchema.parse({ kind: "TERMINAL", job: clone(job) });
       }
-      if (this.#active.get(workspaceId) !== jobId) throw new Error("Passive-memory attempt does not match the active persisted workspace job.");
+      if (this.#active.get(this.namespace(job)) !== jobId) throw new Error("Passive-memory attempt does not match the active persisted workspace job.");
       if (job.status === "RUNNING" && Date.parse(claimedAt) < Date.parse(job.attemptLeaseExpiresAt!)) {
         return PassiveMemoryAttemptClaimSchema.parse({ kind: "BUSY", job: clone(job) });
       }
@@ -236,12 +236,16 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
         if (!same(existing, job)) throw new Error("Passive-memory job identity conflict.");
         return clone(existing);
       }
-      const active = this.#active.get(job.workspaceId);
+      const namespace = this.namespace(job);
+      const active = this.#active.get(namespace);
       if (active !== undefined) throw new Error("A workspace already has an active passive-memory job.");
-      const cursor = this.#cursors.get(job.workspaceId) ?? 0;
-      if (job.firstSourceSequence !== cursor + 1 || job.status !== "PENDING") throw new Error("Passive-memory job does not continue the persisted workspace cursor.");
+      const cursor = this.#cursors.get(namespace) ?? 0;
+      const continues = job.formationPolicyVersion === undefined
+        ? job.firstSourceSequence === cursor + 1
+        : job.firstSourceSequence > cursor;
+      if (!continues || job.status !== "PENDING") throw new Error("Passive-memory job does not continue the persisted workspace cursor.");
       this.#jobs.set(this.key(job.workspaceId, job.id), clone(job));
-      this.#active.set(job.workspaceId, job.id);
+      this.#active.set(namespace, job.id);
       return clone(job);
     }));
   }
@@ -334,8 +338,8 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
       .map(clone);
   }
 
-  async getCursor(workspaceId: Parameters<PassiveMemoryJobRepository["getCursor"]>[0]): Promise<number> {
-    return this.#cursors.get(workspaceId) ?? 0;
+  async getCursor(workspaceId: Parameters<PassiveMemoryJobRepository["getCursor"]>[0], formationPolicyVersion?: PassiveMemoryJob["formationPolicyVersion"]): Promise<number> {
+    return this.#cursors.get(this.namespace({ workspaceId, formationPolicyVersion })) ?? 0;
   }
 
   private updateFenced(job: PassiveMemoryJob, fence: PassiveMemoryAttemptFence, terminal: boolean): PassiveMemoryJob {
@@ -346,19 +350,23 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
   private validateFenced(job: PassiveMemoryJob, fence: PassiveMemoryAttemptFence, terminal: boolean): void {
     const key = this.key(job.workspaceId, job.id);
     const stored = this.#jobs.get(key);
-    if (stored === undefined || stored.status !== "RUNNING" || this.#active.get(job.workspaceId) !== job.id ||
+    const namespace = this.namespace(stored ?? job);
+    if (stored === undefined || stored.status !== "RUNNING" || this.#active.get(namespace) !== job.id ||
         fence.jobId !== stored.id || fence.claimGeneration !== stored.claimGeneration ||
         job.claimGeneration !== stored.claimGeneration || job.attempts !== stored.attempts) {
       throw new Error("Passive-memory attempt fencing conflict.");
     }
     if (job.firstSourceSequence !== stored.firstSourceSequence || job.lastSourceSequence !== stored.lastSourceSequence ||
-        job.policyVersion !== stored.policyVersion || job.createdAt !== stored.createdAt) {
+        job.policyVersion !== stored.policyVersion || job.formationPolicyVersion !== stored.formationPolicyVersion || job.createdAt !== stored.createdAt) {
       throw new Error("Passive-memory job identity conflict.");
     }
     if (terminal) {
       if (job.status !== "COMPLETED" && job.status !== "FAILED") throw new Error("A terminal passive-memory outcome is required.");
-      const cursor = this.#cursors.get(job.workspaceId) ?? 0;
-      if (stored.firstSourceSequence !== cursor + 1) throw new Error("Passive-memory cursor conflict.");
+      const cursor = this.#cursors.get(namespace) ?? 0;
+      const continues = stored.formationPolicyVersion === undefined
+        ? stored.firstSourceSequence === cursor + 1
+        : stored.firstSourceSequence > cursor;
+      if (!continues) throw new Error("Passive-memory cursor conflict.");
     } else if (job.status !== "PENDING") {
       throw new Error("A retryable passive-memory attempt must return to pending.");
     }
@@ -366,8 +374,9 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
 
   private applyFenced(job: PassiveMemoryJob, terminal: boolean): PassiveMemoryJob {
     if (terminal) {
-      this.#cursors.set(job.workspaceId, job.lastSourceSequence);
-      this.#active.delete(job.workspaceId);
+      const namespace = this.namespace(job);
+      this.#cursors.set(namespace, job.lastSourceSequence);
+      this.#active.delete(namespace);
     }
     this.#jobs.set(this.key(job.workspaceId, job.id), clone(job));
     return clone(job);
@@ -375,6 +384,10 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
 
   private key(workspaceId: string, jobId: string): string {
     return `${workspaceId}\u0000${jobId}`;
+  }
+
+  private namespace(job: { workspaceId: string; formationPolicyVersion?: PassiveMemoryJob["formationPolicyVersion"] }): string {
+    return `${job.workspaceId}\u0000${job.formationPolicyVersion ?? "legacy"}`;
   }
 
   private memoryKey(workspaceId: string, recordId: string): string { return `${workspaceId}\u0000${recordId}`; }

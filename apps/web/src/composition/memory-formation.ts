@@ -3,6 +3,7 @@ import {
   MEMORY_FORMATION_POLICIES,
   MemoryFormationRecoveryInputSchema,
   MemoryFormationWakeInputSchema,
+  type MemoryFormationPolicy,
 } from "@medbuddy/contracts";
 import {
   GoogleTaskTokenVerifier,
@@ -18,7 +19,7 @@ export class MemoryFormationTaskHandler {
     audience: string;
     serviceAccountEmail: string;
     verifier: TaskTokenVerifier;
-    scheduler: MemoryFormationScheduler;
+    schedulers: ReadonlyMap<MemoryFormationPolicy["policyVersion"], MemoryFormationScheduler>;
   }) {}
 
   async authorize(authorization: string | undefined): Promise<boolean> {
@@ -34,10 +35,16 @@ export class MemoryFormationTaskHandler {
     if (typeof body === "string") { try { body = JSON.parse(body) as unknown; } catch { return { status: 400 }; } }
     const recovery = MemoryFormationRecoveryInputSchema.safeParse(body);
     try {
-      if (recovery.success) { await this.dependencies.scheduler.recover(); return { status: 200 }; }
+      if (recovery.success) {
+        const scheduler = this.dependencies.schedulers.get(recovery.data.policyVersion);
+        if (scheduler === undefined) return { status: 400 };
+        await scheduler.recover(); return { status: 200 };
+      }
       const wake = MemoryFormationWakeInputSchema.safeParse(body);
       if (!wake.success) return { status: 400 };
-      await this.dependencies.scheduler.wake(wake.data);
+      const scheduler = this.dependencies.schedulers.get(wake.data.policyVersion);
+      if (scheduler === undefined) return { status: 400 };
+      await scheduler.wake(wake.data);
       return { status: 200 };
     } catch { return { status: 500 }; }
   }
@@ -57,16 +64,17 @@ export function createMemoryFormationTaskComposition(environment: Record<string,
     audience: config.memoryFormationCallbackUrl,
     serviceAccountEmail: config.taskServiceAccountEmail,
     verifier: new GoogleTaskTokenVerifier(),
-    scheduler: new MemoryFormationScheduler({ repository: platform.continuity, jobs: platform.passiveJobs,
-      wakeDispatcher: dispatchers.wake, workerDispatcher: dispatchers.worker,
-      policy, now: () => new Date().toISOString(),
-      lifecycleCleanup: async (workspaceId, sourceEventId) => {
+    schedulers: new Map(Object.values(MEMORY_FORMATION_POLICIES).map((profile) => [profile.policyVersion,
+      new MemoryFormationScheduler({ repository: platform.continuity, jobs: platform.passiveJobs,
+        wakeDispatcher: dispatchers.wake, workerDispatcher: dispatchers.worker,
+        policy: profile, now: () => new Date().toISOString(),
+        lifecycleCleanup: async (workspaceId, sourceEventId) => {
         const source = await platform.continuity.getSourceEvent(workspaceId, sourceEventId);
         if (source === null) throw new Error("Formation lifecycle source is missing.");
         await new DynamicMemoryService(platform.memory, undefined, platform.continuity)
           .applySourceMutation(workspaceId, source);
-      },
-    }),
+        },
+      })])),
   });
 }
 

@@ -106,8 +106,9 @@ export type MemoryFormationWakeInput = z.infer<typeof MemoryFormationWakeInputSc
 export type AcceptedFormationEventProjector = (event: SourceEvent) => AcceptedFormationEvent;
 
 export interface MemoryFormationRepository {
-  listAcceptedEvents(input: { workspaceId: z.infer<typeof WorkspaceIdSchema>; afterCursor: number; limit: number }): Promise<readonly AcceptedFormationEvent[]>;
-  getState(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<MemoryFormationState | null>;
+  listAcceptedEvents(input: { workspaceId: z.infer<typeof WorkspaceIdSchema>; afterCursor: number; limit: number;
+    policyVersion: MemoryFormationPolicy["policyVersion"] }): Promise<readonly AcceptedFormationEvent[]>;
+  getState(workspaceId: z.infer<typeof WorkspaceIdSchema>, policyVersion: MemoryFormationPolicy["policyVersion"]): Promise<MemoryFormationState | null>;
   compareAndSetState(expectedRevision: number | null, state: MemoryFormationState): Promise<boolean>;
   listRecoveryCandidates(input: {
     now: string;

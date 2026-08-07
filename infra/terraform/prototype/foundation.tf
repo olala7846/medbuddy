@@ -180,6 +180,23 @@ resource "google_firestore_index" "memory_formation_outbox_policy" {
   }
 }
 
+resource "google_firestore_index" "memory_formation_outbox_workspace_scan" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "memoryFormationOutbox"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "policyVersion"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "sourceSequence"
+    order      = "ASCENDING"
+  }
+}
+
 resource "google_storage_bucket" "attachments" {
   name                        = local.attachment_bucket_name
   project                     = local.project_id

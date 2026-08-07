@@ -593,6 +593,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
   async listAcceptedEvents(input: Parameters<MemoryFormationRepository["listAcceptedEvents"]>[0]) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation outbox reads are capped at 100.");
     const snapshot = await this.workspaceRef(input.workspaceId).collection("memoryFormationOutbox")
+      .where("policyVersion", "==", input.policyVersion)
       .where("sourceSequence", ">", input.afterCursor).orderBy("sourceSequence").limit(input.limit).get();
     return snapshot.docs.map((document) => {
       const event = AcceptedFormationEventSchema.parse(record(document.data()));
@@ -601,8 +602,8 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
     });
   }
 
-  async getState(workspaceId: Parameters<MemoryFormationRepository["getState"]>[0]) {
-    const snapshot = await this.formationStateRef(workspaceId).get();
+  async getState(workspaceId: Parameters<MemoryFormationRepository["getState"]>[0], policyVersion: Parameters<MemoryFormationRepository["getState"]>[1]) {
+    const snapshot = await this.formationStateRef(workspaceId, policyVersion).get();
     if (!snapshot.exists) return null;
     const state = MemoryFormationStateSchema.parse(record(snapshot.data()));
     if (state.workspaceId !== workspaceId) throw new Error("Formation state crossed a workspace path.");
@@ -612,8 +613,9 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
   async compareAndSetState(expectedRevision: number | null, value: MemoryFormationState): Promise<boolean> {
     const state = MemoryFormationStateSchema.parse(value);
     return this.firestore.runTransaction(async (transaction) => {
-      const ref = this.formationStateRef(state.workspaceId);
+      const ref = this.formationStateRef(state.workspaceId, state.policyVersion);
       const consumedQuery = this.workspaceRef(state.workspaceId).collection("memoryFormationOutbox")
+        .where("policyVersion", "==", state.policyVersion)
         .where("sourceSequence", "<=", state.cursor).limit(100);
       const [snapshot, consumed] = await Promise.all([transaction.get(ref), transaction.get(consumedQuery)]);
       const current = snapshot.exists ? MemoryFormationStateSchema.parse(record(snapshot.data())) : null;
@@ -648,7 +650,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
     const outboxEvents = outbox.docs.map((document) => AcceptedFormationEventSchema.parse(record(document.data())));
     const outboxWorkspaces = [...new Set(outboxEvents.map((event) => event.workspaceId))];
     const outboxStates = outboxWorkspaces.length === 0 ? [] : await this.firestore.getAll(
-      ...outboxWorkspaces.map((workspaceId) => this.formationStateRef(workspaceId)),
+      ...outboxWorkspaces.map((workspaceId) => this.formationStateRef(workspaceId, input.policyVersion)),
     );
     const outboxPolicies = new Map(outboxStates.map((snapshot, index) => {
       const state = snapshot.exists ? MemoryFormationStateSchema.parse(record(snapshot.data())) : null;
@@ -658,7 +660,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
       const persistedPolicy = outboxPolicies.get(event.workspaceId);
       if (persistedPolicy === undefined || persistedPolicy === input.policyVersion) candidates.add(event.workspaceId);
     }
-    return [...candidates].sort().slice(0, input.limit);
+    return [...candidates].sort();
   }
 
   private workspaceRef(workspaceId: string) {
@@ -681,8 +683,8 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
     return this.workspaceRef(workspaceId).collection("memoryFormationOutbox").doc(sourceEventId);
   }
 
-  private formationStateRef(workspaceId: string) {
-    return this.workspaceRef(workspaceId).collection("memoryFormationState").doc("current");
+  private formationStateRef(workspaceId: string, policyVersion: MemoryFormationState["policyVersion"]) {
+    return this.workspaceRef(workspaceId).collection("memoryFormationState").doc(policyVersion);
   }
 
   private formationRecoveryCursorRef() {

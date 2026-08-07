@@ -87,7 +87,7 @@ export class MemoryFormationScheduler {
 
   async reconcileWorkspace(workspaceId: WorkspaceId): Promise<void> {
     for (let retry = 0; retry < 8; retry += 1) {
-      let stored = await this.dependencies.repository.getState(workspaceId);
+      let stored = await this.dependencies.repository.getState(workspaceId, this.dependencies.policy.policyVersion);
       if (stored !== null && (stored.policyVersion !== this.dependencies.policy.policyVersion ||
           stored.continuityPolicyVersion !== this.dependencies.policy.continuityPolicyVersion)) {
         throw new Error("Memory-formation policy does not match persisted workspace state.");
@@ -95,18 +95,22 @@ export class MemoryFormationScheduler {
       if (stored?.activeJobId !== undefined) {
         const job = await this.dependencies.jobs.get(workspaceId, stored.activeJobId);
         if (job === null || job.status === "PENDING" || job.status === "RUNNING") return this.resumeActive(stored, job);
-        const reset = clearBatch(stored, await this.dependencies.jobs.getCursor(workspaceId));
+        const reset = clearBatch(stored, await this.dependencies.jobs.getCursor(workspaceId, this.dependencies.policy.policyVersion));
         if (!await this.dependencies.repository.compareAndSetState(stored.revision, reset)) continue;
         stored = reset;
       }
-      const base = stored ?? freshState(workspaceId, this.dependencies.policy);
+      let base = stored ?? freshState(workspaceId, this.dependencies.policy);
       const accepted = await this.dependencies.repository.listAcceptedEvents({
         workspaceId, afterCursor: base.cursor, limit: MEMORY_FORMATION_RECOVERY_LIMIT,
+        policyVersion: this.dependencies.policy.policyVersion,
       });
       if (accepted.length === 0) {
         if (stored === null) return;
         await this.ensureDelayedWake(base);
         return;
+      }
+      if (stored === null && accepted[0] !== undefined && accepted[0].sourceSequence > 1) {
+        base = freshState(workspaceId, this.dependencies.policy, accepted[0].sourceSequence - 1);
       }
       let next = base;
       let dispatch = false;
@@ -115,8 +119,19 @@ export class MemoryFormationScheduler {
         if (event.policyVersion !== this.dependencies.policy.policyVersion) {
           throw new Error("Accepted-event outbox policy does not match the selected formation profile.");
         }
-        if (event.workspaceId !== workspaceId || event.sourceSequence !== next.cursor + 1) {
-          throw new Error("Accepted-event outbox is not a contiguous workspace stream.");
+        if (event.workspaceId !== workspaceId || event.sourceSequence <= next.cursor) {
+          throw new Error("Accepted-event outbox is not a strictly increasing workspace stream.");
+        }
+        if (next.humanTextCount > 0 && next.quietDeadline !== undefined && next.maximumAgeDeadline !== undefined) {
+          const observedAt = Math.max(Date.parse(event.acceptedAt), Date.parse(this.dependencies.now()));
+          const quietDue = observedAt >= Date.parse(next.quietDeadline);
+          const maxDue = observedAt >= Date.parse(next.maximumAgeDeadline);
+          if (quietDue || maxDue) {
+            next = { ...next, dispatchReason: quietDue && (!maxDue || Date.parse(next.quietDeadline) <= Date.parse(next.maximumAgeDeadline))
+              ? "QUIET" : "MAX_AGE" };
+            dispatch = true;
+            break;
+          }
         }
         if (next.firstSourceSequence === undefined) {
           next = { ...next, firstSourceSequence: event.sourceSequence };
@@ -182,7 +197,7 @@ export class MemoryFormationScheduler {
   async wake(inputValue: MemoryFormationWakeInput, now = this.dependencies.now()): Promise<WakeOutcome> {
     const input = MemoryFormationWakeInputSchema.parse(inputValue);
     if (input.policyVersion !== this.dependencies.policy.policyVersion) return "POLICY_MISMATCH";
-    const state = await this.dependencies.repository.getState(input.workspaceId);
+    const state = await this.dependencies.repository.getState(input.workspaceId, this.dependencies.policy.policyVersion);
     if (state === null || state.humanTextCount === 0) return "EMPTY";
     if (state.scheduleGeneration !== input.generation) return "STALE";
     const maxDue = state.maximumAgeDeadline !== undefined && Date.parse(now) >= Date.parse(state.maximumAgeDeadline);
@@ -212,7 +227,7 @@ export class MemoryFormationScheduler {
       limit: MEMORY_FORMATION_RECOVERY_LIMIT, policyVersion: this.dependencies.policy.policyVersion });
     for (const workspaceId of candidates) {
       try {
-        const state = await this.dependencies.repository.getState(workspaceId);
+        const state = await this.dependencies.repository.getState(workspaceId, this.dependencies.policy.policyVersion);
         if (state !== null && state.policyVersion === this.dependencies.policy.policyVersion &&
             state.activeJobId === undefined && state.scheduledFor !== undefined &&
             Date.parse(state.scheduledFor) <= Date.parse(now)) {
@@ -260,9 +275,10 @@ export class MemoryFormationScheduler {
   private jobFor(state: MemoryFormationState, generation: number): PassiveMemoryJob {
     if (state.firstSourceSequence === undefined || state.lastSourceSequence === undefined) throw new Error("Formation range is empty.");
     return PassiveMemoryJobSchema.parse({
-      id: `passive-memory-job:formation-${state.firstSourceSequence}-${state.lastSourceSequence}-g${generation}`,
+      id: `passive-memory-job:${state.policyVersion}-formation-${state.firstSourceSequence}-${state.lastSourceSequence}-g${generation}`,
       workspaceId: state.workspaceId, firstSourceSequence: state.firstSourceSequence,
       lastSourceSequence: state.lastSourceSequence, policyVersion: PASSIVE_MEMORY_POLICY_VERSION,
+      formationPolicyVersion: state.policyVersion,
       status: "PENDING", attempts: 0, claimGeneration: 0,
       createdAt: state.firstAcceptedAt ?? state.newestAcceptedAt ?? this.dependencies.now(),
     });

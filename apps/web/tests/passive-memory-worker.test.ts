@@ -32,6 +32,9 @@ async function harness(options: {
   attempts?: number;
   block?: boolean;
   evidenceFailure?: Error;
+  editBody?: string;
+  editIdSuffix?: string;
+  formationPolicyVersion?: "memory-formation-v1" | "memory-formation-v1-verification-small";
 } = {}) {
   const freshness = new InMemoryMemorySourceFreshnessStore();
   const continuity = new InMemoryContinuityRepository(freshness);
@@ -51,13 +54,24 @@ async function harness(options: {
     void _sequence;
     await continuity.acceptSourceEvent({ ...accepted, receiptKey: `event:fictional-passive-${index}` });
   }
+  if (options.editBody !== undefined) {
+    const editSuffix = options.editIdSuffix ?? "";
+    await continuity.acceptSourceEvent({
+      receiptKey: `event:fictional-passive-edit${editSuffix}`, id: `source-event:fictional-passive-edit${editSuffix}`,
+      workspaceId, occurredAt: "2026-08-06T12:09:00.000Z", acceptedAt: "2026-08-06T12:09:01.000Z",
+      providerMessageId: "message:fictional-passive-edit",
+      authorMemberId: "member:fictional-passive",
+      payload: { kind: "TEXT_EDIT", targetMessageId: "message:fictional-passive-0", body: options.editBody },
+    } as never);
+  }
   const jobs = new InMemoryPassiveMemoryJobRepository(freshness);
   const job = await jobs.createOrGet(PassiveMemoryJobSchema.parse({
     id: jobId,
     workspaceId,
     firstSourceSequence: 1,
-    lastSourceSequence: bodies.length,
+    lastSourceSequence: bodies.length + (options.editBody === undefined ? 0 : 1),
     policyVersion: "passive-memory-v1",
+    ...(options.formationPolicyVersion === undefined ? {} : { formationPolicyVersion: options.formationPolicyVersion }),
     status: "PENDING",
     attempts: options.attempts ?? 0,
     claimGeneration: options.attempts ?? 0,
@@ -99,7 +113,7 @@ async function harness(options: {
     worker,
     logger: { write: (entry) => logs.push(PassiveMemoryWorkerLogEntrySchema.parse(entry)) },
   });
-  return { called, calls, handler, job, jobs, logs, memories, release, worker };
+  return { called, calls, continuity, handler, job, jobs, logs, memories, release, worker };
 }
 
 describe("silent passive-memory worker", () => {
@@ -114,6 +128,53 @@ describe("silent passive-memory worker", () => {
       policyVersion: "passive-memory-v1",
     }));
     expect(logs.every((entry) => !JSON.stringify(entry).includes(workspaceId))).toBe(true);
+  });
+
+  it("terminally skips a small original replaced by an above-ceiling edit before generation", async () => {
+    const { calls, jobs, worker } = await harness({
+      bodies: ["small"], editBody: "字".repeat(100_000),
+      formationPolicyVersion: "memory-formation-v1-verification-small",
+    });
+    await expect(worker.run({ workspaceId, jobId })).resolves.toBe("EXHAUSTED");
+    expect(calls).toHaveLength(0);
+    await expect(jobs.getCursor(workspaceId, "memory-formation-v1-verification-small")).resolves.toBe(2);
+  });
+
+  it.each([
+    ["memory-formation-v1-verification-small", 1_800],
+    ["memory-formation-v1", 30_000],
+  ] as const)("never sends %s effective evidence above its %i UTF-16 ceiling", async (formationPolicyVersion, ceiling) => {
+    const { calls, worker } = await harness({
+      bodies: ["first", "second"], editBody: "字".repeat(20_000), formationPolicyVersion,
+    });
+    await worker.run({ workspaceId, jobId });
+    for (const call of calls) expect(JSON.stringify(call).length).toBeLessThanOrEqual(ceiling);
+  });
+
+  it.each([
+    ["memory-formation-v1-verification-small", 1_800],
+    ["memory-formation-v1", 30_000],
+  ] as const)("allows an exactly-at-ceiling effective edit for %s", async (formationPolicyVersion, ceiling) => {
+    let suffix = "";
+    let seed = await harness({ bodies: ["small"], editBody: "x", editIdSuffix: suffix, formationPolicyVersion });
+    let batch = await new PassiveMemoryEvidenceReaderAdapter(seed.continuity).readEffectiveHumanText({
+      workspaceId, firstSourceSequence: 1, lastSourceSequence: 2,
+    });
+    if ((ceiling - JSON.stringify(batch).length) % 2 !== 0) {
+      suffix = "x";
+      seed = await harness({ bodies: ["small"], editBody: "x", editIdSuffix: suffix, formationPolicyVersion });
+      batch = await new PassiveMemoryEvidenceReaderAdapter(seed.continuity).readEffectiveHumanText({
+        workspaceId, firstSourceSequence: 1, lastSourceSequence: 2,
+      });
+    }
+    const bodyLength = 1 + (ceiling - JSON.stringify(batch).length) / 2;
+    expect(bodyLength).toBeGreaterThanOrEqual(0);
+    expect(Number.isInteger(bodyLength)).toBe(true);
+    const exact = await harness({ bodies: ["small"], editBody: "x".repeat(bodyLength), editIdSuffix: suffix,
+      formationPolicyVersion });
+    await expect(exact.worker.run({ workspaceId, jobId })).resolves.toBe("COMPLETED");
+    expect(exact.calls).toHaveLength(1);
+    expect(JSON.stringify(exact.calls[0]).length).toBe(ceiling);
   });
 
   it("persists exact source-bound proposals from non-reply human text", async () => {

@@ -424,23 +424,24 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
   async listAcceptedEvents(input: Parameters<MemoryFormationRepository["listAcceptedEvents"]>[0]) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation outbox reads are capped at 100.");
     return [...this.formationOutbox.values()]
-      .filter((event) => event.workspaceId === input.workspaceId && event.sourceSequence > input.afterCursor)
+      .filter((event) => event.workspaceId === input.workspaceId && event.policyVersion === input.policyVersion && event.sourceSequence > input.afterCursor)
       .sort((left, right) => left.sourceSequence - right.sourceSequence)
       .slice(0, input.limit).map((event) => AcceptedFormationEventSchema.parse(clone(event)));
   }
 
-  async getState(workspaceId: Parameters<MemoryFormationRepository["getState"]>[0]) {
-    return clone(this.formationStates.get(workspaceId) ?? null);
+  async getState(workspaceId: Parameters<MemoryFormationRepository["getState"]>[0], policyVersion: Parameters<MemoryFormationRepository["getState"]>[1]) {
+    return clone(this.formationStates.get(this.key(workspaceId, policyVersion)) ?? null);
   }
 
   async compareAndSetState(expectedRevision: number | null, value: MemoryFormationState): Promise<boolean> {
     const state = MemoryFormationStateSchema.parse(value);
     return this.queue.run(state.workspaceId, () => {
-      const existing = this.formationStates.get(state.workspaceId);
+      const stateKey = this.key(state.workspaceId, state.policyVersion);
+      const existing = this.formationStates.get(stateKey);
       if ((existing?.revision ?? null) !== expectedRevision) return false;
-      this.formationStates.set(state.workspaceId, clone(state));
+      this.formationStates.set(stateKey, clone(state));
       for (const [key, event] of this.formationOutbox) {
-        if (event.workspaceId === state.workspaceId && event.sourceSequence <= state.cursor) this.formationOutbox.delete(key);
+        if (event.workspaceId === state.workspaceId && event.policyVersion === state.policyVersion && event.sourceSequence <= state.cursor) this.formationOutbox.delete(key);
       }
       return true;
     });
@@ -448,18 +449,18 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
 
   async listRecoveryCandidates(input: Parameters<MemoryFormationRepository["listRecoveryCandidates"]>[0]) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
-    const workspaces = new Set<WorkspaceId>();
+    const outboxWorkspaces = new Set<WorkspaceId>();
     for (const event of this.formationOutbox.values()) {
-      const state = this.formationStates.get(event.workspaceId);
-      if (state === undefined || state.policyVersion === input.policyVersion) workspaces.add(event.workspaceId);
+      if (event.policyVersion === input.policyVersion && outboxWorkspaces.size < input.limit) outboxWorkspaces.add(event.workspaceId);
     }
+    const dueWorkspaces = new Set<WorkspaceId>();
     for (const state of this.formationStates.values()) {
       if (state.policyVersion === input.policyVersion &&
           (state.activeJobId !== undefined || (state.scheduledFor !== undefined && Date.parse(state.scheduledFor) <= Date.parse(input.now)))) {
-        workspaces.add(state.workspaceId);
+        if (dueWorkspaces.size < input.limit) dueWorkspaces.add(state.workspaceId);
       }
     }
-    return [...workspaces].sort().slice(0, input.limit);
+    return [...new Set([...dueWorkspaces].sort().concat([...outboxWorkspaces].sort()))];
   }
 
   private key(workspaceId: string, id: string): string {

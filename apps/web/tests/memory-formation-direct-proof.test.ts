@@ -14,7 +14,8 @@ describe("memory-formation-direct-proof", () => {
       const fixture = JSON.parse((await readFile(new URL(`./fixtures/${filename}`, import.meta.url), "utf8")).trim()) as {
         profile: "production" | "verification-small"; targetRenderedUtf16: number; bodySeed: string;
       };
-      const projector = createAcceptedFormationEventProjector(MEMORY_FORMATION_POLICIES[fixture.profile]);
+      const profile = MEMORY_FORMATION_POLICIES[fixture.profile];
+      const projector = createAcceptedFormationEventProjector(profile);
       const continuity = new InMemoryContinuityRepository(undefined, projector);
       const jobs = new InMemoryPassiveMemoryJobRepository(InMemoryMemorySourceFreshnessStore.untrackedForTests());
       const workspaceId = `workspace:formation-${fixture.profile}` as never;
@@ -23,13 +24,13 @@ describe("memory-formation-direct-proof", () => {
         providerMessageId: `message:${fixture.profile}`, authorMemberId: "member:fictional",
         payload: { kind: "TEXT", body: fixture.bodySeed, replyRequested: true } };
       await continuity.acceptSourceEvent(input as never);
-      const initial = (await continuity.listAcceptedEvents({ workspaceId, afterCursor: 0, limit: 1 }))[0]!;
+      const initial = (await continuity.listAcceptedEvents({ workspaceId, afterCursor: 0, limit: 1, policyVersion: profile.policyVersion }))[0]!;
       const requiredDelta = fixture.targetRenderedUtf16 - initial.renderedUtf16;
       expect(requiredDelta % 2).toBe(0);
       const padding = "字".repeat(requiredDelta / 2);
       const exactContinuity = new InMemoryContinuityRepository(undefined, projector);
       await exactContinuity.acceptSourceEvent({ ...input, payload: { ...input.payload, body: input.payload.body + padding } } as never);
-      const [exact] = await exactContinuity.listAcceptedEvents({ workspaceId, afterCursor: 0, limit: 1 });
+      const [exact] = await exactContinuity.listAcceptedEvents({ workspaceId, afterCursor: 0, limit: 1, policyVersion: profile.policyVersion });
       expect(exact?.renderedUtf16).toBe(fixture.targetRenderedUtf16);
       const dispatched: unknown[] = [];
       const scheduler = new MemoryFormationScheduler({ repository: exactContinuity, jobs,

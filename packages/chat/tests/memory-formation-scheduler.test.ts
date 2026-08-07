@@ -87,12 +87,41 @@ describe("first-threshold-wins memory formation", () => {
     expect(h.getState()).toMatchObject({ humanTextCount: 30, dispatchReason: "COUNT", maximumAgeDeadline: at(24 * 60) });
   });
 
-  it("dispatches maximum age when a delayed wake observes it before the moved quiet deadline", async () => {
-    const h = harness([event(1, 10, at(0)), event(2, 10, at(24 * 60 - 5))]);
+  it.each([24 * 60, 24 * 60 + 1])("dispatches maximum age before folding traffic at minute %s", async (minute) => {
+    const h = harness([event(2, 10, at(minute))]);
+    await h.repository.compareAndSetState(null, {
+      workspaceId, policyVersion: "memory-formation-v1", continuityPolicyVersion: "continuity-v1",
+      cursor: 1, revision: 0, firstSourceSequence: 1, lastSourceSequence: 1,
+      humanTextCount: 1, renderedUtf16: 10, firstAcceptedAt: at(0), newestAcceptedAt: at(24 * 60 - 5),
+      quietDeadline: at(24 * 60 + 5), maximumAgeDeadline: at(24 * 60), scheduleGeneration: 1, scheduledFor: at(24 * 60),
+    });
     await h.scheduler.reconcileWorkspace(workspaceId);
-    await expect(h.scheduler.wake({ workspaceId, generation: h.getState()!.scheduleGeneration,
-      policyVersion: "memory-formation-v1" }, at(24 * 60))).resolves.toBe("DISPATCHED");
     expect(h.getState()?.dispatchReason).toBe("MAX_AGE");
+    expect(h.getState()?.lastSourceSequence).toBe(1);
+  });
+
+  it.each([10, 11])("seals the won quiet range before folding traffic at minute %s", async (minute) => {
+    const h = harness([event(1, 10, at(0))]);
+    await h.scheduler.reconcileWorkspace(workspaceId);
+    // The durable outbox receives traffic after the original batch has won its deadline.
+    const events = [event(1, 10, at(0)), event(2, 10, at(minute))];
+    h.repository.listAcceptedEvents = async ({ afterCursor, limit }) => events.filter((item) => item.sourceSequence > afterCursor).slice(0, limit);
+    await h.scheduler.reconcileWorkspace(workspaceId);
+    expect(h.getState()).toMatchObject({ firstSourceSequence: 1, lastSourceSequence: 1, dispatchReason: "QUIET" });
+    expect(h.dispatches).toHaveLength(1);
+  });
+
+  it("bootstraps a pre-projector workspace from the first available outbox watermark", async () => {
+    const h = harness([event(42, 10, at(0))]);
+    await expect(h.scheduler.reconcileWorkspace(workspaceId)).resolves.toBeUndefined();
+    expect(h.getState()).toMatchObject({ cursor: 42, firstSourceSequence: 42, lastSourceSequence: 42 });
+  });
+
+  it("bootstraps the same pre-projector watermark through bounded recovery", async () => {
+    const h = harness([event(42, 10, at(0))]);
+    h.repository.listRecoveryCandidates = async () => [workspaceId];
+    await expect(h.scheduler.recover()).resolves.toBe(1);
+    expect(h.getState()).toMatchObject({ cursor: 42, firstSourceSequence: 42, lastSourceSequence: 42 });
   });
 
   it("resolves an equal quiet/maximum-age boundary deterministically and treats an empty wake as safe", async () => {
