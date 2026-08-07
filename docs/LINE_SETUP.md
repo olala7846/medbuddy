@@ -220,13 +220,56 @@ The implementation uses LINE's documented `x-line-signature`, `webhookEventId`, 
 
 ## Fictional live smoke
 
+Prefer the automated fictional JSONL smoke. Do not require a real LINE user,
+DM, or group unless the test must verify provider delivery behavior that the
+signed in-process adapter cannot simulate. Use a manual LINE check only as a
+narrow fallback, and document why automation is not sufficient.
+
+Run the automated memory smoke against the target Firestore project with the
+explicit write acknowledgement:
+
+```bash
+MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION=I_ACKNOWLEDGE_FICTIONAL_TARGET_WRITES \
+MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802 \
+npm run verify:memory:target
+```
+
+The runner loads six bounded Traditional Chinese LINE events from JSONL. It
+uses these production paths:
+
+- signed LINE requests;
+- the memory domain services;
+- the target Firestore adapters.
+
+It uses a fake reply transport. It tests these behaviors:
+
+- the ten-minute passive trigger;
+- same-workspace recall and explicit memory;
+- source and trust attribution;
+- MedBuddy source exclusion after a later formation cycle;
+- decoy-workspace isolation;
+- deterministic medication-change refusal before model use.
+
+The runner checks for target collisions before the first write. It removes and
+verifies the exact nonce-based workspace and receipt scope in a `finally` block.
+It does not use a LINE channel secret or call the LINE API.
+
+If the process stops before cleanup, it leaves a mode-`0600` manifest in the
+system temporary directory. Run this command with the path from the failed run:
+
+```bash
+MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION=I_ACKNOWLEDGE_FICTIONAL_TARGET_WRITES \
+MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802 \
+MEDBUDDY_CONTINUITY_CLEANUP_MANIFEST=/tmp/medbuddy-deployed-memory-smoke-<run-nonce>.json \
+npm run verify:continuity:cleanup
+```
+
+If a provider-boundary check is necessary:
+
 1. Confirm Secret Manager mappings and ADC-backed Vertex access in the deployed revision.
 2. Use the LINE console **Verify** action. Confirm HTTP `200`.
-3. Send a non-medical fictional DM. Confirm one model-backed reply.
-4. Confirm logs contain `line_event_completed`, but no body, prompt, output, token, or LINE identifier. Replay inspection is automatic.
-5. Add the Official Account to a disposable group. Confirm an ordinary message gets no reply. Mention the bot and confirm one reply.
-6. Send a fictional medication-change question. Confirm deterministic refusal, not model advice.
-7. Review Firestore. Confirm the DM and group use separate opaque workspace documents.
+3. Use only fictional content in a disposable DM or group.
+4. Confirm logs contain `line_event_completed`, but no content, token, or LINE identifier.
 
 Do not use real family data until privacy disclosure, retention, deletion, and a production log review are implemented and explicitly approved.
 
@@ -251,3 +294,33 @@ The repository records no LINE user, group, message, or channel identifier; cred
 The Compute Engine default service account had a pre-existing project-level `roles/editor` grant when the source-build role was added. The deployment did not change that broad legacy grant because its other consumers were unknown. Review and narrow it before real family data is approved.
 
 The deployed smoke proves only the fictional text loop. It does not remove the gates for disclosure, consent, retention, deletion, dependency remediation, or production log review.
+
+## Effort 3 deployed memory smoke record (2026-08-07)
+
+The source-backed memory revision is deployed. The automated target smoke
+replaced the planned human LINE group exercise:
+
+| Item | Verified state |
+| --- | --- |
+| Cloud Run revision and traffic | `medbuddy-line-00012-hud`, 100% traffic after a tagged zero-traffic probe |
+| Rollback target | `medbuddy-line-00011-tls` retained as the previous known-good revision |
+| Model boundary | Conversation `gemini-3.6-flash`; compaction `gemini-3.5-flash-lite`; global Vertex endpoint and ADC runtime identity |
+| HTTP boundary | Root and correctly signed empty LINE webhook returned `200`; unsigned memory-formation and passive-memory callbacks returned `401` |
+| Firestore foundation | Seven composite indexes and the `memoryFormationOutbox.policyVersion` collection-group field index reached ready state; Terraform converged with no changes |
+| Recovery automation | Production and verification-small OIDC jobs enabled every five minutes; both automatic attempts completed with status code `0` |
+| Rendered-size policies | Production 30,000 UTF-16 units; verification-small 1,800 UTF-16 units |
+| Dynamic-memory live evaluation | Traditional Chinese semantic, episodic, and allow-listed procedural scenarios passed against the configured Vertex model |
+| Effort 1/2 regression evaluation | The first counterfactual family-map attempt declined the required sparse inference. An identical rerun passed all three assertions. This result matches the documented stochastic model variance. The failure did not occur in a compaction, persistence, or infrastructure assertion. |
+| Automated fictional LINE memory observations | Six signed JSONL events passed against target Firestore: zero passive replies, two attributed recalls, one explicit acknowledgment, one medication refusal before model use, two primary memories, zero isolated-workspace memories, zero MedBuddy sources after later formation, two human canonical sources, and six content-free operational log entries |
+| Synthetic cleanup | The exact two-workspace and six-receipt nonce scope was removed and verified; no recovery manifest remained |
+
+The first infrastructure apply also exposed an invalid composite declaration for
+the outbox policy lookup. Firestore correctly rejected it as unnecessary. The
+configuration now uses a single-field collection-group index while preserving
+the inherited collection-scope indexes; authenticated recovery succeeded only
+after that index reached ready state.
+
+No real conversation data was enabled. Repository evidence contains no LINE
+identifier, credential, prompt, model output, or conversation content. The
+recovery jobs and indexes are intentionally retained as the deployed prototype
+foundation. The automated target smoke removed all of its fictional data.
