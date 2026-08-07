@@ -160,12 +160,13 @@ const DynamicMemoryProvenanceBase = {
   acceptedAt: TimestampSchema,
 } as const;
 
-export const DynamicMemoryProvenanceSchema = z.discriminatedUnion("sourceStatus", [
+export const DynamicMemoryProvenanceSchema = z.union([
   z.object({
     ...DynamicMemoryProvenanceBase,
     sourceStatus: z.literal("AVAILABLE"),
     exactExcerpt: z.string().max(DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16),
   }).strict(),
+  z.object({ ...DynamicMemoryProvenanceBase, sourceStatus: z.literal("AVAILABLE") }).strict(),
   z.object({ ...DynamicMemoryProvenanceBase, sourceStatus: z.literal("UNAVAILABLE") }).strict(),
   z.object({ ...DynamicMemoryProvenanceBase, sourceStatus: z.literal("UNSENT") }).strict(),
 ]);

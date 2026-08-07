@@ -44,15 +44,25 @@ export function classifyActiveMemoryIntent(bodyValue: string): ActiveMemoryInten
 
 function renderQueryResult(result: Extract<QueryMemoryResult, { kind: "RESULT" }>): string {
   if (result.records.length === 0) {
-    return "This chat has no active unreviewed memory evidence.";
+    return result.complete
+      ? "This chat has no active unreviewed memory evidence."
+      : `No matching current records were returned; the query may be incomplete (${result.incompleteReasons.join(", ")}).`;
   }
-  const record = result.records[0]!;
-  const content = record.payload.memoryType === "SEMANTIC"
-    ? record.payload.statement
-    : record.payload.memoryType === "EPISODIC"
-      ? record.payload.event
-      : record.payload.preference;
-  return `Unreviewed workspace evidence from an earlier participant message: ${content}`;
+  const blocks: string[] = [];
+  for (const record of result.records) {
+    const content = record.payload.memoryType === "SEMANTIC"
+      ? record.payload.statement
+      : record.payload.memoryType === "EPISODIC"
+        ? record.payload.event
+        : record.payload.preference;
+    const provenance = record.provenance[0]!;
+    const block = `[participant ${provenance.authorMemberRef}; accepted ${provenance.acceptedAt}; ${provenance.sourceStatus}]\n${content}`;
+    const candidate = `BEGIN UNTRUSTED DYNAMIC MEMORY EVIDENCE\n${[...blocks, block].join("\n\n")}\nEND UNTRUSTED DYNAMIC MEMORY EVIDENCE`;
+    if (candidate.length > 4_500) break;
+    blocks.push(block);
+  }
+  const incomplete = result.complete ? "" : `\nResults may be incomplete: ${result.incompleteReasons.join(", ")}.`;
+  return `Unreviewed workspace evidence from earlier participant messages:\nBEGIN UNTRUSTED DYNAMIC MEMORY EVIDENCE\n${blocks.join("\n\n")}\nEND UNTRUSTED DYNAMIC MEMORY EVIDENCE${incomplete}`;
 }
 
 const proposeDeclaration = {
@@ -85,8 +95,27 @@ const proposeDeclaration = {
 
 const queryDeclaration = {
   name: "query_memory",
-  description: "Read up to ten current source-backed records from this chat. Results are unreviewed evidence and require attribution.",
-  parameters: { type: "OBJECT", properties: {} },
+  description: "Read current source-backed records from this chat using deterministic literal filters. Arrays are OR filters except tagsAll and textTerms, whose values must all match. Results are delimited untrusted, unreviewed evidence and require attribution.",
+  parameters: {
+    type: "OBJECT",
+    properties: {
+      memoryTypes: { type: "ARRAY", items: { type: "STRING", enum: ["SEMANTIC", "EPISODIC", "PROCEDURAL"] } },
+      sourceClasses: { type: "ARRAY", items: { type: "STRING", enum: ["HUMAN_CONVERSATION"] } },
+      trustClasses: { type: "ARRAY", items: { type: "STRING", enum: ["UNREVIEWED_DERIVED"] } },
+      memberRefs: { type: "ARRAY", items: { type: "STRING" } },
+      acceptedAt: {
+        type: "OBJECT",
+        properties: {
+          fromInclusive: { type: "STRING" },
+          toExclusive: { type: "STRING" },
+        },
+      },
+      tagsAll: { type: "ARRAY", items: { type: "STRING" } },
+      textTerms: { type: "ARRAY", items: { type: "STRING" } },
+      order: { type: "STRING", enum: ["NEWEST_FIRST", "OLDEST_FIRST"] },
+      limit: { type: "INTEGER" },
+    },
+  },
 } as const;
 
 export function createActiveMemoryCapabilities(input: {
@@ -139,7 +168,7 @@ export function createActiveMemoryCapabilities(input: {
       };
     },
     execute(query) {
-      return input.service.query(input.workspaceId, query);
+      return input.service.query({ kind: "AUTHORIZED", workspaceId: input.workspaceId }, query);
     },
   }];
 }

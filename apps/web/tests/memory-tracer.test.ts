@@ -137,7 +137,7 @@ describe("signed active memory tracer", () => {
       continuity,
       messages: persistence.messages,
       familyMaps: persistence.familyMaps,
-      memory: new DynamicMemoryService(memories, () => "2026-08-06T16:00:00.000Z"),
+      memory: new DynamicMemoryService(memories, () => "2026-08-06T16:00:00.000Z", continuity),
       responder,
       systemInstructions: "Preserve workspace isolation and deterministic medical safety.",
     });
@@ -200,7 +200,7 @@ describe("signed active memory tracer", () => {
     expect(replies).toEqual([
       "I remembered that for this chat as unreviewed evidence.",
       "This chat has no active unreviewed memory evidence.",
-      "Unreviewed workspace evidence from an earlier participant message: our fictional appointment folder is blue",
+      expect.stringContaining("BEGIN UNTRUSTED DYNAMIC MEMORY EVIDENCE\n"),
       "Bring the fictional blue folder and paper calendar tomorrow.",
     ]);
     expect(replies.at(-1)).not.toMatch(/remember|stored|saved|recorded|記住|儲存|保存/iu);

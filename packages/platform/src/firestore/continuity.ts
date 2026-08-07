@@ -134,6 +134,19 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     });
   }
 
+  async getSourceEvent(
+    workspaceId: Parameters<ContinuityRepository["getSourceEvent"]>[0],
+    sourceEventId: Parameters<ContinuityRepository["getSourceEvent"]>[1],
+  ): Promise<SourceEvent | null> {
+    const snapshot = await this.sourceEventRef(workspaceId, sourceEventId).get();
+    if (!snapshot.exists) return null;
+    const event = SourceEventSchema.parse(record(snapshot.data()));
+    if (event.workspaceId !== workspaceId || event.id !== sourceEventId) {
+      throw new Error("Stored source event does not match its workspace path.");
+    }
+    return event;
+  }
+
   async createOutboundCandidate(candidateValue: OutboundCandidate): Promise<OutboundCandidate> {
     const candidate = OutboundCandidateSchema.parse(candidateValue);
     return this.firestore.runTransaction(async (transaction) => {
