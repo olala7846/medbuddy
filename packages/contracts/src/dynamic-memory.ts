@@ -93,8 +93,7 @@ export const ProposeMemoryInputSchema = z.object({
   tags: z.array(MemoryTagSchema).max(DYNAMIC_MEMORY_TAG_MAX_COUNT).default([]),
 }).strict();
 
-export const QueryMemoryInputSchema = z.object({
-  subjectLabels: z.array(MemorySubjectLabelSchema).max(DYNAMIC_MEMORY_LABEL_MAX_COUNT).default([]),
+const QueryMemoryFilterFields = {
   memoryTypes: z.array(z.enum(["SEMANTIC", "EPISODIC", "PROCEDURAL"]))
     .max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT).default([]),
   sourceClasses: z.array(z.literal("HUMAN_CONVERSATION"))
@@ -114,7 +113,12 @@ export const QueryMemoryInputSchema = z.object({
   order: z.enum(["NEWEST_FIRST", "OLDEST_FIRST"]).default("NEWEST_FIRST"),
   limit: z.number().int().positive().max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT)
     .default(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT),
-}).strict().superRefine((query, context) => {
+} as const;
+
+function validateAcceptedRange(
+  query: { acceptedAt: { fromInclusive?: string; toExclusive?: string } },
+  context: z.RefinementCtx,
+) {
   if (
     "fromInclusive" in query.acceptedAt
     && "toExclusive" in query.acceptedAt
@@ -126,7 +130,15 @@ export const QueryMemoryInputSchema = z.object({
       path: ["acceptedAt", "toExclusive"],
     });
   }
-});
+}
+
+export const ModelQueryMemoryInputSchema = z.object(QueryMemoryFilterFields).strict()
+  .superRefine(validateAcceptedRange);
+
+export const QueryMemoryInputSchema = z.object({
+  subjectLabels: z.array(MemorySubjectLabelSchema).max(DYNAMIC_MEMORY_LABEL_MAX_COUNT).default([]),
+  ...QueryMemoryFilterFields,
+}).strict().superRefine(validateAcceptedRange);
 
 export const CreateDynamicMemoryResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("STORED"), record: DynamicMemoryRecordSchema }).strict(),
@@ -142,13 +154,51 @@ export const ProposeMemoryResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("TECHNICAL_FAILURE") }).strict(),
 ]);
 
-export const QueryMemoryResultSchema = z.discriminatedUnion("kind", [
+const DynamicMemoryProvenanceBase = {
+  sourceRef: SourceEventIdSchema,
+  authorMemberRef: MemberIdSchema,
+  acceptedAt: TimestampSchema,
+} as const;
+
+export const DynamicMemoryProvenanceSchema = z.discriminatedUnion("sourceStatus", [
   z.object({
-    kind: z.literal("RESULT"),
-    complete: z.literal(true),
-    records: z.array(ModelVisibleDynamicMemoryRecordSchema).max(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT),
+    ...DynamicMemoryProvenanceBase,
+    sourceStatus: z.literal("AVAILABLE"),
+    exactExcerpt: z.string().max(DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16),
   }).strict(),
-  z.object({ kind: z.literal("REJECTED"), code: z.literal("SUBJECT_FILTER_DEFERRED") }).strict(),
+  z.object({ ...DynamicMemoryProvenanceBase, sourceStatus: z.literal("UNAVAILABLE") }).strict(),
+  z.object({ ...DynamicMemoryProvenanceBase, sourceStatus: z.literal("UNSENT") }).strict(),
+]);
+
+export const QueryMemoryRecordSchema = ModelVisibleDynamicMemoryRecordSchema.extend({
+  provenance: z.array(DynamicMemoryProvenanceSchema).length(1),
+}).strict();
+
+const QueryMemoryRecordsResultSchema = z.object({
+  kind: z.literal("RESULT"),
+  complete: z.boolean(),
+  incompleteReasons: z.array(z.enum([
+    "SOURCE_EXCERPT_UNAVAILABLE",
+    "ADAPTER_PARTIAL_FAILURE",
+    "SCAN_LIMIT_REACHED",
+    "RESULT_BUDGET_REACHED",
+  ])).max(4),
+  records: z.array(QueryMemoryRecordSchema).max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT),
+}).strict().superRefine((result, context) => {
+  if (result.complete !== (result.incompleteReasons.length === 0)) {
+    context.addIssue({ code: "custom", message: "Complete query results cannot have incomplete reasons." });
+  }
+  if (JSON.stringify(result).length > DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16) {
+    context.addIssue({ code: "custom", message: "Rendered query result exceeds its aggregate budget." });
+  }
+});
+
+export const QueryMemoryResultSchema = z.union([
+  QueryMemoryRecordsResultSchema,
+  z.object({
+    kind: z.literal("REJECTED"),
+    code: z.enum(["SUBJECT_FILTER_DEFERRED", "WORKSPACE_SCOPE_UNCERTAIN"]),
+  }).strict(),
   z.object({ kind: z.literal("TECHNICAL_FAILURE") }).strict(),
 ]);
 
@@ -158,6 +208,8 @@ export type DynamicMemoryRecord = z.infer<typeof DynamicMemoryRecordSchema>;
 export type ModelVisibleDynamicMemoryRecord = z.infer<typeof ModelVisibleDynamicMemoryRecordSchema>;
 export type ProposeMemoryInput = z.infer<typeof ProposeMemoryInputSchema>;
 export type QueryMemoryInput = z.infer<typeof QueryMemoryInputSchema>;
+export type ModelQueryMemoryInput = z.infer<typeof ModelQueryMemoryInputSchema>;
+export type QueryMemoryRecord = z.infer<typeof QueryMemoryRecordSchema>;
 export type CreateDynamicMemoryResult = z.infer<typeof CreateDynamicMemoryResultSchema>;
 export type ProposeMemoryResult = z.infer<typeof ProposeMemoryResultSchema>;
 export type QueryMemoryResult = z.infer<typeof QueryMemoryResultSchema>;

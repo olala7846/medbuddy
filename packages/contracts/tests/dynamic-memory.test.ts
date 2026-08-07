@@ -6,6 +6,8 @@ import {
   DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
   DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16,
   DynamicMemoryPayloadSchema,
+  ModelQueryMemoryInputSchema,
+  QueryMemoryResultSchema,
   QueryMemoryInputSchema,
   containsFamilyRelationshipTerm,
 } from "../src/index.js";
@@ -120,5 +122,35 @@ describe("dynamic memory contracts", () => {
     expect(DYNAMIC_MEMORY_QUERY_SCAN_LIMIT).toBe(500);
     expect(DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16).toBe(8_000);
     expect(DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16).toBe(300);
+  });
+
+  it("keeps deferred subject labels out of the model-facing query schema", () => {
+    expect(ModelQueryMemoryInputSchema.safeParse({ subjectLabels: ["Grandparent"] }).success).toBe(false);
+    const parsed = ModelQueryMemoryInputSchema.parse({ textTerms: ["folder"] });
+    expect(parsed).not.toHaveProperty("subjectLabels");
+    expect(parsed).toMatchObject({
+      textTerms: ["folder"],
+      order: "NEWEST_FIRST",
+      limit: 10,
+    });
+  });
+
+  it("accepts typed complete, incomplete, and fail-closed query outcomes", () => {
+    expect(QueryMemoryResultSchema.parse({
+      kind: "RESULT",
+      complete: false,
+      incompleteReasons: ["SOURCE_EXCERPT_UNAVAILABLE"],
+      records: [],
+    })).toMatchObject({ complete: false });
+    expect(QueryMemoryResultSchema.safeParse({
+      kind: "RESULT",
+      complete: true,
+      incompleteReasons: ["SCAN_LIMIT_REACHED"],
+      records: [],
+    }).success).toBe(false);
+    expect(QueryMemoryResultSchema.parse({
+      kind: "REJECTED",
+      code: "WORKSPACE_SCOPE_UNCERTAIN",
+    })).toEqual({ kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" });
   });
 });
