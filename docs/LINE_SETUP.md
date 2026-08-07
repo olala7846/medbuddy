@@ -1,30 +1,30 @@
 # LINE Conversational Prototype Setup
 
-The automated and synthetic path requires no LINE or Vertex credentials:
+## Local synthetic check
+
+This check needs no LINE or Vertex credentials. It sends signed synthetic DM, group, and legacy-room events through signature verification, opaque workspace mapping, deduplication, isolated Chat storage, a deterministic model fake, and the LINE reply seam.
 
 ```bash
 npm ci --ignore-scripts
 npm run smoke:line
 ```
 
-This exercises signed synthetic DM, group, and legacy-room events through signature verification, opaque workspace mapping, event deduplication, isolated Chat persistence, a deterministic model fake, and the LINE reply seam.
-
 ## Live fictional smoke prerequisites
 
-Do not introduce real conversation or health content at this stage. The current prototype persists conversation text in Firestore and does not yet implement the required user-facing retention and deletion controls for real family use.
+Use fictional, non-medical content only. Firestore persists conversation text, but the prototype has no approved user-facing retention or deletion controls for real family use.
 
-You must provide these values outside source control and chat:
+Keep these values out of source control and chat:
 
 | Secret/configuration | Source | Runtime name |
 | --- | --- | --- |
 | Messaging API channel secret | LINE Developers Console -> channel Basic settings | `MEDBUDDY_LINE_CHANNEL_SECRET` |
 | Messaging API channel access token | LINE Developers Console -> Messaging API | `MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN` |
-| 32-byte attachment locator encryption key | Cryptographically secure secret generated and stored outside source control/chat | `MEDBUDDY_ATTACHMENT_LOCATOR_KEY` |
-| GCP project ID | GCP project hosting Firestore, Vertex, and Cloud Run | `MEDBUDDY_GCP_PROJECT_ID`, `MEDBUDDY_VERTEX_PROJECT` |
+| 32-byte attachment locator encryption key | Cryptographically secure secret generated outside source control and chat | `MEDBUDDY_ATTACHMENT_LOCATOR_KEY` |
+| GCP project ID | GCP project that hosts Firestore, Vertex, and Cloud Run | `MEDBUDDY_GCP_PROJECT_ID`, `MEDBUDDY_VERTEX_PROJECT` |
 
-Vertex authentication uses Application Default Credentials; do not create or commit a service-account key file. The deployed runtime identity needs the minimum Firestore and Vertex permissions required to store thread messages/receipts and invoke the configured model.
+Use Application Default Credentials (ADC) for Vertex. Do not create or commit a service-account key file. Give the deployed runtime only the Firestore and Vertex permissions needed to store thread messages/receipts and call the configured model.
 
-Effort 2 selects these Vertex settings:
+Set the Effort 2 Vertex configuration:
 
 ```text
 MEDBUDDY_VERTEX_ENABLED=true
@@ -33,12 +33,9 @@ MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash
 MEDBUDDY_COMPACTION_VERTEX_MODEL=gemini-3.5-flash-lite
 ```
 
-`gemini-3.6-flash` remains the conversation and tool-use model.
-`gemini-3.5-flash-lite` handles only the bounded, one-call, structured
-compaction summary. Both must pass configuration-gated fictional smoke tests in
-the target project and region before live-model verification is claimed.
+`gemini-3.6-flash` handles conversation and tool use. `gemini-3.5-flash-lite` handles only a bounded, one-call structured compaction summary. Do not claim live-model verification until both pass configuration-gated fictional smoke tests in the target project and region.
 
-The private continuity runtime also requires:
+Configure the private continuity runtime:
 
 ```text
 MEDBUDDY_TASKS_LOCATION=<queue-region>
@@ -54,45 +51,21 @@ MEDBUDDY_ATTACHMENT_LOCATOR_KEY=<Secret Manager mapping; canonical base64 for 32
 MEDBUDDY_CONTINUITY_PROFILE=production
 ```
 
-`MEDBUDDY_CONTINUITY_PROFILE` defaults to `production`. For a fictional-only,
-temporary compaction exercise, set it to `verification-small`; this uses a
-600-unit protected recent window, a 1,200-unit compaction trigger, and a
-1,800-unit pending hard ceiling. The verification profile has a distinct
-policy version, so its jobs and segments are not reused as production history.
-Restore `production` after the exercise.
+`MEDBUDDY_CONTINUITY_PROFILE` defaults to `production`. Use `verification-small` only for a temporary fictional compaction exercise. It uses a 600-unit protected recent window, 1,200-unit compaction trigger, and 1,800-unit pending hard ceiling. It has a distinct policy version, so its jobs and segments cannot become production history. Restore `production` after the exercise.
 
-The profile is selected as one whole pair. `production` binds
-`continuity-v1` to `memory-formation-v1` with a 30,000 rendered UTF-16
-formation ceiling. `verification-small` binds their verification-small
-counterparts with a 1,800-unit ceiling. Individual formation thresholds are
-not environment overrides. The formation callback accepts only bounded,
-OIDC-authenticated wake or recovery requests and never accepts message content.
+Select profiles as complete pairs. `production` binds `continuity-v1` and `memory-formation-v1` with a 30,000 rendered UTF-16 formation ceiling. `verification-small` binds their verification-small counterparts with a 1,800-unit ceiling. Do not override formation thresholds individually. The formation callback accepts only bounded, OIDC-authenticated wake or recovery requests; it never accepts message content.
 
-The callback service must verify the task OIDC audience and service-account
-identity. The bucket must remain private. Bucket/object names, provider IDs,
-filenames, bytes, checksums, conversation content, summaries, and prompts must
-not enter logs or model context.
+The callback service must verify the task OIDC audience and service-account identity. Keep the bucket private. Never put bucket or object names, provider IDs, filenames, bytes, checksums, conversation content, summaries, or prompts in logs or model context.
 
-Generate the locator key with a cryptographically secure tool outside chat and
-store it directly in Secret Manager. Map it into Cloud Run as a secret-backed
-environment variable; never place it in a command argument, `.env` file,
-deployment manifest, log, or screenshot. Increment the non-secret key version
-when performing an explicitly planned key rotation.
+Generate the locator key outside chat with a cryptographically secure tool. Store it directly in Secret Manager and map it to Cloud Run as a secret-backed environment variable. Never put it in a command argument, `.env` file, deployment manifest, log, or screenshot. Increment the non-secret key version only for an explicitly planned rotation.
 
-The adapter-private provider locator and attachment callback are covered by
-synthetic tests. Deployment remains deferred until the configuration-gated
-conversation and compaction model smokes succeed in the target project and
-region.
+Synthetic tests cover the adapter-private provider locator and attachment callback. Deployment remains deferred until the configuration-gated conversation and compaction smokes pass in the target project and region.
 
-## Optional Effort 2 exact tracing (default off)
+## Optional Effort 2 exact tracing (off by default)
 
-LangSmith tracing exists only to inspect the exact structured Vertex request
-and parsed response for fictional conversation and compaction verification. It
-does not trace the full LINE webhook, text capture, image extraction, attachment
-ingestion, Google authentication, headers, or access tokens.
+LangSmith tracing can inspect the exact structured Vertex request and parsed response for fictional conversation and compaction verification. It does not trace the full LINE webhook, text capture, image extraction, attachment ingestion, Google authentication, headers, or access tokens.
 
-Tracing remains disabled unless every value below is present and the enable
-flag is exactly `true`:
+Tracing is disabled unless every value is present and the flag is exactly `true`:
 
 ```text
 MEDBUDDY_LANGSMITH_TRACING_ENABLED=true
@@ -104,27 +77,13 @@ MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID=<one fictional internal workspace ID>
 MEDBUDDY_LANGSMITH_VERIFICATION_ID=<content-free verification label>
 ```
 
-Only the US GCP, EU GCP, APAC GCP, and AWS US LangSmith SaaS API URLs are
-accepted. Generic `LANGSMITH_*` environment variables do not enable this
-integration. The MedBuddy workspace allowlist is evaluated locally and is
-never sent as trace metadata. A missing scope, a different workspace, or any
-Vertex request containing inline image data proceeds without tracing.
+Only US GCP, EU GCP, APAC GCP, and AWS US LangSmith SaaS API URLs are allowed. Generic `LANGSMITH_*` variables do not enable tracing. The local MedBuddy workspace allowlist is never sent as trace metadata. Do not trace a request with a missing scope, a different workspace, or inline image data.
 
-Before enabling, create a dedicated LangSmith project with base 14-day trace
-retention and a short-lived workspace-scoped service key. Map that key from a
-pinned Secret Manager version; never place it in source, `.env`, a command
-argument, chat, logs, or screenshots. Do not add traced runs to datasets,
-experiments, annotation queues, feedback, evaluators, or automation rules,
-because those features can retain or upgrade trace data beyond the base tier.
-Exact-content tracing is not approved for real family traffic.
+Before enabling tracing, create a dedicated LangSmith project with base 14-day retention and a short-lived workspace-scoped service key. Use a pinned Secret Manager version. Never put the key in source, `.env`, a command argument, chat, logs, or screenshots. Do not add traced runs to datasets, experiments, annotation queues, feedback, evaluators, or automation rules; these can retain or upgrade trace data beyond the base tier. Never use exact-content tracing for real family traffic.
 
-For rollback, first deploy with tracing disabled and remove the Cloud Run
-secret mapping, then revoke the service key. After verification is complete,
-delete the dedicated LangSmith project and query it later to confirm the
-provider's asynchronous deletion. Some billing or analytics metadata may
-persist according to LangSmith policy.
+To roll back, deploy with tracing disabled, remove the Cloud Run secret mapping, and revoke the service key. After verification, delete the dedicated LangSmith project and query it later to confirm asynchronous provider deletion. LangSmith billing or analytics metadata can persist under its policy.
 
-Use Secret Manager-backed environment variables in Cloud Run. To avoid putting secret values in shell history, create the secret containers and add values interactively through standard input:
+Use Secret Manager-backed Cloud Run variables. To keep values out of shell history, create containers and enter values through standard input:
 
 ```bash
 gcloud secrets create medbuddy-line-channel-secret --replication-policy=automatic
@@ -133,13 +92,13 @@ gcloud secrets create medbuddy-line-channel-access-token --replication-policy=au
 gcloud secrets versions add medbuddy-line-channel-access-token --data-file=-
 ```
 
-Grant the Cloud Run runtime identity access only to those secrets, then map them to the two `MEDBUDDY_LINE_*` environment variables during deployment.
+Grant the Cloud Run runtime identity access only to these secrets. Map them to the two `MEDBUDDY_LINE_*` variables during deployment.
 
 ## Current prototype GCP deployment
 
-The checked-in prototype foundation uses project `med-buddy-503802`, region `us-west1`, and runtime identity `medbuddy-runtime@med-buddy-503802.iam.gserviceaccount.com`. The default Firestore Native database already exists there. The commands below are intentionally explicit and do not change the shared `gcloud` project setting.
+The checked-in foundation uses project `med-buddy-503802`, region `us-west1`, and runtime identity `medbuddy-runtime@med-buddy-503802.iam.gserviceaccount.com`. The default Firestore Native database already exists. The commands use explicit projects and do not change the shared `gcloud` project.
 
-Enable the APIs needed for source deployment, secrets, and Vertex:
+Enable the APIs for source deployment, secrets, and Vertex:
 
 ```bash
 gcloud services enable \
@@ -152,7 +111,7 @@ gcloud services enable \
   --project=med-buddy-503802
 ```
 
-Grant the existing runtime identity only the additional project-level Vertex role. It already has `roles/datastore.user` for Firestore:
+Give the existing runtime only the additional Vertex role. It already has `roles/datastore.user` for Firestore:
 
 ```bash
 gcloud projects add-iam-policy-binding med-buddy-503802 \
@@ -160,7 +119,7 @@ gcloud projects add-iam-policy-binding med-buddy-503802 \
   --role=roles/aiplatform.user
 ```
 
-Cloud Run source deployment uses the Compute Engine default service account as its build identity. Grant that identity the documented builder role:
+Cloud Run source deployment uses the Compute Engine default service account as its build identity. Give it the documented builder role:
 
 ```bash
 gcloud projects add-iam-policy-binding med-buddy-503802 \
@@ -168,7 +127,7 @@ gcloud projects add-iam-policy-binding med-buddy-503802 \
   --role=roles/run.builder
 ```
 
-After obtaining the two LINE values, create their containers and enter each value only when `gcloud` is reading standard input. Press Control-D after each value:
+After you obtain the LINE values, create secret containers and enter each value only when `gcloud` reads standard input. Press Control-D after each value:
 
 ```bash
 gcloud secrets create medbuddy-line-channel-secret \
@@ -193,9 +152,7 @@ gcloud secrets versions add medbuddy-attachment-locator-key \
   --project=med-buddy-503802
 ```
 
-The attachment locator value entered above must be canonical base64 for exactly
-32 random bytes. Grant the runtime identity access only to the three runtime
-secrets:
+The attachment locator must be canonical base64 for exactly 32 random bytes. Give the runtime identity access only to these three secrets:
 
 ```bash
 for secret_name in medbuddy-line-channel-secret medbuddy-line-channel-access-token medbuddy-attachment-locator-key; do
@@ -206,13 +163,7 @@ for secret_name in medbuddy-line-channel-secret medbuddy-line-channel-access-tok
 done
 ```
 
-From the repository root, deploy the source with a scale-to-zero, low-cost
-prototype ceiling only after the configuration-gated conversation and
-compaction model smokes pass. Secret versions are pinned rather than resolved from `latest` at
-runtime. Fill in the non-secret queue, callback, service-account, and private
-bucket values; set the two version variables to the enabled Secret Manager
-versions. The locator key itself remains a secret mapping and never appears in
-the command:
+From the repository root, deploy only after the conversation and compaction smokes pass. This command uses scale-to-zero and a low-cost prototype ceiling. Pin secret versions; do not resolve `latest` at runtime. Supply non-secret queue, callback, service-account, and private-bucket values. Set both version variables to enabled Secret Manager versions. Keep the locator key only in its secret mapping:
 
 ```bash
 LINE_SECRET_VERSION=2
@@ -235,15 +186,11 @@ gcloud run deploy medbuddy-line \
   --set-secrets=MEDBUDDY_LINE_CHANNEL_SECRET=medbuddy-line-channel-secret:${LINE_SECRET_VERSION},MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN=medbuddy-line-channel-access-token:${LINE_SECRET_VERSION},MEDBUDDY_ATTACHMENT_LOCATOR_KEY=medbuddy-attachment-locator-key:${LOCATOR_SECRET_VERSION}
 ```
 
-The task caller must have permission to enqueue on the named private queue and
-invoke the Cloud Run service with OIDC. The callback code additionally requires
-the token audience to equal each configured callback URL and the token email to
-equal `MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL`. Keep the attachment bucket private
-and grant only the runtime identity the required object access.
+The task caller needs permission to enqueue on the named private queue and invoke Cloud Run with OIDC. Callback code also requires a token audience equal to each configured callback URL and a token email equal to `MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL`. Keep the attachment bucket private and give only the runtime identity required object access.
 
-Cloud Run prints the generated HTTPS service URL. No custom domain is required. The LINE webhook URL is that service URL plus `/api/line/webhook`.
+Cloud Run returns an HTTPS service URL. No custom domain is needed. Set the LINE webhook to that URL plus `/api/line/webhook`.
 
-Verify the deployed revision without exposing environment values:
+Verify the revision without exposing environment values:
 
 ```bash
 gcloud run services describe medbuddy-line \
@@ -258,30 +205,30 @@ gcloud run services logs read medbuddy-line \
 
 ## LINE Developers Console
 
-1. Register a LINE Business ID with a LINE account or email address, then create a LINE Official Account. Messaging API channels can no longer be created directly in the Developers Console.
-2. In LINE Official Account Manager, enable **Messaging API**. Choose the provider carefully: LINE does not allow the channel to be moved to a different provider later.
-3. Open the resulting channel in the LINE Developers Console. Copy the channel secret from **Basic settings**. In **Messaging API**, issue a channel access token. The code accepts the token as a bearer credential; for this first smoke, the console-issued token is the simplest option.
-4. Store both values in Secret Manager using the standard-input commands above. Never paste them into chat, a tracked file, a command argument, or a screenshot.
-5. Deploy the web application and copy its generated Cloud Run HTTPS URL.
+1. Register a LINE Business ID with a LINE account or email address. Create a LINE Official Account. Messaging API channels cannot be created directly in the Developers Console.
+2. In LINE Official Account Manager, enable **Messaging API**. Select the provider carefully; LINE cannot move a channel to another provider later.
+3. Open the channel in LINE Developers Console. Copy the channel secret from **Basic settings**. In **Messaging API**, issue a channel access token. The code accepts it as a bearer credential; the console-issued token is simplest for this smoke.
+4. Store both values in Secret Manager with the standard-input commands. Never put them in chat, a tracked file, command argument, or screenshot.
+5. Deploy the web application. Copy its Cloud Run HTTPS URL.
 6. Set the webhook URL to `https://<cloud-run-host>/api/line/webhook`.
-7. Enable **Use webhook** and **Webhook redelivery**, then use **Verify**. The signed empty-event verification request should return `200`.
+7. Enable **Use webhook** and **Webhook redelivery**. Use **Verify**. The signed empty-event request must return `200`.
 8. For group testing, enable **Allow bot to join group chats**. DMs need no group setting.
-9. If LINE produces an additional automatic response, use LINE Official Account Manager response settings to disable greeting and automatic replies. Regional account-manager interfaces may hide these controls when they are already inactive.
+9. Disable greeting and automatic replies in LINE Official Account Manager if LINE sends an additional automatic response. Regional interfaces can hide inactive controls.
 10. Scan the QR code on the channel's **Messaging API** tab to add the Official Account as a friend.
 
 The implementation uses LINE's documented `x-line-signature`, `webhookEventId`, `mention.mentionees[].isSelf`, and one-time `replyToken` behavior. See the official references in [`LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md`](./LINE_CONVERSATIONAL_PROTOTYPE_SPEC.md).
 
 ## Fictional live smoke
 
-1. Confirm the deployed revision has the expected Secret Manager mappings and ADC-backed Vertex access.
-2. Use the LINE console **Verify** action and confirm HTTP `200`.
-3. Send a non-medical fictional DM and confirm one model-backed reply.
-4. Replay inspection is automatic; verify logs contain `line_event_completed` and no body, prompt, output, token, or LINE identifier.
-5. Add the Official Account to a disposable group. Confirm an ordinary group message receives no reply, then explicitly mention the bot and confirm one reply.
-6. Send a fictional medication-change question and confirm deterministic refusal rather than model advice.
-7. Review Firestore to confirm the DM and group use different opaque workspace documents.
+1. Confirm Secret Manager mappings and ADC-backed Vertex access in the deployed revision.
+2. Use the LINE console **Verify** action. Confirm HTTP `200`.
+3. Send a non-medical fictional DM. Confirm one model-backed reply.
+4. Confirm logs contain `line_event_completed`, but no body, prompt, output, token, or LINE identifier. Replay inspection is automatic.
+5. Add the Official Account to a disposable group. Confirm an ordinary message gets no reply. Mention the bot and confirm one reply.
+6. Send a fictional medication-change question. Confirm deterministic refusal, not model advice.
+7. Review Firestore. Confirm the DM and group use separate opaque workspace documents.
 
-Do not proceed to real family data until privacy disclosure, retention, deletion, and a production log review are implemented and explicitly approved.
+Do not use real family data until privacy disclosure, retention, deletion, and a production log review are implemented and explicitly approved.
 
 ## Deployed fictional smoke record (2026-08-03)
 
@@ -299,8 +246,8 @@ The first live LINE conversation slice is deployed and operational:
 | LINE webhook API test | Success, HTTP `200` |
 | Live fictional DM evidence | Two metadata-only `line_event_completed` entries; no failure or duplicate entry observed in the smoke window |
 
-No LINE user, group, message, or channel identifier; credential; prompt; model output; or conversation content is recorded in this repository. The public service URL and non-secret deployment metadata above are sufficient to reproduce and diagnose the prototype.
+The repository records no LINE user, group, message, or channel identifier; credential; prompt; model output; or conversation content. The public service URL and non-secret deployment metadata above are enough to reproduce and diagnose the prototype.
 
-The Compute Engine default service account had a pre-existing project-level `roles/editor` grant when the source-build role was added. That broad legacy grant was not changed during the bot deployment because its other consumers were unknown. Review and narrow it before approving real family data.
+The Compute Engine default service account had a pre-existing project-level `roles/editor` grant when the source-build role was added. The deployment did not change that broad legacy grant because its other consumers were unknown. Review and narrow it before real family data is approved.
 
-The deployed smoke proves the fictional text loop only. It does not remove the release gates for disclosure, consent, retention, deletion, dependency remediation, or production log review.
+The deployed smoke proves only the fictional text loop. It does not remove the gates for disclosure, consent, retention, deletion, dependency remediation, or production log review.
