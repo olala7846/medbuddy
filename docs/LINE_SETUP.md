@@ -45,6 +45,8 @@ MEDBUDDY_TASKS_LOCATION=<queue-region>
 MEDBUDDY_TASKS_QUEUE=<private-queue>
 MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL=<task-caller-service-account>
 MEDBUDDY_CONTINUITY_CALLBACK_URL=https://<cloud-run-host>/api/internal/continuity
+MEDBUDDY_MEMORY_FORMATION_CALLBACK_URL=https://<cloud-run-host>/api/internal/memory-formation
+MEDBUDDY_PASSIVE_MEMORY_CALLBACK_URL=https://<cloud-run-host>/api/internal/passive-memory
 MEDBUDDY_ATTACHMENT_CALLBACK_URL=https://<cloud-run-host>/api/internal/attachment
 MEDBUDDY_ATTACHMENT_BUCKET=<private-bucket>
 MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1
@@ -58,6 +60,13 @@ temporary compaction exercise, set it to `verification-small`; this uses a
 1,800-unit pending hard ceiling. The verification profile has a distinct
 policy version, so its jobs and segments are not reused as production history.
 Restore `production` after the exercise.
+
+The profile is selected as one whole pair. `production` binds
+`continuity-v1` to `memory-formation-v1` with a 30,000 rendered UTF-16
+formation ceiling. `verification-small` binds their verification-small
+counterparts with a 1,800-unit ceiling. Individual formation thresholds are
+not environment overrides. The formation callback accepts only bounded,
+OIDC-authenticated wake or recovery requests and never accepts message content.
 
 The callback service must verify the task OIDC audience and service-account
 identity. The bucket must remain private. Bucket/object names, provider IDs,
@@ -222,7 +231,7 @@ gcloud run deploy medbuddy-line \
   --min-instances=0 \
   --max-instances=2 \
   --timeout=30s \
-  --set-env-vars=MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802,MEDBUDDY_VERTEX_ENABLED=true,MEDBUDDY_VERTEX_PROJECT=med-buddy-503802,MEDBUDDY_VERTEX_LOCATION=global,MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash,MEDBUDDY_COMPACTION_VERTEX_MODEL=gemini-3.5-flash-lite,MEDBUDDY_TASKS_LOCATION=${TASKS_LOCATION},MEDBUDDY_TASKS_QUEUE=${TASKS_QUEUE},MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL=${TASK_CALLER_SERVICE_ACCOUNT},MEDBUDDY_CONTINUITY_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/continuity,MEDBUDDY_ATTACHMENT_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/attachment,MEDBUDDY_ATTACHMENT_BUCKET=${ATTACHMENT_BUCKET},MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1 \
+  --set-env-vars=MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802,MEDBUDDY_VERTEX_ENABLED=true,MEDBUDDY_VERTEX_PROJECT=med-buddy-503802,MEDBUDDY_VERTEX_LOCATION=global,MEDBUDDY_VERTEX_MODEL=gemini-3.6-flash,MEDBUDDY_COMPACTION_VERTEX_MODEL=gemini-3.5-flash-lite,MEDBUDDY_TASKS_LOCATION=${TASKS_LOCATION},MEDBUDDY_TASKS_QUEUE=${TASKS_QUEUE},MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL=${TASK_CALLER_SERVICE_ACCOUNT},MEDBUDDY_CONTINUITY_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/continuity,MEDBUDDY_MEMORY_FORMATION_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/memory-formation,MEDBUDDY_PASSIVE_MEMORY_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/passive-memory,MEDBUDDY_ATTACHMENT_CALLBACK_URL=${CLOUD_RUN_HOST}/api/internal/attachment,MEDBUDDY_ATTACHMENT_BUCKET=${ATTACHMENT_BUCKET},MEDBUDDY_ATTACHMENT_LOCATOR_KEY_VERSION=locator-v1 \
   --set-secrets=MEDBUDDY_LINE_CHANNEL_SECRET=medbuddy-line-channel-secret:${LINE_SECRET_VERSION},MEDBUDDY_LINE_CHANNEL_ACCESS_TOKEN=medbuddy-line-channel-access-token:${LINE_SECRET_VERSION},MEDBUDDY_ATTACHMENT_LOCATOR_KEY=medbuddy-attachment-locator-key:${LOCATOR_SECRET_VERSION}
 ```
 

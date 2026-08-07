@@ -6,6 +6,8 @@ import {
   CloudTasksCaptureDispatcher,
   CloudTasksAttachmentDispatcher,
   CloudTasksContinuityDispatcher,
+  CloudTasksMemoryFormationDispatcher,
+  CloudTasksPassiveMemoryDispatcher,
   type CloudTasksDispatcherOptions,
 } from "./cloud-tasks/dispatcher.js";
 import { FirestorePersistence } from "./firestore/repositories.js";
@@ -28,6 +30,7 @@ export function createConversationPlatform(projectId: string) {
     persistence: new FirestorePersistence(firestore),
     continuity: new FirestoreContinuityRepository(firestore),
     memory: new FirestoreDynamicMemoryRepository(firestore),
+    passiveJobs: new FirestorePassiveMemoryJobRepository(firestore),
   };
 }
 
@@ -45,6 +48,17 @@ export function createPassiveMemoryPlatform(projectId: string) {
 
 export function createContinuityDispatcher(options: CloudTasksDispatcherOptions) {
   return new CloudTasksContinuityDispatcher(new CloudTasksClient(), options);
+}
+
+export function createMemoryFormationDispatchers(options: Omit<CloudTasksDispatcherOptions, "callbackUrl"> & {
+  formationCallbackUrl: string;
+  passiveMemoryCallbackUrl: string;
+}) {
+  const client = new CloudTasksClient();
+  return {
+    wake: new CloudTasksMemoryFormationDispatcher(client, { ...options, callbackUrl: options.formationCallbackUrl }),
+    worker: new CloudTasksPassiveMemoryDispatcher(client, { ...options, callbackUrl: options.passiveMemoryCallbackUrl }),
+  };
 }
 
 export function createLineAttachmentPlatform(options: CloudTasksDispatcherOptions & {

@@ -1,6 +1,8 @@
 import { Firestore } from "@google-cloud/firestore";
 import {
   AcceptSourceEventInputSchema,
+  acceptedFormationEventForSource,
+  AcceptedFormationEventSchema,
   type AcceptSourceEventResult,
   COMPACTION_ATTEMPT_LEASE_MS,
   CompactionAttemptFenceSchema,
@@ -11,6 +13,9 @@ import {
   type ContinuityAttachment,
   ContinuityAttachmentSchema,
   type ContinuityRepository,
+  MemoryFormationStateSchema,
+  type MemoryFormationRepository,
+  type MemoryFormationState,
   DynamicMemoryWorkspaceScopeError,
   MessageDocumentSchema,
   type OutboundCandidate,
@@ -68,7 +73,7 @@ function nonnegativeInteger(value: unknown, label: string): number {
  * only Firestore reads/writes because Firestore may retry them after contention.
  * Source: https://firebase.google.com/docs/firestore/manage-data/transactions
  */
-export class FirestoreContinuityRepository implements ContinuityRepository {
+export class FirestoreContinuityRepository implements ContinuityRepository, MemoryFormationRepository {
   constructor(private readonly firestore: Firestore) {}
 
   async acceptSourceEvent(inputValue: Parameters<ContinuityRepository["acceptSourceEvent"]>[0]): Promise<AcceptSourceEventResult> {
@@ -105,6 +110,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       transaction.create(this.sourceEventRef(input.workspaceId, event.id), event);
       transaction.set(counterRef, { nextSourceSequence: sourceSequence });
       transaction.create(receiptRef, { workspaceId: input.workspaceId, sourceEventId: event.id });
+      transaction.create(this.formationOutboxRef(event.workspaceId, event.id), acceptedFormationEventForSource(event));
       const freshnessRef = this.memorySourceFreshnessRef(event);
       if (freshnessRef !== null) {
         transaction.set(freshnessRef, {
@@ -277,6 +283,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
         payload: { kind: "TEXT", body: candidate.body, replyRequested: false },
       });
       transaction.create(this.sourceEventRef(workspaceId, event.id), event);
+      transaction.create(this.formationOutboxRef(workspaceId, event.id), acceptedFormationEventForSource(event));
       transaction.set(counterRef, { nextSourceSequence: sourceSequence });
       transaction.set(candidateRef, {
         ...candidate,
@@ -575,6 +582,59 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     });
   }
 
+  async listAcceptedEvents(input: Parameters<MemoryFormationRepository["listAcceptedEvents"]>[0]) {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation outbox reads are capped at 100.");
+    const snapshot = await this.workspaceRef(input.workspaceId).collection("memoryFormationOutbox")
+      .where("sourceSequence", ">", input.afterCursor).orderBy("sourceSequence").limit(input.limit).get();
+    return snapshot.docs.map((document) => {
+      const event = AcceptedFormationEventSchema.parse(record(document.data()));
+      if (event.workspaceId !== input.workspaceId) throw new Error("Formation outbox crossed a workspace path.");
+      return event;
+    });
+  }
+
+  async getState(workspaceId: Parameters<MemoryFormationRepository["getState"]>[0]) {
+    const snapshot = await this.formationStateRef(workspaceId).get();
+    if (!snapshot.exists) return null;
+    const state = MemoryFormationStateSchema.parse(record(snapshot.data()));
+    if (state.workspaceId !== workspaceId) throw new Error("Formation state crossed a workspace path.");
+    return state;
+  }
+
+  async compareAndSetState(expectedRevision: number | null, value: MemoryFormationState): Promise<boolean> {
+    const state = MemoryFormationStateSchema.parse(value);
+    return this.firestore.runTransaction(async (transaction) => {
+      const ref = this.formationStateRef(state.workspaceId);
+      const snapshot = await transaction.get(ref);
+      const current = snapshot.exists ? MemoryFormationStateSchema.parse(record(snapshot.data())) : null;
+      if ((current?.revision ?? null) !== expectedRevision) return false;
+      transaction.set(ref, state);
+      return true;
+    });
+  }
+
+  async listRecoveryCandidates(input: Parameters<MemoryFormationRepository["listRecoveryCandidates"]>[0]) {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
+    const [states, outbox] = await Promise.all([
+      this.firestore.collectionGroup("memoryFormationState").limit(input.limit).get(),
+      this.firestore.collectionGroup("memoryFormationOutbox").limit(input.limit).get(),
+    ]);
+    const candidates = new Set<string>();
+    const cursors = new Map<string, number>();
+    for (const document of states.docs) {
+      const state = MemoryFormationStateSchema.parse(record(document.data()));
+      cursors.set(state.workspaceId, state.cursor);
+      if (state.activeJobId !== undefined || (state.scheduledFor !== undefined && Date.parse(state.scheduledFor) <= Date.parse(input.now))) {
+        candidates.add(state.workspaceId);
+      }
+    }
+    for (const document of outbox.docs) {
+      const event = AcceptedFormationEventSchema.parse(record(document.data()));
+      if (event.sourceSequence > (cursors.get(event.workspaceId) ?? 0)) candidates.add(event.workspaceId);
+    }
+    return [...candidates].sort().slice(0, input.limit) as never[];
+  }
+
   private workspaceRef(workspaceId: string) {
     return this.firestore.collection("workspaces").doc(workspaceId);
   }
@@ -589,6 +649,14 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
 
   private sourceEventRef(workspaceId: string, sourceEventId: string) {
     return this.workspaceRef(workspaceId).collection("sourceEvents").doc(sourceEventId);
+  }
+
+  private formationOutboxRef(workspaceId: string, sourceEventId: string) {
+    return this.workspaceRef(workspaceId).collection("memoryFormationOutbox").doc(sourceEventId);
+  }
+
+  private formationStateRef(workspaceId: string) {
+    return this.workspaceRef(workspaceId).collection("memoryFormationState").doc("current");
   }
 
   private memorySourceFreshnessRef(event: SourceEvent) {

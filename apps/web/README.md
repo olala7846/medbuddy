@@ -17,11 +17,18 @@ reply capability. OIDC is verified before its request body is consumed, and the
 body is streamed under a hard 16 KiB bound. Threshold planning and dispatch
 remain outside this endpoint.
 
+`POST /api/internal/memory-formation` is the content-free OIDC boundary for
+generation-specific quiet/max-age wakes and a bounded recovery sweep. Accepted
+source persistence atomically emits eligibility metadata; count/size dispatch
+immediately, while one delayed task is reused until it wakes and rechecks the
+durable workspace state.
+
 The credential-free direct worker proof uses only fictional Traditional Chinese
 JSONL and in-memory adapters:
 
 ```bash
 npm run verify:passive-memory:worker
+npm run verify:memory-formation
 ```
 
 Run the credential-free signed synthetic path with:

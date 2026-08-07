@@ -29,6 +29,28 @@ describeEmulator("Firestore passive memory", () => {
     };
   });
 
+  it("persists formation outbox and CAS state through Firestore", async () => {
+    const firestore = new Firestore({ projectId: `medbuddy-formation-${randomUUID()}` });
+    clients.push(firestore);
+    const continuity = new FirestoreContinuityRepository(firestore);
+    const workspaceId = WorkspaceIdSchema.parse("workspace:formation-firestore");
+    await continuity.acceptSourceEvent({ receiptKey: "event:formation-firestore", id: "source-event:formation-firestore",
+      workspaceId, occurredAt: "2026-08-06T12:00:00.000Z", acceptedAt: "2026-08-06T12:00:01.000Z",
+      providerMessageId: "message:formation-firestore", authorMemberId: "member:fictional",
+      payload: { kind: "TEXT", body: "Fictional formation evidence.", replyRequested: false } } as never);
+    await expect(continuity.listAcceptedEvents({ workspaceId, afterCursor: 0, limit: 100 }))
+      .resolves.toMatchObject([{ sourceSequence: 1, kind: "ELIGIBLE_HUMAN_TEXT" }]);
+    const state = { workspaceId, policyVersion: "memory-formation-v1" as const,
+      continuityPolicyVersion: "continuity-v1" as const, cursor: 1, revision: 0,
+      humanTextCount: 1, renderedUtf16: 100, firstSourceSequence: 1, lastSourceSequence: 1,
+      firstAcceptedAt: "2026-08-06T12:00:01.000Z", newestAcceptedAt: "2026-08-06T12:00:01.000Z",
+      quietDeadline: "2026-08-06T12:10:01.000Z", maximumAgeDeadline: "2026-08-07T12:00:01.000Z",
+      scheduleGeneration: 1, scheduledFor: "2026-08-06T12:10:01.000Z" };
+    await expect(continuity.compareAndSetState(null, state)).resolves.toBe(true);
+    await expect(continuity.compareAndSetState(null, state)).resolves.toBe(false);
+    await expect(continuity.getState(workspaceId)).resolves.toEqual(state);
+  });
+
   it("atomically rejects a passive batch after its source is unsent", async () => {
     const firestore = new Firestore({ projectId: `medbuddy-passive-freshness-${randomUUID()}` });
     clients.push(firestore);

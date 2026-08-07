@@ -22,6 +22,11 @@ Successful dynamic-memory records, terminal state, and the cursor commit
 atomically behind the attempt fence; failed or stale attempts create no active
 records.
 
+Trusted source acceptance also writes a content-free formation outbox record in
+the same transaction. The in-memory and Firestore continuity adapters expose a
+workspace-scoped CAS formation state and bounded recovery scan; deterministic
+Cloud Tasks adapters carry only opaque IDs, generation, and policy metadata.
+
 ## Public entry
 
 - `.` → adapters and `createProductionPlatform`

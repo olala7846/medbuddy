@@ -5,6 +5,8 @@ import {
   CloudTasksCaptureDispatcher,
   CloudTasksAttachmentDispatcher,
   CloudTasksContinuityDispatcher,
+  CloudTasksMemoryFormationDispatcher,
+  CloudTasksPassiveMemoryDispatcher,
   ContinuityPrivateAttachmentStorage,
   EncryptedLineAttachmentLocatorStore,
   PrivateAttachmentStorage,
@@ -158,6 +160,39 @@ describe("Cloud Tasks attachment dispatcher", () => {
     expect(request.task.name).toMatch(/^attachment-[a-f0-9]{64}$/);
     expect(JSON.parse(Buffer.from(request.task.httpRequest.body, "base64").toString("utf8"))).toEqual(input);
     expect(JSON.stringify(request)).not.toContain("provider-message");
+  });
+});
+
+describe("Cloud Tasks memory formation dispatchers", () => {
+  it("uses a generation-specific delayed identity and content-free OIDC body", async () => {
+    const requests: unknown[] = [];
+    const client = { queuePath: () => "queue", taskPath: (_p: string, _l: string, _q: string, id: string) => id,
+      createTask: async (input: never) => { requests.push(input); return [{} as never, input, {}] as never; } };
+    const options = { projectId: "fictional", location: "us", queue: "memory",
+      callbackUrl: "https://fictional.example.test/api/internal/memory-formation",
+      serviceAccountEmail: "tasks@fictional.iam.gserviceaccount.com" };
+    const dispatcher = new CloudTasksMemoryFormationDispatcher(client, options);
+    await dispatcher.dispatch({ workspaceId: "workspace:fictional" as never, generation: 7,
+      policyVersion: "memory-formation-v1", scheduleTime: "2026-08-06T12:10:00.000Z" });
+    const request = requests[0] as { task: { name: string; scheduleTime: { seconds: number }; httpRequest: { body: string; oidcToken: unknown } } };
+    expect(request.task.name).toMatch(/^memory-formation-[a-f0-9]{64}$/);
+    expect(request.task.scheduleTime.seconds).toBe(1_786_018_200);
+    expect(JSON.parse(Buffer.from(request.task.httpRequest.body, "base64").toString())).toEqual({
+      workspaceId: "workspace:fictional", generation: 7, policyVersion: "memory-formation-v1",
+    });
+    expect(request.task.httpRequest.oidcToken).toMatchObject({ audience: options.callbackUrl });
+  });
+
+  it("dispatches the persisted passive job with a deterministic private identity", async () => {
+    const requests: unknown[] = [];
+    const client = { queuePath: () => "queue", taskPath: (_p: string, _l: string, _q: string, id: string) => id,
+      createTask: async (input: never) => { requests.push(input); return [{} as never, input, {}] as never; } };
+    const dispatcher = new CloudTasksPassiveMemoryDispatcher(client, { projectId: "fictional", location: "us", queue: "memory",
+      callbackUrl: "https://fictional.example.test/api/internal/passive-memory",
+      serviceAccountEmail: "tasks@fictional.iam.gserviceaccount.com" });
+    await dispatcher.dispatch({ workspaceId: "workspace:fictional" as never,
+      jobId: "passive-memory-job:formation-1-1-g1" as never });
+    expect((requests[0] as { task: { name: string } }).task.name).toMatch(/^passive-memory-[a-f0-9]{64}$/);
   });
 });
 

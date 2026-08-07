@@ -25,6 +25,8 @@ const RequiredContinuityConfigSchema = z.object({
   MEDBUDDY_TASKS_LOCATION: z.string().trim().min(1),
   MEDBUDDY_TASKS_QUEUE: z.string().trim().min(1),
   MEDBUDDY_CONTINUITY_CALLBACK_URL: z.string().url(),
+  MEDBUDDY_MEMORY_FORMATION_CALLBACK_URL: z.string().url(),
+  MEDBUDDY_PASSIVE_MEMORY_CALLBACK_URL: z.string().url(),
   MEDBUDDY_ATTACHMENT_CALLBACK_URL: z.string().url(),
   MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL: z.string().email(),
   MEDBUDDY_ATTACHMENT_BUCKET: z.string().trim().min(3),
@@ -52,6 +54,8 @@ export type ContinuityConfiguration = {
   tasksLocation: string;
   tasksQueue: string;
   continuityCallbackUrl: string;
+  memoryFormationCallbackUrl: string;
+  passiveMemoryCallbackUrl: string;
   attachmentCallbackUrl: string;
   taskServiceAccountEmail: string;
   attachmentBucket: string;
@@ -181,6 +185,8 @@ export function loadContinuityConfiguration(
     tasksLocation: value.MEDBUDDY_TASKS_LOCATION,
     tasksQueue: value.MEDBUDDY_TASKS_QUEUE,
     continuityCallbackUrl: value.MEDBUDDY_CONTINUITY_CALLBACK_URL,
+    memoryFormationCallbackUrl: value.MEDBUDDY_MEMORY_FORMATION_CALLBACK_URL,
+    passiveMemoryCallbackUrl: value.MEDBUDDY_PASSIVE_MEMORY_CALLBACK_URL,
     attachmentCallbackUrl: value.MEDBUDDY_ATTACHMENT_CALLBACK_URL,
     taskServiceAccountEmail: value.MEDBUDDY_TASKS_SERVICE_ACCOUNT_EMAIL,
     attachmentBucket: value.MEDBUDDY_ATTACHMENT_BUCKET,

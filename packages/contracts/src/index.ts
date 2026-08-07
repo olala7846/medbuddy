@@ -14,5 +14,6 @@ export * from "./ids.js";
 export * from "./interfaces.js";
 export * from "./persistence.js";
 export * from "./passive-memory.js";
+export * from "./memory-formation.js";
 export * from "./workspace-family-map.js";
 export { GoldenScenario } from "../fixtures/golden-scenario.js";
