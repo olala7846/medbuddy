@@ -150,14 +150,32 @@ describe("silent passive-memory worker", () => {
     "I think the fictional folder is blue.",
     "Mei told me the fictional folder is blue.",
     "I remember asking whether the fictional folder is blue.",
+    "I confirm: according to Mei, the fictional folder is blue.",
+    "I confirm: if Mei arrives, the fictional folder is blue.",
+    "I confirm: maybe the fictional folder is blue.",
+    "I confirm: the fictional folder is not blue.",
+    "I confirm: Mei said “the fictional folder is blue.”",
+    "I confirm: Mei is Kai's mother.",
+    "I confirm: bullet responses are nice.",
     "我想知道虛構的資料夾是否是藍色。",
     "根據美玲的說法，虛構的資料夾是藍色。",
     "如果美玲來了，虛構的資料夾是藍色。",
     "我覺得虛構的資料夾可能是藍色。",
     "美玲說道「虛構的資料夾是藍色」。",
     "條列回覆很好。",
+    "我確認：根據美玲的說法，虛構的資料夾是藍色。",
+    "我確認：如果美玲來了，虛構的資料夾是藍色。",
+    "我確認：虛構的資料夾可能是藍色。",
+    "我確認：虛構的資料夾不是藍色。",
+    "我確認：美玲說道「虛構的資料夾是藍色」。",
+    "我確認：美玲是家豪的媽媽。",
+    "我確認：條列回覆很好。",
   ])("cannot turn governed-ineligible evidence into an affirmative memory: %s", async (body) => {
-    const statement = body.includes("folder") ? "fictional folder" : body.includes("responses") ? "responses" : "Mei";
+    const statement = body.includes("folder") ? "fictional folder"
+      : body.includes("資料夾") ? "虛構的資料夾"
+        : body.includes("responses") ? "responses"
+          : body.includes("回覆") ? "回覆"
+            : body.includes("美玲") ? "美玲" : "Mei";
     const { memories, worker } = await harness({
       bodies: [body],
       output: { proposals: [{

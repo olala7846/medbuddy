@@ -111,6 +111,10 @@ function isGovernedAffirmativeEvidence(evidence: PassiveMemoryEvidence, proposal
   if (/\b(?:no|not|never|without|don['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|won['’]?t)\b|(?:沒有|沒|不是|不會|未曾|尚未)/iu.test(body)) return false;
   if (/["“”「」『』]/u.test(body) || /\b(?:said|says|told|quoted)\b|(?:轉述|聽說|表示|說道)/iu.test(body)) return false;
   if (containsFamilyRelationshipTerm(body)) return false;
+  if (proposal.payload.memoryType !== "PROCEDURAL" &&
+      /\b(?:response|reply|summary|bullet|format|tone|language|concise|brief|detailed)\b|(?:回覆|回答|摘要|總結|條列|清單|格式|語氣|繁體中文|英文)/iu.test(body)) {
+    return false;
+  }
   const trimmed = body.trim();
   const captured = proposal.payload.memoryType === "PROCEDURAL"
     ? (/^(?:(?:please\s+)?(?:use|keep|make)\b|(?:i|we)\s+(?:prefer|want):|請(?:用|使用|保持)|我(?:們)?(?:偏好|希望|想要)[：:])/iu.test(trimmed) ? trimmed : null)
