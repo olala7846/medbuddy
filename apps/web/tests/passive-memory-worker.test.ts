@@ -146,6 +146,7 @@ describe("silent passive-memory worker", () => {
     "If Mei arrives, the fictional folder is blue.",
     "I think the fictional folder is blue.",
     "Mei told me the fictional folder is blue.",
+    "I remember asking whether the fictional folder is blue.",
     "我想知道虛構的資料夾是否是藍色。",
     "根據美玲的說法，虛構的資料夾是藍色。",
     "如果美玲來了，虛構的資料夾是藍色。",
@@ -168,8 +169,8 @@ describe("silent passive-memory worker", () => {
   });
 
   it.each([
-    ["I confirm the fictional folder is blue.", "fictional folder is blue"],
-    ["我確認虛構的資料夾是藍色。", "虛構的資料夾是藍色"],
+    ["I confirm: the fictional folder is blue.", "fictional folder is blue"],
+    ["我確認：虛構的資料夾是藍色。", "虛構的資料夾是藍色"],
   ])("accepts the narrow explicit first-person assertion grammar: %s", async (body, statement) => {
     const { memories, worker } = await harness({
       bodies: [body],

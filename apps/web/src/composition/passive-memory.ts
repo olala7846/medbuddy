@@ -92,17 +92,35 @@ function durationClass(milliseconds: number): PassiveMemoryWorkerLogEntry["durat
   return "AT_LEAST_15S";
 }
 
+function proposedText(proposal: PassiveMemoryProposal): string {
+  switch (proposal.payload.memoryType) {
+    case "SEMANTIC": return proposal.payload.statement;
+    case "EPISODIC": return proposal.payload.event;
+    case "PROCEDURAL": return proposal.payload.preference;
+  }
+}
+
+function normalizedSpan(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
+}
+
 function isGovernedAffirmativeEvidence(evidence: PassiveMemoryEvidence, proposal: PassiveMemoryProposal): boolean {
   const body = evidence.effectiveText.normalize("NFKC");
-  if (/[?？]/u.test(body) || /^(?:tell me whether|who|what|when|where|why|how|do|does|did|is|are|can|could|should)\b|(?:是否|是不是|嗎|呢)[。！!]?$/iu.test(body)) return false;
-  if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|wonder whether|according to)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如|我想知道|根據.+(?:說法|表示))/iu.test(body)) return false;
+  if (/[?？]/u.test(body) || /\bwhether\b|^(?:who|what|when|where|why|how|do|does|did|is|are|can|could|should)\b|(?:是否|是不是|嗎|呢)[。！!]?$/iu.test(body)) return false;
+  if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|according to)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如|我想知道|根據.+(?:說法|表示))/iu.test(body)) return false;
   if (/\b(?:no|not|never|without|don['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|won['’]?t)\b|(?:沒有|沒|不是|不會|未曾|尚未)/iu.test(body)) return false;
   if (/["“”「」『』]/u.test(body) || /\b(?:said|says|told|quoted)\b|(?:轉述|聽說|表示|說道)/iu.test(body)) return false;
   if (containsFamilyRelationshipTerm(body)) return false;
-  if (proposal.payload.memoryType === "PROCEDURAL") {
-    return /^(?:please\s+)?(?:use|keep|make)\b|^(?:i|we)\s+(?:prefer|want)\b|^(?:請(?:用|使用|保持)|我(?:們)?(?:偏好|希望|想要))/iu.test(body.trim());
-  }
-  return /^(?:i|we)\s+(?:confirm|remember|keep|store|put|placed?)\b|^我(?:們)?(?:確認|記得|把|保存|放)/iu.test(body.trim());
+  const trimmed = body.trim();
+  const captured = proposal.payload.memoryType === "PROCEDURAL"
+    ? (/^(?:(?:please\s+)?(?:use|keep|make)\b|(?:i|we)\s+(?:prefer|want):|請(?:用|使用|保持)|我(?:們)?(?:偏好|希望|想要)[：:])/iu.test(trimmed) ? trimmed : null)
+    : (/^(?:i|we)\s+confirm:\s*(.+)$/iu.exec(trimmed)?.[1]
+      ?? /^我(?:們)?確認[：:]\s*(.+)$/u.exec(trimmed)?.[1]
+      ?? null);
+  if (captured === null) return false;
+  const source = normalizedSpan(captured);
+  return [proposedText(proposal), ...proposal.payload.subjectLabels, ...proposal.tags]
+    .every((value) => source.includes(normalizedSpan(value)));
 }
 
 class PassiveProposalPolicyError extends Error {}
