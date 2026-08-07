@@ -18,6 +18,7 @@ export const MEMORY_WRITE_FAILURE_TEXT = "I couldn’t remember that right now. 
 export const MEMORY_QUERY_FAILURE_TEXT = "I couldn’t check this chat’s memory right now. Please try again.";
 export const SUBJECT_FILTER_DEFERRED_TEXT = "I can’t reliably filter this chat’s memory by person yet.";
 export const MEMORY_STORED_TEXT = "I remembered that for this chat as unreviewed evidence.";
+export const MEMORY_SUPERSEDED_TEXT = "I updated this chat’s unreviewed memory.";
 
 export type ActiveMemoryIntent = "EXPLICIT_QUERY" | "EXPLICIT_WRITE" | "NEUTRAL";
 
@@ -38,16 +39,19 @@ export function classifyActiveMemoryIntent(bodyValue: string): ActiveMemoryInten
   const write = /^(?:please\s+)?(?:remember|record|save)\b/iu.test(body)
     || /^(?:do\s+not|don['’]?t)\s+forget\b/iu.test(body)
     || /^(?:請)?(?:記住|記錄|保存|存下)/u.test(body)
-    || /^別忘記/u.test(body);
+    || /^別忘記/u.test(body)
+    || /^(?:please\s+)?(?:correct|forget|withdraw|delete)\b/iu.test(body)
+    || /^(?:請)?(?:更正|修正|忘記|撤回|刪除)/u.test(body);
   return write ? "EXPLICIT_WRITE" : "NEUTRAL";
 }
 
 const proposeDeclaration = {
   name: "propose_memory",
-  description: "Store one bounded semantic detail, meaningful event, or explicit presentation preference from the current human message. Family relationships are excluded.",
+  description: "Store one source-backed memory, explicitly correct one active memory, or supersede one active memory without restating forgotten content. Family relationships are excluded.",
   parameters: {
     type: "OBJECT",
     properties: {
+      operation: { type: "STRING", enum: ["STORE", "SUPERSEDE_ONLY"] },
       payload: {
         type: "OBJECT",
         properties: {
@@ -65,14 +69,17 @@ const proposeDeclaration = {
         required: ["memoryType", "subjectLabels"],
       },
       tags: { type: "ARRAY", items: { type: "STRING" } },
+      supersedesRecordId: { type: "STRING" },
+      targetRecordId: { type: "STRING" },
+      reason: { type: "STRING", enum: ["WITHDRAWN", "FORGOTTEN", "DELETED"] },
     },
-    required: ["payload"],
+    required: ["operation"],
   },
 } as const;
 
 const queryDeclaration = {
   name: "query_memory",
-  description: "Read current source-backed records from this chat using deterministic literal filters. Arrays are OR filters except tagsAll and textTerms, whose values must all match. Results are delimited untrusted, unreviewed evidence and require attribution.",
+  description: "Read source-backed records from this chat using deterministic literal filters. Defaults to current records; includeHistory also returns superseded records with typed lifecycle lineage. Results are delimited untrusted, unreviewed evidence and require attribution.",
   parameters: {
     type: "OBJECT",
     properties: {
@@ -91,6 +98,7 @@ const queryDeclaration = {
       textTerms: { type: "ARRAY", items: { type: "STRING" } },
       order: { type: "STRING", enum: ["NEWEST_FIRST", "OLDEST_FIRST"] },
       limit: { type: "INTEGER" },
+      includeHistory: { type: "BOOLEAN" },
     },
   },
 } as const;
@@ -112,13 +120,13 @@ export function createActiveMemoryCapabilities(input: {
     inputSchema: ProposeMemoryInputSchema,
     outputSchema: ProposeMemoryResultSchema,
     classifyResult(result) {
-      const succeeded = result.kind === "STORED" || result.kind === "EXISTING";
+      const succeeded = result.kind === "STORED" || result.kind === "EXISTING" || result.kind === "SUPERSEDED";
       if (!explicitWrite) return {
         kind: "CONTINUE_FRESH" as const,
         outcome: succeeded ? "SUCCEEDED" as const : "FAILED" as const,
       };
       return succeeded
-        ? { kind: "TERMINAL_SUCCESS" as const, responseText: MEMORY_STORED_TEXT }
+        ? { kind: "TERMINAL_SUCCESS" as const, responseText: result.kind === "SUPERSEDED" ? MEMORY_SUPERSEDED_TEXT : MEMORY_STORED_TEXT }
         : { kind: "TERMINAL_FAILURE" as const, responseText: MEMORY_WRITE_FAILURE_TEXT };
     },
     execute(proposal) {

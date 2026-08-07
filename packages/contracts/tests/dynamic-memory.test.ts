@@ -6,6 +6,8 @@ import {
   DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
   DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16,
   DynamicMemoryPayloadSchema,
+  MemoryLifecycleEventSchema,
+  ProposeMemoryInputSchema,
   ModelQueryMemoryInputSchema,
   QueryMemoryResultSchema,
   QueryMemoryInputSchema,
@@ -58,6 +60,34 @@ describe("dynamic memory contracts", () => {
     }).success).toBe(false);
   });
 
+  it("types correction, supersede-only, lifecycle, lineage, and history inputs", () => {
+    expect(ProposeMemoryInputSchema.parse({
+      operation: "STORE",
+      supersedesRecordId: "memory-record:prior",
+      payload: { memoryType: "SEMANTIC", statement: "The folder is green.", subjectLabels: [] },
+    })).toMatchObject({ operation: "STORE", supersedesRecordId: "memory-record:prior" });
+    expect(ProposeMemoryInputSchema.parse({
+      operation: "SUPERSEDE_ONLY",
+      targetRecordId: "memory-record:prior",
+      reason: "FORGOTTEN",
+    })).toEqual({ operation: "SUPERSEDE_ONLY", targetRecordId: "memory-record:prior", reason: "FORGOTTEN" });
+    expect(MemoryLifecycleEventSchema.parse({
+      id: "memory-lifecycle:event",
+      workspaceId: "workspace:memory-a",
+      targetRecordId: "memory-record:prior",
+      action: "CORRECTED",
+      canonicalSource: {
+        sourceRef: "source-event:correction",
+        lineageSourceRefs: ["source-event:correction"],
+        authorMemberRef: "member:corrector",
+        acceptedAt: "2026-08-06T13:00:00.000Z",
+      },
+      successorRecordId: "memory-record:successor",
+      recordedAt: "2026-08-06T13:00:01.000Z",
+    })).toMatchObject({ action: "CORRECTED", successorRecordId: "memory-record:successor" });
+    expect(QueryMemoryInputSchema.parse({ includeHistory: true })).toMatchObject({ includeHistory: true });
+  });
+
   it("accepts but does not interpret a deferred subject-label query", () => {
     expect(QueryMemoryInputSchema.parse({ subjectLabels: ["Grandparent"] })).toMatchObject({
       subjectLabels: ["Grandparent"],
@@ -78,6 +108,7 @@ describe("dynamic memory contracts", () => {
       textTerms: ["  BLUE\tFOLDER "],
       order: "OLDEST_FIRST",
       limit: 25,
+      includeHistory: false,
     })).toEqual({
       subjectLabels: [],
       memoryTypes: ["SEMANTIC", "EPISODIC"],
@@ -92,6 +123,7 @@ describe("dynamic memory contracts", () => {
       textTerms: ["BLUE FOLDER"],
       order: "OLDEST_FIRST",
       limit: 25,
+      includeHistory: false,
     });
     expect(QueryMemoryInputSchema.parse({})).toEqual({
       subjectLabels: [],
@@ -104,6 +136,7 @@ describe("dynamic memory contracts", () => {
       acceptedAt: {},
       order: "NEWEST_FIRST",
       limit: 10,
+      includeHistory: false,
     });
   });
 

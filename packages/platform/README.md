@@ -6,9 +6,11 @@ The Firestore and in-memory family-map adapters implement the same source-bound,
 workspace-isolated compare-and-set contract. Firestore stores only
 `workspaces/{workspaceId}/workspaceMemory/familyMap`; there is no history collection.
 
-Dynamic-memory adapters expose a deterministic current-record scan capped at
-500 records. They remain workspace-path-bound and do not search raw history,
-continuity compaction, relationship maps, or reviewed-care records.
+Dynamic-memory adapters expose deterministic current/history scans capped at
+500 records plus atomic, idempotent lifecycle transitions. Lifecycle events are
+auditable metadata; correction successors and source-lineage lookups remain
+workspace-path-bound. The adapters do not search raw conversation, continuity
+compaction, relationship maps, or reviewed-care records.
 
 ## Public entry
 

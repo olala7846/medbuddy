@@ -62,6 +62,62 @@ resource "google_firestore_index" "dynamic_memory_oldest" {
   }
 }
 
+# Current-only retrieval adds lifecycle equality ahead of the same stable total
+# ordering. History retrieval continues to use the two indexes above.
+resource "google_firestore_index" "dynamic_memory_current_newest" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "dynamicMemoryRecords"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "lifecycle"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "canonicalSource.acceptedAt"
+    order      = "DESCENDING"
+  }
+
+  fields {
+    field_path = "recordedAt"
+    order      = "DESCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}
+
+resource "google_firestore_index" "dynamic_memory_current_oldest" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "dynamicMemoryRecords"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "lifecycle"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "canonicalSource.acceptedAt"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "recordedAt"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}
+
 resource "google_storage_bucket" "attachments" {
   name                        = local.attachment_bucket_name
   project                     = local.project_id

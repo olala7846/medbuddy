@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ApplyMemoryLifecycleTransitionInputSchema,
   DynamicMemoryRecordSchema,
   type DynamicMemoryRepository,
 } from "../src/index.js";
@@ -110,6 +111,102 @@ export function describeDynamicMemoryRepositoryContract(
       ]);
       expect(outcomes.filter((outcome) => outcome.kind === "STORED")).toHaveLength(1);
       expect(outcomes.filter((outcome) => outcome.kind === "EXISTING")).toHaveLength(1);
+    });
+
+    it("atomically corrects a record once and preserves bidirectional lineage", async () => {
+      const repository = createRepository();
+      await repository.createOrGet(firstRecord);
+      const successor = DynamicMemoryRecordSchema.parse({
+        ...firstRecord,
+        id: "memory-record:corrected",
+        payload: { memoryType: "SEMANTIC", statement: "The fictional folder is green.", subjectLabels: [] },
+        canonicalSource: {
+          sourceRef: "source-event:correction",
+          lineageSourceRefs: [firstRecord.canonicalSource.sourceRef, "source-event:correction"],
+          authorMemberRef: "member:corrector",
+          acceptedAt: "2026-08-06T13:00:00.000Z",
+        },
+        supersedesRecordId: firstRecord.id,
+        recordedAt: "2026-08-06T13:00:01.000Z",
+      });
+      const transition = ApplyMemoryLifecycleTransitionInputSchema.parse({
+        operationId: "memory-lifecycle-operation:correction",
+        event: {
+          id: "memory-lifecycle:correction",
+          workspaceId: firstRecord.workspaceId,
+          targetRecordId: firstRecord.id,
+          action: "CORRECTED" as const,
+          canonicalSource: successor.canonicalSource,
+          successorRecordId: successor.id,
+          recordedAt: successor.recordedAt,
+        },
+        successor,
+      });
+      const outcomes = await Promise.all([
+        repository.applyLifecycleTransition(transition),
+        repository.applyLifecycleTransition(transition),
+      ]);
+      expect(outcomes.map((outcome) => outcome.kind).sort()).toEqual(["APPLIED", "EXISTING"]);
+      await expect(repository.get(firstRecord.workspaceId, firstRecord.id)).resolves.toMatchObject({
+        lifecycle: "SUPERSEDED",
+        supersededByRecordId: successor.id,
+      });
+      await expect(repository.get(firstRecord.workspaceId, successor.id)).resolves.toEqual(successor);
+      await expect(repository.scan(firstRecord.workspaceId, "NEWEST_FIRST", 500, true))
+        .resolves.toMatchObject({ records: [successor, expect.objectContaining({ id: firstRecord.id, lifecycle: "SUPERSEDED" })] });
+    });
+
+    it("supersedes without creating a searchable restatement and rejects a concurrent fork", async () => {
+      const repository = createRepository();
+      await repository.createOrGet(firstRecord);
+      const transition = (suffix: string) => ApplyMemoryLifecycleTransitionInputSchema.parse({
+        operationId: `memory-lifecycle-operation:${suffix}`,
+        event: {
+          id: `memory-lifecycle:${suffix}`,
+          workspaceId: firstRecord.workspaceId,
+          targetRecordId: firstRecord.id,
+          action: "FORGOTTEN" as const,
+          canonicalSource: {
+            sourceRef: `source-event:${suffix}`,
+            lineageSourceRefs: [`source-event:${suffix}`],
+            authorMemberRef: "member:memory-a",
+            acceptedAt: "2026-08-06T13:00:00.000Z",
+          },
+          recordedAt: "2026-08-06T13:00:01.000Z",
+        },
+      });
+      const outcomes = await Promise.all([
+        repository.applyLifecycleTransition(transition("forget-a")),
+        repository.applyLifecycleTransition(transition("forget-b")),
+      ]);
+      expect(outcomes.filter((outcome) => outcome.kind === "APPLIED")).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.kind === "LIFECYCLE_CONFLICT")).toHaveLength(1);
+      await expect(repository.scan(firstRecord.workspaceId, "NEWEST_FIRST", 500, false))
+        .resolves.toMatchObject({ records: [] });
+    });
+
+    it("refuses a lifecycle target outside the bound workspace", async () => {
+      const repository = createRepository();
+      await repository.createOrGet(firstRecord);
+      const crossWorkspace = ApplyMemoryLifecycleTransitionInputSchema.parse({
+        operationId: "memory-lifecycle-operation:cross-workspace",
+        event: {
+          id: "memory-lifecycle:cross-workspace",
+          workspaceId: "workspace:memory-b",
+          targetRecordId: firstRecord.id,
+          action: "DELETED",
+          canonicalSource: {
+            sourceRef: "source-event:cross-workspace",
+            lineageSourceRefs: ["source-event:cross-workspace"],
+            authorMemberRef: "member:memory-b",
+            acceptedAt: "2026-08-06T13:00:00.000Z",
+          },
+          recordedAt: "2026-08-06T13:00:01.000Z",
+        },
+      });
+      await expect(repository.applyLifecycleTransition(crossWorkspace))
+        .resolves.toEqual({ kind: "LIFECYCLE_CONFLICT" });
+      await expect(repository.get(firstRecord.workspaceId, firstRecord.id)).resolves.toEqual(firstRecord);
     });
   });
 }
