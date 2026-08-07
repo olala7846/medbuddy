@@ -304,3 +304,33 @@ No LINE user, group, message, or channel identifier; credential; prompt; model o
 The Compute Engine default service account had a pre-existing project-level `roles/editor` grant when the source-build role was added. That broad legacy grant was not changed during the bot deployment because its other consumers were unknown. Review and narrow it before approving real family data.
 
 The deployed smoke proves the fictional text loop only. It does not remove the release gates for disclosure, consent, retention, deletion, dependency remediation, or production log review.
+
+## Effort 3 deployed memory smoke record (2026-08-07)
+
+The source-backed memory revision is deployed, but the human LINE observations
+remain a required checkpoint until the fictional two-workspace script completes:
+
+| Item | Verified state |
+| --- | --- |
+| Cloud Run revision and traffic | `medbuddy-line-00012-hud`, 100% traffic after a tagged zero-traffic probe |
+| Rollback target | `medbuddy-line-00011-tls` retained as the previous known-good revision |
+| Model boundary | Conversation `gemini-3.6-flash`; compaction `gemini-3.5-flash-lite`; global Vertex endpoint and ADC runtime identity |
+| HTTP boundary | Root and correctly signed empty LINE webhook returned `200`; unsigned memory-formation and passive-memory callbacks returned `401` |
+| Firestore foundation | Seven composite indexes and the `memoryFormationOutbox.policyVersion` collection-group field index reached ready state; Terraform converged with no changes |
+| Recovery automation | Production and verification-small OIDC jobs enabled every five minutes; both automatic attempts completed with status code `0` |
+| Rendered-size policies | Production 30,000 UTF-16 units; verification-small 1,800 UTF-16 units |
+| Dynamic-memory live evaluation | Traditional Chinese semantic, episodic, and allow-listed procedural scenarios passed against the configured Vertex model |
+| Effort 1/2 regression evaluation | The first counterfactual family-map attempt declined the required sparse inference; an identical rerun passed all three assertions, matching the documented stochastic model variance rather than a compaction, persistence, or infrastructure failure |
+| Fictional LINE memory observations | Pending: silent passive formation, attributed same-workspace recall, explicit remember acknowledgment, cross-workspace isolation, and cleanup |
+
+The first infrastructure apply also exposed an invalid composite declaration for
+the outbox policy lookup. Firestore correctly rejected it as unnecessary. The
+configuration now uses a single-field collection-group index while preserving
+the inherited collection-scope indexes; authenticated recovery succeeded only
+after that index reached ready state.
+
+No real conversation data was enabled. Repository evidence contains no LINE
+identifier, credential, prompt, model output, or conversation content. The
+recovery jobs and indexes are intentionally retained as the deployed prototype
+foundation; fictional memory cleanup and final content-free log review remain
+part of the pending operator checkpoint.
