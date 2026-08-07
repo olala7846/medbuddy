@@ -221,13 +221,19 @@ export async function runSyntheticDeployedMemorySmoke(
   for (const step of [passiveRecall, explicitRemember, explicitRecall, isolationQuery, medicationRefusal]) {
     await deliver(step);
   }
-  const finalWakeup = wakeups.at(-1);
-  if (finalWakeup === undefined) throw new Error("Post-reply formation has no quiet wake.");
-  if (finalWakeup.scheduleTime === undefined) throw new Error("Post-reply quiet wake has no schedule time.");
-  now = new Date(Date.parse(finalWakeup.scheduleTime) + 1).toISOString();
-  const { scheduleTime: _finalScheduleTime, ...finalWake } = finalWakeup;
-  void _finalScheduleTime;
-  await scheduler.wake(finalWake, now);
+  for (let attempt = 0; attempt < 3 && dispatched.length < 2; attempt += 1) {
+    const finalWakeup = wakeups.filter((wakeup) => wakeup.workspaceId === primaryIds.workspaceId).at(-1);
+    if (finalWakeup === undefined) throw new Error("Post-reply formation has no quiet wake.");
+    if (finalWakeup.scheduleTime === undefined) throw new Error("Post-reply quiet wake has no schedule time.");
+    now = new Date(Date.parse(finalWakeup.scheduleTime) + 1).toISOString();
+    const { scheduleTime: _finalScheduleTime, ...finalWake } = finalWakeup;
+    void _finalScheduleTime;
+    const outcome = await scheduler.wake(finalWake, now);
+    requireCondition(
+      outcome === "DISPATCHED" || outcome === "RESCHEDULED",
+      `Post-reply primary wake returned ${outcome}.`,
+    );
+  }
   requireCondition(dispatched.length === 2, "Post-reply quiet wake did not dispatch one worker job.");
   requireCondition(await worker.run(dispatched[1]!) === "COMPLETED", "Post-reply worker did not complete.");
   requireCondition(postReplyEligibleMedBuddySourceCount === 0, "MedBuddy output became an eligible canonical source.");
