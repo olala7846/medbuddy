@@ -57,6 +57,7 @@ describe("dedicated passive structured generator", () => {
     expect(requests[0]?.systemInstruction).toContain("Never reply");
     expect(requests[0]?.systemInstruction).toContain("I confirm: <assertion>");
     expect(requests[0]?.systemInstruction).toContain("我確認：<assertion>");
+    expect(requests[0]?.systemInstruction).toContain("equal the complete <assertion>");
   });
 
   it.each([

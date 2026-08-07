@@ -329,7 +329,7 @@ describe("DynamicMemoryService", () => {
       acceptedAt: "2026-08-06T12:05:00.000Z",
     });
     const proposal = ProposeMemoryInputSchema.parse({
-      payload: { memoryType: "SEMANTIC", statement: "the fictional folder is green", subjectLabels: [] },
+      payload: { memoryType: "SEMANTIC", statement: "the fictional folder is green.", subjectLabels: [] },
     });
     const first = service.materializePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 0 }, proposal);
     const replay = service.materializePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 0 }, proposal);
@@ -364,10 +364,10 @@ describe("DynamicMemoryService", () => {
     });
     const context = { workspaceId: source.workspaceId, evidence, proposalSlot: 0 };
     expect(service.materializePassive(context, ProposeMemoryInputSchema.parse({
-      payload: { memoryType: "SEMANTIC", statement: "The fictional folder is blue", subjectLabels: [] },
+      payload: { memoryType: "SEMANTIC", statement: "The fictional folder is blue and the fictional folder is green.", subjectLabels: [] },
     }))).toMatchObject({ kind: "MATERIALIZED" });
     expect(service.materializePassive(context, ProposeMemoryInputSchema.parse({
-      payload: { memoryType: "SEMANTIC", statement: "the fictional folder is green", subjectLabels: [] },
+      payload: { memoryType: "SEMANTIC", statement: "The fictional folder is blue and the fictional folder is green.", subjectLabels: [] },
     }))).toMatchObject({ kind: "MATERIALIZED" });
     await expect(repository.listActive(source.workspaceId, 10)).resolves.toEqual([]);
   });

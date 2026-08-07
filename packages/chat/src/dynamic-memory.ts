@@ -204,7 +204,10 @@ function isGovernedPassiveEvidence(evidence: PassiveMemoryEvidence, input: Propo
   }
   if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|according to)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如|我想知道|根據.+(?:說法|表示))/iu.test(body)) return false;
   if (/\b(?:no|not|never|without|don['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|won['’]?t)\b|(?:沒有|沒|不是|不會|未曾|尚未)/iu.test(body)) return false;
-  if (/["“”「」『』]/u.test(body) || /\b(?:said|says|told|quoted)\b|(?:轉述|聽說|表示|說道)/iu.test(body)) return false;
+  if (/["“”「」『』]/u.test(body) ||
+      /\b(?:said|says|told|quoted|hears?|heard|hearing|claims?|claimed|claiming|reports?|reported|reporting)\b|(?:轉述|聽說|聽見|表示|說道|聲稱|宣稱|回報|報告|據報)/iu.test(body)) {
+    return false;
+  }
   if (containsFamilyRelationshipTerm(body)) return false;
   if (input.payload.memoryType !== "PROCEDURAL" &&
       /\b(?:response|reply|summary|bullet|format|tone|language|concise|brief|detailed)\b|(?:回覆|回答|摘要|總結|條列|清單|格式|語氣|繁體中文|英文)/iu.test(body)) {
@@ -218,7 +221,10 @@ function isGovernedPassiveEvidence(evidence: PassiveMemoryEvidence, input: Propo
       ?? null);
   if (captured === null) return false;
   const source = normalizedSpan(captured);
-  return [payloadText(input.payload), ...input.payload.subjectLabels, ...input.tags]
+  if (input.payload.memoryType !== "PROCEDURAL" && normalizedSpan(payloadText(input.payload)) !== source) {
+    return false;
+  }
+  return [...input.payload.subjectLabels, ...input.tags]
     .every((value) => source.includes(normalizedSpan(value)));
 }
 

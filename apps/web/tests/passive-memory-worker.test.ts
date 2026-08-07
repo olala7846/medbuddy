@@ -152,6 +152,9 @@ describe("silent passive-memory worker", () => {
     "I remember asking whether the fictional folder is blue.",
     "I confirm: according to Mei, the fictional folder is blue.",
     "I confirm: tell me which fictional folder is blue.",
+    "I confirm: I heard the fictional folder is blue.",
+    "I confirm: Mei claims the fictional folder is blue.",
+    "I confirm: Mei reported the fictional folder is blue.",
     "I confirm: if Mei arrives, the fictional folder is blue.",
     "I confirm: maybe the fictional folder is blue.",
     "I confirm: the fictional folder is not blue.",
@@ -166,6 +169,9 @@ describe("silent passive-memory worker", () => {
     "條列回覆很好。",
     "我確認：根據美玲的說法，虛構的資料夾是藍色。",
     "我確認：請問哪個虛構的資料夾是藍色。",
+    "我確認：我聽說虛構的資料夾是藍色。",
+    "我確認：美玲聲稱虛構的資料夾是藍色。",
+    "我確認：美玲回報虛構的資料夾是藍色。",
     "我確認：如果美玲來了，虛構的資料夾是藍色。",
     "我確認：虛構的資料夾可能是藍色。",
     "我確認：虛構的資料夾不是藍色。",
@@ -192,8 +198,24 @@ describe("silent passive-memory worker", () => {
   });
 
   it.each([
-    ["I confirm: the fictional folder is blue.", "fictional folder is blue"],
-    ["我確認：虛構的資料夾是藍色。", "虛構的資料夾是藍色"],
+    ["I confirm: the fictional picnic happened yesterday.", "the fictional picnic happened yesterday."],
+    ["我確認：虛構的野餐昨天舉行。", "虛構的野餐昨天舉行。"],
+  ])("accepts a full explicitly endorsed episodic assertion: %s", async (body, event) => {
+    const { memories, worker } = await harness({
+      bodies: [body],
+      output: { proposals: [{
+        sourceRef: "source-event:fictional-passive-0" as never,
+        payload: { memoryType: "EPISODIC", event, subjectLabels: [] },
+        tags: [],
+      }] },
+    });
+    await expect(worker.run({ workspaceId, jobId })).resolves.toBe("COMPLETED");
+    await expect(memories.listActive(workspaceId, 10)).resolves.toHaveLength(1);
+  });
+
+  it.each([
+    ["I confirm: the fictional folder is blue.", "the fictional folder is blue."],
+    ["我確認：虛構的資料夾是藍色。", "虛構的資料夾是藍色。"],
   ])("accepts the narrow explicit first-person assertion grammar: %s", async (body, statement) => {
     const { memories, worker } = await harness({
       bodies: [body],
