@@ -35,3 +35,10 @@ their assertions into the tracer:
   authentication, fail-closed scope, capability containment, and regressions;
 - in-memory and Firestore files run the same repository contracts. Firestore
   cases activate when `FIRESTORE_EMULATOR_HOST` points to a fresh emulator.
+
+`memory-acceptance-zh-TW.jsonl` is the separately opted-in, fictional live-model
+evaluation. Its three rows cover semantic, episodic, and allow-listed procedural
+classification through the production passive-memory Vertex adapter. Run it
+with `MEDBUDDY_VERTEX_ENABLED=true`, `MEDBUDDY_VERTEX_PROJECT`, and
+`MEDBUDDY_VERTEX_LOCATION` configured, using `npm run eval:memory:acceptance`.
+It uses no LINE, Firestore, Cloud Tasks, or deployment adapter.
