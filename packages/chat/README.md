@@ -11,8 +11,9 @@ workspace, then binds workspace, actor, and source-message identity around the
 narrow update capability passed to Intelligence.
 
 `DynamicMemoryService` is shared by active tools and the silent passive worker.
-Passive proposals use deterministic per-source slots, preserve edit lineage,
-and return a typed conflict when a retry changes an existing operation.
+Passive proposals are validated and materialized without storage mutation;
+the fenced passive job repository owns their atomic batch commit. Deterministic
+per-source slots preserve edit lineage and make array-order retries stable.
 
 ## Depends on
 

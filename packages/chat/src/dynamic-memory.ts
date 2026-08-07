@@ -35,6 +35,10 @@ export type PassiveMemorySourceContext = {
   proposalSlot: number;
 };
 
+export type MaterializePassiveMemoryResult =
+  | { kind: "MATERIALIZED"; record: DynamicMemoryRecord }
+  | Extract<ProposeMemoryResult, { kind: "REJECTED" }>;
+
 function payloadText(payload: DynamicMemoryPayload): string {
   switch (payload.memoryType) {
     case "SEMANTIC": return payload.statement;
@@ -187,10 +191,10 @@ export class DynamicMemoryService {
     }, parsed.data);
   }
 
-  async proposePassive(
+  materializePassive(
     context: PassiveMemorySourceContext,
     inputValue: ProposeMemoryInput,
-  ): Promise<ProposeMemoryResult> {
+  ): MaterializePassiveMemoryResult {
     const parsed = ProposeMemoryInputSchema.safeParse(inputValue);
     if (!parsed.success) return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     const evidence = context.evidence;
@@ -198,7 +202,7 @@ export class DynamicMemoryService {
         !Number.isInteger(context.proposalSlot) || context.proposalSlot < 0 || context.proposalSlot >= 16) {
       return { kind: "REJECTED", code: "INELIGIBLE_SOURCE" };
     }
-    return this.proposeBound({
+    const materialized = this.materializeBound({
       workspaceId: context.workspaceId,
       sourceRef: evidence.canonicalSourceRef,
       lineageSourceRefs: evidence.lineageSourceRefs,
@@ -207,6 +211,40 @@ export class DynamicMemoryService {
       sourceBody: evidence.effectiveText,
       proposalSlot: context.proposalSlot,
     }, parsed.data);
+    return "id" in materialized ? { kind: "MATERIALIZED", record: materialized } : materialized;
+  }
+
+  private materializeBound(source: {
+    workspaceId: WorkspaceId;
+    sourceRef: SourceEvent["id"];
+    lineageSourceRefs: readonly SourceEvent["id"][];
+    authorMemberRef: Exclude<SourceEvent["authorMemberId"], "MEDBUDDY">;
+    acceptedAt: string;
+    sourceBody: string;
+    proposalSlot?: number;
+  }, input: ProposeMemoryInput): DynamicMemoryRecord | Extract<ProposeMemoryResult, { kind: "REJECTED" }> {
+    if (isRelationshipMaterial(input.payload)) return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
+    if (!isAllowlistedPresentationPreference(input.payload)) {
+      return { kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" };
+    }
+    if (!hasExactSourceSpans(input, source.sourceBody)) return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
+    return DynamicMemoryRecordSchema.parse({
+      id: memoryId(source.workspaceId, source.sourceRef, source.proposalSlot),
+      workspaceId: source.workspaceId,
+      payload: input.payload,
+      sourceClass: "HUMAN_CONVERSATION",
+      trustClass: "UNREVIEWED_DERIVED",
+      lifecycle: "ACTIVE",
+      canonicalSource: {
+        sourceRef: source.sourceRef,
+        lineageSourceRefs: source.lineageSourceRefs,
+        authorMemberRef: source.authorMemberRef,
+        acceptedAt: source.acceptedAt,
+      },
+      tags: [...new Set(input.tags)].sort(),
+      policyVersion: DYNAMIC_MEMORY_POLICY_VERSION,
+      recordedAt: this.now(),
+    });
   }
 
   private async proposeBound(source: {
@@ -218,37 +256,9 @@ export class DynamicMemoryService {
     sourceBody: string;
     proposalSlot?: number;
   }, input: ProposeMemoryInput): Promise<ProposeMemoryResult> {
-    const id = memoryId(source.workspaceId, source.sourceRef, source.proposalSlot);
-    if (isRelationshipMaterial(input.payload)) {
-      return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
-    }
-    if (!isAllowlistedPresentationPreference(input.payload)) {
-      return { kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" };
-    }
-    if (!hasExactSourceSpans(input, source.sourceBody)) {
-      return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
-    }
-    const normalizedInput = {
-      ...input,
-      tags: [...new Set(input.tags)].sort(),
-    };
-    const record = DynamicMemoryRecordSchema.parse({
-      id,
-      workspaceId: source.workspaceId,
-      payload: normalizedInput.payload,
-      sourceClass: "HUMAN_CONVERSATION",
-      trustClass: "UNREVIEWED_DERIVED",
-      lifecycle: "ACTIVE",
-      canonicalSource: {
-        sourceRef: source.sourceRef,
-        lineageSourceRefs: source.lineageSourceRefs,
-        authorMemberRef: source.authorMemberRef,
-        acceptedAt: source.acceptedAt,
-      },
-      tags: normalizedInput.tags,
-      policyVersion: DYNAMIC_MEMORY_POLICY_VERSION,
-      recordedAt: this.now(),
-    });
+    const materialized = this.materializeBound(source, input);
+    if (!("id" in materialized)) return materialized;
+    const record = materialized;
     try {
       const result = await this.repository.createOrGet(record);
       if (result.kind === "CONFLICT") return { kind: "CONFLICT" };

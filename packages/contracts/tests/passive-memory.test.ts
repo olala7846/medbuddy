@@ -79,4 +79,18 @@ describe("passive memory contracts", () => {
       createdAt: "2026-08-06T12:00:00.000Z",
     }).success).toBe(false);
   });
+
+  it("rejects persisted source ranges larger than the passive batch cap", () => {
+    expect(PassiveMemoryJobSchema.safeParse({
+      id: "passive-memory-job:oversized",
+      workspaceId: "workspace:fictional",
+      firstSourceSequence: 1,
+      lastSourceSequence: 101,
+      policyVersion: "passive-memory-v1",
+      status: "PENDING",
+      attempts: 0,
+      claimGeneration: 0,
+      createdAt: "2026-08-06T12:00:00.000Z",
+    }).success).toBe(false);
+  });
 });

@@ -9,6 +9,7 @@ import {
   ProposeMemoryInputSchema,
   containsFamilyRelationshipTerm,
   type PassiveMemoryEvidence,
+  type PassiveMemoryProposal,
   type PassiveMemoryEvidenceReader,
   type PassiveMemoryJob,
   type PassiveMemoryJobRepository,
@@ -91,20 +92,20 @@ function durationClass(milliseconds: number): PassiveMemoryWorkerLogEntry["durat
   return "AT_LEAST_15S";
 }
 
-function isGovernedAffirmativeEvidence(evidence: PassiveMemoryEvidence): boolean {
+function isGovernedAffirmativeEvidence(evidence: PassiveMemoryEvidence, proposal: PassiveMemoryProposal): boolean {
   const body = evidence.effectiveText.normalize("NFKC");
-  if (/[?？]/u.test(body) || /^(?:who|what|when|where|why|how|do|does|did|is|are|can|could|should)\b|(?:是否|是不是|嗎|呢)[。！!]?$/iu.test(body)) return false;
-  if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|wonder whether)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如)/iu.test(body)) return false;
+  if (/[?？]/u.test(body) || /^(?:tell me whether|who|what|when|where|why|how|do|does|did|is|are|can|could|should)\b|(?:是否|是不是|嗎|呢)[。！!]?$/iu.test(body)) return false;
+  if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|wonder whether|according to)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如|我想知道|根據.+(?:說法|表示))/iu.test(body)) return false;
   if (/\b(?:no|not|never|without|don['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|won['’]?t)\b|(?:沒有|沒|不是|不會|未曾|尚未)/iu.test(body)) return false;
   if (/["“”「」『』]/u.test(body) || /\b(?:said|says|told|quoted)\b|(?:轉述|聽說|表示|說道)/iu.test(body)) return false;
   if (containsFamilyRelationshipTerm(body)) return false;
-  const presentationShaped = /\b(?:response|reply|summary|bullet|format|tone|language|concise|brief|detailed)\b|(?:回覆|回答|摘要|總結|條列|清單|格式|語氣|繁體中文|英文)/iu.test(body);
-  if (presentationShaped && !/\b(?:please|prefer|use|keep|make|i want|we want)\b|(?:請|偏好|希望|想要|使用)/iu.test(body)) return false;
-  return true;
+  if (proposal.payload.memoryType === "PROCEDURAL") {
+    return /^(?:please\s+)?(?:use|keep|make)\b|^(?:i|we)\s+(?:prefer|want)\b|^(?:請(?:用|使用|保持)|我(?:們)?(?:偏好|希望|想要))/iu.test(body.trim());
+  }
+  return /^(?:i|we)\s+(?:confirm|remember|keep|store|put|placed?)\b|^我(?:們)?(?:確認|記得|把|保存|放)/iu.test(body.trim());
 }
 
 class PassiveProposalPolicyError extends Error {}
-class PassiveProposalConflictError extends Error {}
 
 /** One silent attempt over one persisted, leased source range. */
 export class PassiveMemoryWorker {
@@ -150,28 +151,36 @@ export class PassiveMemoryWorker {
       const generated = await this.dependencies.generator.generate(evidence);
       const output = PassiveMemoryGeneratorOutputSchema.parse(generated.output);
       const bySource = new Map(evidence.evidence.map((item) => [item.canonicalSourceRef, item]));
+      const canonical = output.proposals.map((proposal) => ({
+        proposal,
+        key: `${proposal.sourceRef}\u0000${JSON.stringify(proposal.payload)}\u0000${JSON.stringify([...proposal.tags].sort())}`,
+      })).sort((left, right) => left.key.localeCompare(right.key));
+      if (new Set(canonical.map(({ key }) => key)).size !== canonical.length) {
+        throw new PassiveProposalPolicyError("Duplicate passive proposals are not a canonical batch.");
+      }
       const slots = new Map<string, number>();
-      for (const proposal of output.proposals) {
+      const records = [];
+      for (const { proposal } of canonical) {
         const source = bySource.get(proposal.sourceRef);
-        if (source === undefined || !isGovernedAffirmativeEvidence(source)) {
+        if (source === undefined || !isGovernedAffirmativeEvidence(source, proposal)) {
           throw new PassiveProposalPolicyError("Passive proposal is not bound to eligible claimed evidence.");
         }
         const proposalSlot = slots.get(source.canonicalSourceRef) ?? 0;
         slots.set(source.canonicalSourceRef, proposalSlot + 1);
-        const result = await this.dependencies.memory.proposePassive({
+        const result = this.dependencies.memory.materializePassive({
           workspaceId: job.workspaceId,
           evidence: source,
           proposalSlot,
         }, ProposeMemoryInputSchema.parse({ payload: proposal.payload, tags: proposal.tags }));
-        if (result.kind === "CONFLICT") throw new PassiveProposalConflictError("Passive proposal operation conflict.");
-        if (result.kind !== "STORED" && result.kind !== "EXISTING") {
+        if (result.kind !== "MATERIALIZED") {
           throw new PassiveProposalPolicyError("Passive proposal failed governed memory validation.");
         }
+        records.push(result.record);
       }
       await this.dependencies.jobs.finish(PassiveMemoryJobSchema.parse({
         ...withoutLease(job),
         status: "COMPLETED",
-      }), attemptFence);
+      }), attemptFence, records);
       this.dependencies.logger.write({
         event: "passive_memory_job_completed",
         attempt: job.attempts,
@@ -188,9 +197,7 @@ export class PassiveMemoryWorker {
       });
       if (exhausted) await this.dependencies.jobs.finish(next, attemptFence);
       else await this.dependencies.jobs.releaseAttempt(next, attemptFence);
-      const code = error instanceof PassiveProposalConflictError
-        ? "CONFLICT"
-        : error instanceof PassiveProposalPolicyError || error instanceof z.ZodError
+      const code = error instanceof PassiveProposalPolicyError || error instanceof z.ZodError
           ? "CONTRACT_INVALID"
           : exhausted ? "EXHAUSTED" : "RETRYABLE";
       this.dependencies.logger.write({
@@ -225,19 +232,23 @@ export class PassiveMemoryTaskHandler {
     logger: PassiveMemoryWorkerLogger;
   }) {}
 
-  async handle(input: { authorization: string | undefined; body: unknown }): Promise<{ status: 200 | 400 | 401 | 500 }> {
+  async authorize(authorization: string | undefined): Promise<boolean> {
     try {
       await verifyTaskCallback({
-        authorization: input.authorization,
+        authorization,
         audience: this.dependencies.audience,
         serviceAccountEmail: this.dependencies.serviceAccountEmail,
         verifier: this.dependencies.verifier,
       });
+      return true;
     } catch {
       this.dependencies.logger.write({ event: "passive_memory_task_rejected", code: "UNAUTHORIZED" });
-      return { status: 401 };
+      return false;
     }
-    let body = input.body;
+  }
+
+  async handleAuthenticated(bodyValue: unknown): Promise<{ status: 200 | 400 | 500 }> {
+    let body = bodyValue;
     if (typeof body === "string") {
       try { body = JSON.parse(body) as unknown; } catch { body = undefined; }
     }
@@ -252,6 +263,11 @@ export class PassiveMemoryTaskHandler {
     } catch {
       return { status: 500 };
     }
+  }
+
+  async handle(input: { authorization: string | undefined; body: unknown }): Promise<{ status: 200 | 400 | 401 | 500 }> {
+    if (!await this.authorize(input.authorization)) return { status: 401 };
+    return this.handleAuthenticated(input.body);
   }
 }
 

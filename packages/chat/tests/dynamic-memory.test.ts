@@ -265,17 +265,18 @@ describe("DynamicMemoryService", () => {
     const proposal = ProposeMemoryInputSchema.parse({
       payload: { memoryType: "SEMANTIC", statement: "the fictional folder is green", subjectLabels: [] },
     });
-    const first = await service.proposePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 0 }, proposal);
-    const replay = await service.proposePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 0 }, proposal);
-    const secondSlot = await service.proposePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 1 }, proposal);
-    expect(first).toMatchObject({ kind: "STORED", record: { canonicalSource: { lineageSourceRefs: evidence.lineageSourceRefs } } });
-    expect(replay).toMatchObject({ kind: "EXISTING", record: { id: (first as { record: { id: string } }).record.id } });
-    expect(secondSlot).toMatchObject({ kind: "STORED" });
+    const first = service.materializePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 0 }, proposal);
+    const replay = service.materializePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 0 }, proposal);
+    const secondSlot = service.materializePassive({ workspaceId: source.workspaceId, evidence, proposalSlot: 1 }, proposal);
+    expect(first).toMatchObject({ kind: "MATERIALIZED", record: { canonicalSource: { lineageSourceRefs: evidence.lineageSourceRefs } } });
+    expect(replay).toMatchObject({ kind: "MATERIALIZED", record: { id: (first as { record: { id: string } }).record.id } });
+    expect(secondSlot).toMatchObject({ kind: "MATERIALIZED" });
     expect((secondSlot as { record: { id: string } }).record.id).not.toBe((first as { record: { id: string } }).record.id);
   });
 
-  it("returns a typed conflict when a passive slot changes across retries", async () => {
-    const service = new DynamicMemoryService(new InMemoryDynamicMemoryRepository());
+  it("materializes passive candidates without mutating the repository", async () => {
+    const repository = new InMemoryDynamicMemoryRepository();
+    const service = new DynamicMemoryService(repository);
     const evidence = PassiveMemoryEvidenceSchema.parse({
       workspaceId: source.workspaceId,
       canonicalSourceRef: source.id,
@@ -296,12 +297,13 @@ describe("DynamicMemoryService", () => {
       acceptedAt: source.acceptedAt,
     });
     const context = { workspaceId: source.workspaceId, evidence, proposalSlot: 0 };
-    await service.proposePassive(context, ProposeMemoryInputSchema.parse({
+    expect(service.materializePassive(context, ProposeMemoryInputSchema.parse({
       payload: { memoryType: "SEMANTIC", statement: "The fictional folder is blue", subjectLabels: [] },
-    }));
-    await expect(service.proposePassive(context, ProposeMemoryInputSchema.parse({
+    }))).toMatchObject({ kind: "MATERIALIZED" });
+    expect(service.materializePassive(context, ProposeMemoryInputSchema.parse({
       payload: { memoryType: "SEMANTIC", statement: "the fictional folder is green", subjectLabels: [] },
-    }))).resolves.toEqual({ kind: "CONFLICT" });
+    }))).toMatchObject({ kind: "MATERIALIZED" });
+    await expect(repository.listActive(source.workspaceId, 10)).resolves.toEqual([]);
   });
 
   it.each([

@@ -5,6 +5,8 @@ import {
   PassiveMemoryAttemptClaimSchema,
   PassiveMemoryAttemptFenceSchema,
   PassiveMemoryJobSchema,
+  DynamicMemoryRecordSchema,
+  type DynamicMemoryRecord,
   type PassiveMemoryJob,
   type PassiveMemoryJobRepository,
 } from "@medbuddy/contracts";
@@ -83,18 +85,19 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
       const stateRef = this.stateRef(workspaceId);
       const jobRef = this.jobRef(workspaceId, jobId);
       const [state, snapshot] = await Promise.all([transaction.get(stateRef), transaction.get(jobRef)]);
-      if (!snapshot.exists || state.data()?.activeJobId !== jobId) {
+      if (!snapshot.exists) {
         throw new Error("Passive-memory attempt does not match the active persisted workspace job.");
       }
       const job = PassiveMemoryJobSchema.parse(record(snapshot.data()));
       if (job.workspaceId !== workspaceId || job.id !== jobId) {
         throw new Error("Stored passive-memory job does not match its workspace path.");
       }
-      if (job.status === "RUNNING" && Date.parse(claimedAt) < Date.parse(job.attemptLeaseExpiresAt!)) {
-        return PassiveMemoryAttemptClaimSchema.parse({ kind: "BUSY", job });
-      }
       if (job.status === "COMPLETED" || job.status === "FAILED" || job.attempts >= PASSIVE_MEMORY_MAX_ATTEMPTS) {
         return PassiveMemoryAttemptClaimSchema.parse({ kind: "TERMINAL", job });
+      }
+      if (state.data()?.activeJobId !== jobId) throw new Error("Passive-memory attempt does not match the active persisted workspace job.");
+      if (job.status === "RUNNING" && Date.parse(claimedAt) < Date.parse(job.attemptLeaseExpiresAt!)) {
+        return PassiveMemoryAttemptClaimSchema.parse({ kind: "BUSY", job });
       }
       const claimed = PassiveMemoryJobSchema.parse({
         ...withoutLease(job),
@@ -113,8 +116,16 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     return this.update(value, fenceValue, false);
   }
 
-  async finish(value: PassiveMemoryJob, fenceValue: Parameters<PassiveMemoryJobRepository["finish"]>[1]) {
-    return this.update(value, fenceValue, true);
+  async finish(
+    value: PassiveMemoryJob,
+    fenceValue: Parameters<PassiveMemoryJobRepository["finish"]>[1],
+    recordValues: readonly DynamicMemoryRecord[] = [],
+  ) {
+    const records = recordValues.map((memory) => DynamicMemoryRecordSchema.parse(memory));
+    if (PassiveMemoryJobSchema.parse(value).status !== "COMPLETED" && records.length > 0) {
+      throw new Error("Only a completed passive-memory job may commit active records.");
+    }
+    return this.update(value, fenceValue, true, records);
   }
 
   async getCursor(workspaceId: Parameters<PassiveMemoryJobRepository["getCursor"]>[0]): Promise<number> {
@@ -125,13 +136,17 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     value: PassiveMemoryJob,
     fenceValue: Parameters<PassiveMemoryJobRepository["finish"]>[1],
     terminal: boolean,
+    records: readonly DynamicMemoryRecord[] = [],
   ): Promise<PassiveMemoryJob> {
     const job = PassiveMemoryJobSchema.parse(withoutLease(PassiveMemoryJobSchema.parse(value)));
     const fence = PassiveMemoryAttemptFenceSchema.parse(fenceValue);
     return this.firestore.runTransaction(async (transaction) => {
       const stateRef = this.stateRef(job.workspaceId);
       const jobRef = this.jobRef(job.workspaceId, job.id);
-      const [state, snapshot] = await Promise.all([transaction.get(stateRef), transaction.get(jobRef)]);
+      const memoryRefs = records.map((memory) => this.memoryRef(memory.workspaceId, memory.id));
+      const [state, snapshot, memorySnapshots] = await Promise.all([
+        transaction.get(stateRef), transaction.get(jobRef), memoryRefs.length === 0 ? Promise.resolve([]) : transaction.getAll(...memoryRefs),
+      ]);
       if (!snapshot.exists) throw new Error("Passive-memory attempt fencing conflict.");
       const stored = PassiveMemoryJobSchema.parse(record(snapshot.data()));
       if (stored.status !== "RUNNING" || state.data()?.activeJobId !== stored.id ||
@@ -152,6 +167,17 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
       } else if (job.status !== "PENDING") {
         throw new Error("A retryable passive-memory attempt must return to pending.");
       }
+      records.forEach((memory, index) => {
+        if (memory.workspaceId !== job.workspaceId) throw new Error("Passive memory cannot cross a workspace boundary.");
+        const existingSnapshot = memorySnapshots[index];
+        if (existingSnapshot?.exists) {
+          const existing = DynamicMemoryRecordSchema.parse(record(existingSnapshot.data()));
+          if (!sameMemoryOperation(existing, memory)) throw new Error("Passive proposal operation conflict.");
+        }
+      });
+      records.forEach((memory, index) => {
+        if (!memorySnapshots[index]?.exists) transaction.create(memoryRefs[index]!, memory);
+      });
       transaction.set(jobRef, job);
       return job;
     });
@@ -168,4 +194,15 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
   private jobRef(workspaceId: string, jobId: string) {
     return this.workspaceRef(workspaceId).collection("passiveMemoryJobs").doc(jobId);
   }
+
+  private memoryRef(workspaceId: string, memoryId: string) {
+    return this.workspaceRef(workspaceId).collection("dynamicMemoryRecords").doc(memoryId);
+  }
+}
+
+function sameMemoryOperation(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {
+  const { recordedAt: _left, ...leftIdentity } = left;
+  const { recordedAt: _right, ...rightIdentity } = right;
+  void _left; void _right;
+  return same(leftIdentity, rightIdentity);
 }

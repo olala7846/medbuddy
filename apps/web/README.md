@@ -13,7 +13,9 @@ neither accepts public browser traffic.
 
 `POST /api/internal/passive-memory` is a separate OIDC-authenticated, structured-only
 worker boundary. It processes one pre-created workspace source range without a
-reply capability. Threshold planning and dispatch remain outside this endpoint.
+reply capability. OIDC is verified before its request body is consumed, and the
+body is streamed under a hard 16 KiB bound. Threshold planning and dispatch
+remain outside this endpoint.
 
 The credential-free direct worker proof uses only fictional Traditional Chinese
 JSONL and in-memory adapters:

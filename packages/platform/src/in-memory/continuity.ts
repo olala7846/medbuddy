@@ -101,6 +101,22 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       .map(clone);
   }
 
+  async readPassiveSourceRange(input: { workspaceId: string; firstSourceSequence: number; lastSourceSequence: number; limit: number }): Promise<readonly SourceEvent[]> {
+    if (input.limit < 1 || input.limit > 100) throw new Error("Passive source query limit is invalid.");
+    return (this.events.get(input.workspaceId) ?? [])
+      .filter((event) => event.sourceSequence >= input.firstSourceSequence && event.sourceSequence <= input.lastSourceSequence)
+      .slice(0, input.limit).map(clone);
+  }
+
+  async readPassiveTextLineage(input: { workspaceId: string; targetMessageId: string; throughSourceSequence: number; limit: number }): Promise<readonly SourceEvent[]> {
+    if (input.limit < 1 || input.limit > 32) throw new Error("Passive lineage query limit is invalid.");
+    return (this.events.get(input.workspaceId) ?? []).filter((event) =>
+      event.sourceSequence <= input.throughSourceSequence &&
+      ((event.payload.kind === "TEXT" && event.providerMessageId === input.targetMessageId) ||
+       ((event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND") && event.payload.targetMessageId === input.targetMessageId)))
+      .slice(-input.limit).map(clone);
+  }
+
   async createOutboundCandidate(candidateValue: OutboundCandidate): Promise<OutboundCandidate> {
     const candidate = OutboundCandidateSchema.parse(candidateValue);
     return this.queue.run(candidate.workspaceId, () => {

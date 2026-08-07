@@ -5,6 +5,7 @@ import { afterAll, describe } from "vitest";
 
 import {
   FirestoreContinuityRepository,
+  FirestoreDynamicMemoryRepository,
   FirestorePassiveMemoryJobRepository,
   PassiveMemoryEvidenceReaderAdapter,
 } from "../src/index.js";
@@ -17,10 +18,12 @@ describeEmulator("Firestore passive memory", () => {
     const firestore = new Firestore({ projectId: `medbuddy-passive-memory-${randomUUID()}` });
     clients.push(firestore);
     const continuity = new FirestoreContinuityRepository(firestore);
+    const jobs = new FirestorePassiveMemoryJobRepository(firestore);
     return {
       continuity,
       evidence: new PassiveMemoryEvidenceReaderAdapter(continuity),
-      jobs: new FirestorePassiveMemoryJobRepository(firestore),
+      jobs,
+      memory: new FirestoreDynamicMemoryRepository(firestore),
     };
   });
 

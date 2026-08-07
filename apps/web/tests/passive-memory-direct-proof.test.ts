@@ -8,7 +8,6 @@ import {
 } from "@medbuddy/contracts";
 import {
   InMemoryContinuityRepository,
-  InMemoryDynamicMemoryRepository,
   InMemoryPassiveMemoryJobRepository,
   PassiveMemoryEvidenceReaderAdapter,
 } from "@medbuddy/platform";
@@ -61,7 +60,7 @@ describe("passive-memory-direct-proof", () => {
       claimGeneration: 0,
       createdAt: "2026-08-06T13:00:00.000Z",
     }));
-    const memories = new InMemoryDynamicMemoryRepository();
+    const memories = jobs;
     const worker = new PassiveMemoryWorker({
       jobs,
       evidence: new PassiveMemoryEvidenceReaderAdapter(continuity),

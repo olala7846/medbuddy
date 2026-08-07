@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { DynamicMemoryPayloadSchema, MemoryTagSchema } from "./dynamic-memory.js";
+import { DynamicMemoryPayloadSchema, MemoryTagSchema, type DynamicMemoryRecord } from "./dynamic-memory.js";
 import { SourceEventSchema } from "./continuity.js";
 import {
   MemberIdSchema,
@@ -14,6 +14,7 @@ export const PASSIVE_MEMORY_POLICY_VERSION = "passive-memory-v1" as const;
 export const PASSIVE_MEMORY_MAX_ATTEMPTS = 3;
 export const PASSIVE_MEMORY_ATTEMPT_LEASE_MS = 60_000;
 export const PASSIVE_MEMORY_MAX_PROPOSALS = 16;
+export const PASSIVE_MEMORY_MAX_RANGE_SIZE = 100;
 export const PASSIVE_MEMORY_OUTPUT_MAX_UTF16 = 16_384;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
@@ -56,10 +57,13 @@ export const PassiveMemoryEvidenceBatchSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   firstSourceSequence: z.number().int().positive(),
   lastSourceSequence: z.number().int().positive(),
-  evidence: z.array(PassiveMemoryEvidenceSchema).max(128),
+  evidence: z.array(PassiveMemoryEvidenceSchema).max(PASSIVE_MEMORY_MAX_RANGE_SIZE),
 }).strict().superRefine((batch, context) => {
   if (batch.lastSourceSequence < batch.firstSourceSequence) {
     context.addIssue({ code: "custom", message: "Passive source ranges must be ordered." });
+  }
+  if (batch.lastSourceSequence - batch.firstSourceSequence + 1 > PASSIVE_MEMORY_MAX_RANGE_SIZE) {
+    context.addIssue({ code: "custom", message: "Passive source ranges may contain at most 100 events." });
   }
   batch.evidence.forEach((item, index) => {
     if (item.workspaceId !== batch.workspaceId || item.sourceSequence < batch.firstSourceSequence ||
@@ -102,6 +106,9 @@ export const PassiveMemoryJobSchema = z.object({
 }).strict().superRefine((job, context) => {
   if (job.lastSourceSequence < job.firstSourceSequence) {
     context.addIssue({ code: "custom", message: "Passive source ranges must be ordered." });
+  }
+  if (job.lastSourceSequence - job.firstSourceSequence + 1 > PASSIVE_MEMORY_MAX_RANGE_SIZE) {
+    context.addIssue({ code: "custom", message: "Passive source ranges may contain at most 100 events." });
   }
   const leased = job.attemptClaimedAt !== undefined && job.attemptLeaseExpiresAt !== undefined;
   if ((job.status === "RUNNING") !== leased) {
@@ -148,11 +155,31 @@ export interface PassiveMemoryEvidenceReader {
   }): Promise<PassiveMemoryEvidenceBatch>;
 }
 
+/** Bounded source-ledger surface available to the passive evidence projector. */
+export interface PassiveMemorySourceLedger {
+  readPassiveSourceRange(input: {
+    workspaceId: z.infer<typeof WorkspaceIdSchema>;
+    firstSourceSequence: number;
+    lastSourceSequence: number;
+    limit: number;
+  }): Promise<readonly z.infer<typeof SourceEventSchema>[]>;
+  readPassiveTextLineage(input: {
+    workspaceId: z.infer<typeof WorkspaceIdSchema>;
+    targetMessageId: z.infer<typeof MessageIdSchema>;
+    throughSourceSequence: number;
+    limit: number;
+  }): Promise<readonly z.infer<typeof SourceEventSchema>[]>;
+}
+
 export interface PassiveMemoryJobRepository {
   createOrGet(job: PassiveMemoryJob): Promise<PassiveMemoryJob>;
   get(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof PassiveMemoryJobIdSchema>): Promise<PassiveMemoryJob | null>;
   claimAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof PassiveMemoryJobIdSchema>, claimedAt: string): Promise<PassiveMemoryAttemptClaim>;
   releaseAttempt(job: PassiveMemoryJob, fence: PassiveMemoryAttemptFence): Promise<PassiveMemoryJob>;
-  finish(job: PassiveMemoryJob, fence: PassiveMemoryAttemptFence): Promise<PassiveMemoryJob>;
+  finish(
+    job: PassiveMemoryJob,
+    fence: PassiveMemoryAttemptFence,
+    records?: readonly DynamicMemoryRecord[],
+  ): Promise<PassiveMemoryJob>;
   getCursor(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<number>;
 }
