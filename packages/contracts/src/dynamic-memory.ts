@@ -13,6 +13,10 @@ export const DYNAMIC_MEMORY_LABEL_MAX_UTF16 = 80;
 export const DYNAMIC_MEMORY_LABEL_MAX_COUNT = 8;
 export const DYNAMIC_MEMORY_TAG_MAX_COUNT = 8;
 export const DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT = 10;
+export const DYNAMIC_MEMORY_QUERY_HARD_LIMIT = 25;
+export const DYNAMIC_MEMORY_QUERY_SCAN_LIMIT = 500;
+export const DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16 = 8_000;
+export const DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16 = 300;
 export const DYNAMIC_MEMORY_TRACER_QUERY_LIMIT = 1;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
@@ -91,7 +95,36 @@ export const ProposeMemoryInputSchema = z.object({
 
 export const QueryMemoryInputSchema = z.object({
   subjectLabels: z.array(MemorySubjectLabelSchema).max(DYNAMIC_MEMORY_LABEL_MAX_COUNT).default([]),
-}).strict();
+  memoryTypes: z.array(z.enum(["SEMANTIC", "EPISODIC", "PROCEDURAL"]))
+    .max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT).default([]),
+  sourceClasses: z.array(z.literal("HUMAN_CONVERSATION"))
+    .max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT).default([]),
+  trustClasses: z.array(z.literal("UNREVIEWED_DERIVED"))
+    .max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT).default([]),
+  memberRefs: z.array(MemberIdSchema).max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT).default([]),
+  acceptedAt: z.object({
+    fromInclusive: TimestampSchema.optional(),
+    toExclusive: TimestampSchema.optional(),
+  }).strict().default({}),
+  tagsAll: z.array(MemoryTagSchema).max(DYNAMIC_MEMORY_TAG_MAX_COUNT).default([]),
+  textTerms: z.array(normalizedBoundedText(DYNAMIC_MEMORY_LABEL_MAX_UTF16))
+    .max(DYNAMIC_MEMORY_TAG_MAX_COUNT).default([]),
+  order: z.enum(["NEWEST_FIRST", "OLDEST_FIRST"]).default("NEWEST_FIRST"),
+  limit: z.number().int().positive().max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT)
+    .default(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT),
+}).strict().superRefine((query, context) => {
+  if (
+    query.acceptedAt.fromInclusive !== undefined
+    && query.acceptedAt.toExclusive !== undefined
+    && query.acceptedAt.fromInclusive >= query.acceptedAt.toExclusive
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "The accepted-time range must be non-empty.",
+      path: ["acceptedAt", "toExclusive"],
+    });
+  }
+});
 
 export const CreateDynamicMemoryResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("STORED"), record: DynamicMemoryRecordSchema }).strict(),

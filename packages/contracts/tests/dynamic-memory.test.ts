@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DYNAMIC_MEMORY_QUERY_HARD_LIMIT,
+  DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16,
+  DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
+  DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16,
   DynamicMemoryPayloadSchema,
   QueryMemoryInputSchema,
   containsFamilyRelationshipTerm,
@@ -53,8 +57,68 @@ describe("dynamic memory contracts", () => {
   });
 
   it("accepts but does not interpret a deferred subject-label query", () => {
-    expect(QueryMemoryInputSchema.parse({ subjectLabels: ["Grandparent"] })).toEqual({
+    expect(QueryMemoryInputSchema.parse({ subjectLabels: ["Grandparent"] })).toMatchObject({
       subjectLabels: ["Grandparent"],
     });
+  });
+
+  it("normalizes the complete deterministic query contract with safe defaults", () => {
+    expect(QueryMemoryInputSchema.parse({
+      memoryTypes: ["SEMANTIC", "EPISODIC"],
+      sourceClasses: ["HUMAN_CONVERSATION"],
+      trustClasses: ["UNREVIEWED_DERIVED"],
+      memberRefs: ["member:fictional-a"],
+      acceptedAt: {
+        fromInclusive: "2026-08-01T00:00:00.000Z",
+        toExclusive: "2026-09-01T00:00:00.000Z",
+      },
+      tagsAll: ["  APPOINTMENTS  "],
+      textTerms: ["  BLUE\tFOLDER "],
+      order: "OLDEST_FIRST",
+      limit: 25,
+    })).toEqual({
+      subjectLabels: [],
+      memoryTypes: ["SEMANTIC", "EPISODIC"],
+      sourceClasses: ["HUMAN_CONVERSATION"],
+      trustClasses: ["UNREVIEWED_DERIVED"],
+      memberRefs: ["member:fictional-a"],
+      acceptedAt: {
+        fromInclusive: "2026-08-01T00:00:00.000Z",
+        toExclusive: "2026-09-01T00:00:00.000Z",
+      },
+      tagsAll: ["APPOINTMENTS"],
+      textTerms: ["BLUE FOLDER"],
+      order: "OLDEST_FIRST",
+      limit: 25,
+    });
+    expect(QueryMemoryInputSchema.parse({})).toEqual({
+      subjectLabels: [],
+      memoryTypes: [],
+      sourceClasses: [],
+      trustClasses: [],
+      memberRefs: [],
+      tagsAll: [],
+      textTerms: [],
+      acceptedAt: {},
+      order: "NEWEST_FIRST",
+      limit: 10,
+    });
+  });
+
+  it("rejects reversed time bounds and result limits above the hard cap", () => {
+    expect(QueryMemoryInputSchema.safeParse({
+      acceptedAt: {
+        fromInclusive: "2026-09-01T00:00:00.000Z",
+        toExclusive: "2026-08-01T00:00:00.000Z",
+      },
+    }).success).toBe(false);
+    expect(QueryMemoryInputSchema.safeParse({ limit: 26 }).success).toBe(false);
+  });
+
+  it("locks the scan, result, excerpt, and aggregate UTF-16 budgets", () => {
+    expect(DYNAMIC_MEMORY_QUERY_HARD_LIMIT).toBe(25);
+    expect(DYNAMIC_MEMORY_QUERY_SCAN_LIMIT).toBe(500);
+    expect(DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16).toBe(8_000);
+    expect(DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16).toBe(300);
   });
 });
