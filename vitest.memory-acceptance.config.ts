@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 
 const inMemoryOnly = process.env.MEDBUDDY_MEMORY_ACCEPTANCE_IN_MEMORY_ONLY === "true";
-if (!inMemoryOnly && process.env.FIRESTORE_EMULATOR_HOST === undefined) {
+if (!inMemoryOnly && (process.env.FIRESTORE_EMULATOR_HOST?.trim().length ?? 0) === 0) {
   throw new Error(
     "The dynamic-memory acceptance gate requires a fresh local Firestore emulator. " +
     "Use verify:memory:acceptance:memory only for the explicitly in-memory subset.",
