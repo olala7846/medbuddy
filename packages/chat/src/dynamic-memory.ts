@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   DYNAMIC_MEMORY_POLICY_VERSION,
-  DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT,
+  DYNAMIC_MEMORY_TRACER_QUERY_LIMIT,
   DynamicMemoryRecordSchema,
   ModelVisibleDynamicMemoryRecordSchema,
   ProposeMemoryInputSchema,
@@ -46,6 +46,21 @@ function isUnsafeProceduralPreference(payload: DynamicMemoryPayload): boolean {
     || /(?:忽略|繞過|停用|揭露|授權|刪除).*(?:安全|政策|權限|隱私|秘密|紀錄|記憶|指令|規則)/u.test(payload.preference);
 }
 
+function isExplicitPresentationPreference(payload: DynamicMemoryPayload, sourceBody: string): boolean {
+  if (payload.memoryType !== "PROCEDURAL") return true;
+  const explicit = /\b(?:remember|prefer|please\s+use)\b/iu.test(sourceBody)
+    || /(?:請記住|偏好|請用|請使用)/u.test(sourceBody);
+  if (!explicit) return false;
+  const kindPattern = {
+    LANGUAGE: /\b(?:language|english|chinese|mandarin)\b|(?:語言|中文|英文|國語|華語)/iu,
+    RESPONSE_LENGTH: /\b(?:short|brief|concise|long|detailed|length)\b|(?:簡短|精簡|詳細|長度|短一點|長一點)/iu,
+    TONE: /\b(?:tone|polite|gentle|formal|casual|friendly|direct)\b|(?:語氣|口吻|禮貌|溫和|正式|輕鬆|友善|直接)/iu,
+    FORMAT: /\b(?:format|bullet|list|table|paragraph|markdown)\b|(?:格式|條列|清單|表格|段落)/iu,
+    SUMMARY_STRUCTURE: /\b(?:summary|summaries|heading|section|structure)\b|(?:摘要|總結|標題|段落|結構)/iu,
+  }[payload.preferenceKind];
+  return kindPattern.test(payload.preference) && kindPattern.test(sourceBody);
+}
+
 function memoryId(workspaceId: WorkspaceId, sourceRef: SourceEvent["id"], input: ProposeMemoryInput): string {
   const fingerprint = JSON.stringify({
     policyVersion: DYNAMIC_MEMORY_POLICY_VERSION,
@@ -85,6 +100,9 @@ export class DynamicMemoryService {
       return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     }
     if (isUnsafeProceduralPreference(parsed.data.payload)) {
+      return { kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" };
+    }
+    if (!isExplicitPresentationPreference(parsed.data.payload, source.payload.body)) {
       return { kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" };
     }
     const normalizedInput = {
@@ -128,7 +146,7 @@ export class DynamicMemoryService {
     try {
       const records = await this.repository.listActive(
         workspaceId,
-        DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT,
+        DYNAMIC_MEMORY_TRACER_QUERY_LIMIT,
       );
       return QueryMemoryResultSchema.parse({
         kind: "RESULT",

@@ -13,6 +13,7 @@ export const DYNAMIC_MEMORY_LABEL_MAX_UTF16 = 80;
 export const DYNAMIC_MEMORY_LABEL_MAX_COUNT = 8;
 export const DYNAMIC_MEMORY_TAG_MAX_COUNT = 8;
 export const DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT = 10;
+export const DYNAMIC_MEMORY_TRACER_QUERY_LIMIT = 1;
 
 const TimestampSchema = z.iso.datetime({ offset: true });
 

@@ -93,7 +93,16 @@ describe("DynamicMemoryService", () => {
   }])("persists an eligible $memoryType payload", async (payload) => {
     const repository = new InMemoryDynamicMemoryRepository();
     const service = new DynamicMemoryService(repository);
-    await expect(service.propose({ workspaceId: source.workspaceId, focalSource: source },
+    const focalSource = payload.memoryType === "PROCEDURAL"
+      ? SourceEventSchema.parse({
+          ...source,
+          payload: {
+            ...source.payload,
+            body: "Please remember to use Traditional Chinese for summaries.",
+          },
+        })
+      : source;
+    await expect(service.propose({ workspaceId: source.workspaceId, focalSource },
       ProposeMemoryInputSchema.parse({ payload }))).resolves.toMatchObject({
         kind: "STORED",
         record: { payload },
@@ -132,6 +141,15 @@ describe("DynamicMemoryService", () => {
         subjectLabels: [],
       },
     }))).resolves.toEqual({ kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" });
+    await expect(service.propose({ workspaceId: source.workspaceId, focalSource: source }, ProposeMemoryInputSchema.parse({
+      payload: {
+        memoryType: "PROCEDURAL",
+        preference: "Tell me which medication to stop.",
+        preferenceKind: "TONE",
+        appliesTo: "ALL_RESPONSES",
+        subjectLabels: [],
+      },
+    }))).resolves.toEqual({ kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" });
   });
 
   it("rejects deferred subject filtering before repository access", async () => {
@@ -144,6 +162,30 @@ describe("DynamicMemoryService", () => {
       subjectLabels: ["Grandparent"],
     }))).resolves.toEqual({ kind: "REJECTED", code: "SUBJECT_FILTER_DEFERRED" });
     expect(reads).toBe(0);
+  });
+
+  it("keeps the tracer query to one complete current record", async () => {
+    const repository = new InMemoryDynamicMemoryRepository();
+    const service = new DynamicMemoryService(repository);
+    await service.propose({ workspaceId: source.workspaceId, focalSource: source }, semanticProposal);
+    const newerSource = SourceEventSchema.parse({
+      ...source,
+      id: "source-event:memory-newer",
+      sourceSequence: 2,
+      acceptedAt: "2026-08-06T12:10:00.000Z",
+      providerMessageId: "message:memory-newer",
+    });
+    await service.propose({ workspaceId: source.workspaceId, focalSource: newerSource }, ProposeMemoryInputSchema.parse({
+      payload: {
+        memoryType: "EPISODIC",
+        event: "The fictional calendar moved beside the door.",
+        subjectLabels: [],
+      },
+    }));
+    await expect(service.query(source.workspaceId, QueryMemoryInputSchema.parse({}))).resolves.toMatchObject({
+      kind: "RESULT",
+      records: [{ canonicalSource: { sourceRef: newerSource.id } }],
+    });
   });
 });
 
