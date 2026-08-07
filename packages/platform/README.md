@@ -7,9 +7,11 @@ workspace-isolated compare-and-set contract. Firestore stores only
 `workspaces/{workspaceId}/workspaceMemory/familyMap`; there is no history collection.
 
 Passive-memory adapters expose only capped effective human text/edit ranges and
-bounded edit lineage, plus leased workspace jobs. Successful dynamic-memory
-records, terminal state, and the cursor commit atomically behind the attempt
-fence; failed or stale attempts create no active records.
+bounded edit lineage, reserving one lineage slot for the original and at most 31
+edits. Overflow fails closed for retry rather than producing empty evidence.
+Successful dynamic-memory records, terminal state, and the cursor commit
+atomically behind the attempt fence; failed or stale attempts create no active
+records.
 
 Dynamic-memory adapters expose a deterministic current-record scan capped at
 500 records. They remain workspace-path-bound and do not search raw history,
