@@ -57,6 +57,13 @@ export class ContinuityThreadConversationService implements ContinuityConversati
       authorMemberId: input.authorMemberId,
       payload: input.payload,
     });
+    if (accepted.event.payload.kind === "TEXT_EDIT" || accepted.event.payload.kind === "UNSEND") {
+      try {
+        await this.dependencies.memory?.applySourceMutation(input.workspaceId, accepted.event);
+      } catch {
+        return { kind: "TECHNICAL_FAILURE", sourceEventId: accepted.event.id };
+      }
+    }
     if (accepted.kind === "DUPLICATE") return { kind: "DUPLICATE" };
 
     if (input.payload.kind === "TEXT" && input.providerMessageId !== undefined) {

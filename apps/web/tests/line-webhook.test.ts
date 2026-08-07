@@ -1,5 +1,5 @@
 import { ContinuityThreadConversationService, ThreadConversationService } from "@medbuddy/chat";
-import type { ConversationResponder } from "@medbuddy/contracts";
+import type { ContinuityConversation, ConversationResponder } from "@medbuddy/contracts";
 import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
 import {
   CommittedSourceCardGrounding,
@@ -46,6 +46,7 @@ function createHarness(options: {
   modelThrows?: boolean;
   replyFailure?: boolean;
   attachmentFailures?: number;
+  continuityConversation?: ContinuityConversation;
 } = {}) {
   const persistence = new InMemoryPersistence();
   const continuity = new InMemoryContinuityRepository();
@@ -72,7 +73,7 @@ function createHarness(options: {
     channelSecret,
     receipts: persistence.externalEvents,
     conversation: threadConversation,
-    continuityConversation: new ContinuityThreadConversationService({
+    continuityConversation: options.continuityConversation ?? new ContinuityThreadConversationService({
       continuity,
       messages: persistence.messages,
       familyMaps: persistence.familyMaps,
@@ -449,6 +450,29 @@ describe("LINE webhook", () => {
       { payload: { kind: "TEXT_EDIT" } },
       { payload: { kind: "UNSEND", targetMessageId: ids.messageId } },
     ]);
+  });
+
+  it("returns 500 so LINE can retry an edit whose memory cleanup did not persist", async () => {
+    const harness = createHarness({
+      continuityConversation: {
+        async observe(input) {
+          return { kind: "TECHNICAL_FAILURE", sourceEventId: input.sourceEventId };
+        },
+        async acceptDeliveredResponse() {},
+      },
+    });
+    const edited = {
+      type: "messageEdited",
+      mode: "active",
+      timestamp: timestamp + 1,
+      webhookEventId: "fictional-retry-edit-event",
+      source: { type: "group", groupId: "fictional-retry-edit-group", userId: "fictional-user-a" },
+      message: { id: "fictional-retry-edit-message", type: "text", text: "Corrected fictional text." },
+    };
+    await expect(harness.handler.handle({
+      ...signedBody([edited]),
+      correlationId: "request:fictional-retry-edit",
+    })).resolves.toEqual({ status: 500 });
   });
 
   it("preserves a sender-less legacy-room unsend in the original workspace", async () => {

@@ -351,7 +351,11 @@ export class LineWebhookHandler {
       this.dependencies.logger.write({ event: "line_event_completed", correlationId, conversationType: event.identity.conversationType });
       return true;
     }
-    if (result.kind === "TECHNICAL_FAILURE" || event.replyToken === undefined) {
+    if (result.kind === "TECHNICAL_FAILURE") {
+      this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "MODEL_FAILURE" });
+      return event.payload.kind !== "TEXT_EDIT" && event.payload.kind !== "UNSEND";
+    }
+    if (event.replyToken === undefined) {
       this.dependencies.logger.write({ event: "line_event_failed", correlationId, conversationType: event.identity.conversationType, code: "MODEL_FAILURE" });
       return true;
     }

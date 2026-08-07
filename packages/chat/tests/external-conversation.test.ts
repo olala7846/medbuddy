@@ -288,6 +288,59 @@ describe("ContinuityThreadConversationService", () => {
     }]);
   });
 
+  it("stales focal-source memory when the accepted LINE event is edited", async () => {
+    const persistence = new InMemoryPersistence();
+    const continuity = new InMemoryContinuityRepository();
+    const memories = new InMemoryDynamicMemoryRepository();
+    const memory = new DynamicMemoryService(memories, () => timestamp, continuity);
+    const service = new ContinuityThreadConversationService({
+      continuity,
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      memory,
+      responder: {
+        async respond(_request, tools) {
+          const propose = tools?.modelTools?.find((tool) => tool.declaration.name === "propose_memory");
+          if (propose === undefined) throw new Error("Expected propose_memory.");
+          await propose.execute({
+            operation: "STORE",
+            payload: {
+              memoryType: "SEMANTIC",
+              statement: "the fictional appointment folder is blue",
+              subjectLabels: [],
+            },
+          }, { deadlineMs: Date.now() + 1_000, signal: new AbortController().signal });
+          return { kind: "RESPONDED", responseText: "Remembered fictional detail.", retryable: false };
+        },
+      },
+      systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
+    });
+    const original = observedInput(true, "edited-memory");
+    await service.observe(ObserveContinuityConversationInputSchema.parse({
+      ...original,
+      payload: { ...original.payload, body: "Please remember that the fictional appointment folder is blue." },
+    }));
+    const stored = await memories.listActive(original.workspaceId, 10);
+    expect(stored).toHaveLength(1);
+    await expect(service.observe(ObserveContinuityConversationInputSchema.parse({
+      receiptKey: "event:line-fictional-edited-memory-mutation",
+      sourceEventId: "source-event:line-fictional-edited-memory-mutation",
+      workspaceId: original.workspaceId,
+      authorMemberId: original.authorMemberId,
+      occurredAt: timestamp,
+      acceptedAt: timestamp,
+      providerMessageId: "message:line-fictional-edited-memory-mutation",
+      payload: {
+        kind: "TEXT_EDIT",
+        targetMessageId: original.providerMessageId!,
+        body: "Edited fictional text with no remembered claim.",
+      },
+    }))).resolves.toMatchObject({ kind: "OBSERVED" });
+    await expect(memories.listActive(original.workspaceId, 10)).resolves.toEqual([]);
+    await expect(memories.listLifecycleEvents(original.workspaceId, stored[0]!.id))
+      .resolves.toMatchObject([{ action: "EDITED" }]);
+  });
+
   it("deduplicates observation before model work", async () => {
     const harness = createContinuityHarness();
     await harness.service.observe(observedInput(true));
