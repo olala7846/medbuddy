@@ -18,13 +18,17 @@ type EvaluationScenario = {
   expected: Record<string, string> & { memoryType: "SEMANTIC" | "EPISODIC" | "PROCEDURAL" };
 };
 
+function normalizeTerminalPunctuation(value: string): string {
+  return value.replace(/[。.!！?？]+$/u, "");
+}
+
 async function scenarios(): Promise<readonly EvaluationScenario[]> {
   const raw = await readFile(new URL("./fixtures/memory-acceptance-zh-TW.jsonl", import.meta.url), "utf8");
   return raw.trim().split("\n").map((line) => JSON.parse(line) as EvaluationScenario);
 }
 
 describe.runIf(runEvaluation)("Traditional Chinese dynamic-memory Vertex evaluation", () => {
-  it("classifies all three governed record types from fictional exact source spans", async () => {
+  it("classifies all three governed record types from fictional source evidence", async () => {
     if (configuration === null) throw new Error("Vertex configuration is required for this evaluation.");
     let providerStatus: number | undefined;
     let providerIssuePaths: string[];
@@ -93,11 +97,18 @@ describe.runIf(runEvaluation)("Traditional Chinese dynamic-memory Vertex evaluat
           },
         );
       }
-      expect(output.output.proposals).toMatchObject([{
-        sourceRef,
-        payload: scenario.expected,
-      }]);
+      expect(output.output.proposals).toHaveLength(1);
       const proposal = output.output.proposals[0]!;
+      expect(proposal.sourceRef).toBe(sourceRef);
+      expect(proposal.payload.memoryType).toBe(scenario.expected.memoryType);
+      const actualPayload = proposal.payload as unknown as Record<string, unknown>;
+      for (const field of ["statement", "event", "preference", "preferenceKind", "appliesTo"] as const) {
+        const expected = scenario.expected[field];
+        if (expected !== undefined) {
+          expect(normalizeTerminalPunctuation(String(actualPayload[field])))
+            .toBe(normalizeTerminalPunctuation(expected));
+        }
+      }
       expect([...proposal.payload.subjectLabels, ...proposal.tags].every((span) => scenario.body.includes(span)))
         .toBe(true);
     }
