@@ -6,8 +6,11 @@ import {
   CloudTasksCaptureDispatcher,
   CloudTasksAttachmentDispatcher,
   CloudTasksContinuityDispatcher,
+  CloudTasksMemoryFormationDispatcher,
+  CloudTasksPassiveMemoryDispatcher,
   type CloudTasksDispatcherOptions,
 } from "./cloud-tasks/dispatcher.js";
+import type { AcceptedFormationEventProjector } from "@medbuddy/contracts";
 import { FirestorePersistence } from "./firestore/repositories.js";
 import { FirestoreContinuityRepository } from "./firestore/continuity.js";
 import { FirestoreDynamicMemoryRepository } from "./firestore/dynamic-memory.js";
@@ -22,12 +25,13 @@ export interface ProductionPlatformOptions extends CloudTasksDispatcherOptions {
 }
 
 /** Minimal Firestore-only platform for synchronous external conversations. */
-export function createConversationPlatform(projectId: string) {
+export function createConversationPlatform(projectId: string, formationProjector?: AcceptedFormationEventProjector) {
   const firestore = new Firestore({ projectId });
   return {
     persistence: new FirestorePersistence(firestore),
-    continuity: new FirestoreContinuityRepository(firestore),
+    continuity: new FirestoreContinuityRepository(firestore, formationProjector),
     memory: new FirestoreDynamicMemoryRepository(firestore),
+    passiveJobs: new FirestorePassiveMemoryJobRepository(firestore),
   };
 }
 
@@ -45,6 +49,17 @@ export function createPassiveMemoryPlatform(projectId: string) {
 
 export function createContinuityDispatcher(options: CloudTasksDispatcherOptions) {
   return new CloudTasksContinuityDispatcher(new CloudTasksClient(), options);
+}
+
+export function createMemoryFormationDispatchers(options: Omit<CloudTasksDispatcherOptions, "callbackUrl"> & {
+  formationCallbackUrl: string;
+  passiveMemoryCallbackUrl: string;
+}) {
+  const client = new CloudTasksClient();
+  return {
+    wake: new CloudTasksMemoryFormationDispatcher(client, { ...options, callbackUrl: options.formationCallbackUrl }),
+    worker: new CloudTasksPassiveMemoryDispatcher(client, { ...options, callbackUrl: options.passiveMemoryCallbackUrl }),
+  };
 }
 
 export function createLineAttachmentPlatform(options: CloudTasksDispatcherOptions & {

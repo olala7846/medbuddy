@@ -1,5 +1,6 @@
 import {
   AcceptSourceEventInputSchema,
+  AcceptedFormationEventSchema,
   type AcceptSourceEventResult,
   COMPACTION_ATTEMPT_LEASE_MS,
   CompactionAttemptFenceSchema,
@@ -10,6 +11,12 @@ import {
   type ContinuityAttachment,
   ContinuityAttachmentSchema,
   type ContinuityRepository,
+  MemoryFormationStateSchema,
+  type AcceptedFormationEvent,
+  type AcceptedFormationEventProjector,
+  type MemoryFormationRepository,
+  type MemoryFormationState,
+  type WorkspaceId,
   type OutboundCandidate,
   OutboundCandidateSchema,
   type SourceEvent,
@@ -68,7 +75,7 @@ class WorkspaceQueue {
 }
 
 /** Deterministic adapter used by contract tests and local synthetic compositions. */
-export class InMemoryContinuityRepository implements ContinuityRepository {
+export class InMemoryContinuityRepository implements ContinuityRepository, MemoryFormationRepository {
   private readonly events = new Map<string, SourceEvent[]>();
   private readonly receipts = new Map<string, SourceEvent>();
   private readonly candidates = new Map<string, OutboundCandidate>();
@@ -76,9 +83,14 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
   private readonly activeJobs = new Map<string, CompactionJob>();
   private readonly jobs = new Map<string, CompactionJob>();
   private readonly segments = new Map<string, CompactionSegment>();
+  private readonly formationOutbox = new Map<string, AcceptedFormationEvent>();
+  private readonly formationStates = new Map<string, MemoryFormationState>();
   private readonly queue = new WorkspaceQueue();
 
-  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore()) {}
+  constructor(
+    private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore(),
+    private readonly formationProjector?: AcceptedFormationEventProjector,
+  ) {}
 
   async acceptSourceEvent(inputValue: Parameters<ContinuityRepository["acceptSourceEvent"]>[0]): Promise<AcceptSourceEventResult> {
     const input = AcceptSourceEventInputSchema.parse(inputValue);
@@ -95,6 +107,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       workspaceEvents.push(clone(event));
       this.events.set(input.workspaceId, workspaceEvents);
       this.receipts.set(input.receiptKey, clone(event));
+      if (this.formationProjector !== undefined) {
+        this.formationOutbox.set(this.key(event.workspaceId, String(event.sourceSequence)), this.formationProjector(event));
+      }
       this.memoryFreshness.recordAccepted(event);
       return { kind: "ACCEPTED", event };
     }));
@@ -194,6 +209,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
         state: "PUBLISHED",
         publishedSourceEventId: event.id,
       }));
+      if (this.formationProjector !== undefined) {
+        this.formationOutbox.set(this.key(event.workspaceId, String(event.sourceSequence)), this.formationProjector(event));
+      }
       return event;
     });
   }
@@ -401,6 +419,48 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       .filter((segment) => segment.workspaceId === workspaceId)
       .sort((left, right) => left.firstSourceSequence - right.firstSourceSequence || left.level - right.level)
       .map(clone);
+  }
+
+  async listAcceptedEvents(input: Parameters<MemoryFormationRepository["listAcceptedEvents"]>[0]) {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation outbox reads are capped at 100.");
+    return [...this.formationOutbox.values()]
+      .filter((event) => event.workspaceId === input.workspaceId && event.policyVersion === input.policyVersion && event.sourceSequence > input.afterCursor)
+      .sort((left, right) => left.sourceSequence - right.sourceSequence)
+      .slice(0, input.limit).map((event) => AcceptedFormationEventSchema.parse(clone(event)));
+  }
+
+  async getState(workspaceId: Parameters<MemoryFormationRepository["getState"]>[0], policyVersion: Parameters<MemoryFormationRepository["getState"]>[1]) {
+    return clone(this.formationStates.get(this.key(workspaceId, policyVersion)) ?? null);
+  }
+
+  async compareAndSetState(expectedRevision: number | null, value: MemoryFormationState): Promise<boolean> {
+    const state = MemoryFormationStateSchema.parse(value);
+    return this.queue.run(state.workspaceId, () => {
+      const stateKey = this.key(state.workspaceId, state.policyVersion);
+      const existing = this.formationStates.get(stateKey);
+      if ((existing?.revision ?? null) !== expectedRevision) return false;
+      this.formationStates.set(stateKey, clone(state));
+      for (const [key, event] of this.formationOutbox) {
+        if (event.workspaceId === state.workspaceId && event.policyVersion === state.policyVersion && event.sourceSequence <= state.cursor) this.formationOutbox.delete(key);
+      }
+      return true;
+    });
+  }
+
+  async listRecoveryCandidates(input: Parameters<MemoryFormationRepository["listRecoveryCandidates"]>[0]) {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
+    const outboxWorkspaces = new Set<WorkspaceId>();
+    for (const event of this.formationOutbox.values()) {
+      if (event.policyVersion === input.policyVersion && outboxWorkspaces.size < input.limit) outboxWorkspaces.add(event.workspaceId);
+    }
+    const dueWorkspaces = new Set<WorkspaceId>();
+    for (const state of this.formationStates.values()) {
+      if (state.policyVersion === input.policyVersion &&
+          (state.activeJobId !== undefined || (state.scheduledFor !== undefined && Date.parse(state.scheduledFor) <= Date.parse(input.now)))) {
+        if (dueWorkspaces.size < input.limit) dueWorkspaces.add(state.workspaceId);
+      }
+    }
+    return [...new Set([...dueWorkspaces].sort().concat([...outboxWorkspaces].sort()))];
   }
 
   private key(workspaceId: string, id: string): string {

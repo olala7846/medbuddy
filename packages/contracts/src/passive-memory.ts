@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { DynamicMemoryPayloadSchema, MemoryTagSchema, type DynamicMemoryRecord } from "./dynamic-memory.js";
 import { SourceEventSchema } from "./continuity.js";
+import { FormationSourceMemberSchema } from "./memory-formation.js";
 import {
   MemberIdSchema,
   MessageIdSchema,
@@ -97,6 +98,9 @@ export const PassiveMemoryJobSchema = z.object({
   firstSourceSequence: z.number().int().positive(),
   lastSourceSequence: z.number().int().positive(),
   policyVersion: z.literal(PASSIVE_MEMORY_POLICY_VERSION),
+  formationPolicyVersion: z.enum(["memory-formation-v1", "memory-formation-v1-verification-small"]).optional(),
+  sourceMembers: z.array(FormationSourceMemberSchema).min(1).max(PASSIVE_MEMORY_MAX_RANGE_SIZE).optional(),
+  terminalOutcome: z.enum(["EVIDENCE_SIZE_EXCEEDED", "MEMBERSHIP_UNAVAILABLE"]).optional(),
   status: z.enum(["PENDING", "RUNNING", "COMPLETED", "FAILED"]),
   attempts: z.number().int().min(0).max(PASSIVE_MEMORY_MAX_ATTEMPTS),
   claimGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
@@ -119,6 +123,19 @@ export const PassiveMemoryJobSchema = z.object({
   }
   if (job.claimGeneration < job.attempts) {
     context.addIssue({ code: "custom", message: "Passive-memory claim generation cannot trail attempts." });
+  }
+  if (job.sourceMembers !== undefined) {
+    const ordered = [...job.sourceMembers].sort((left, right) => left.sourceSequence - right.sourceSequence);
+    if (new Set(ordered.map((member) => member.sourceSequence)).size !== ordered.length ||
+        new Set(ordered.map((member) => member.sourceEventId)).size !== ordered.length ||
+        ordered[0]?.sourceSequence !== job.firstSourceSequence ||
+        ordered.at(-1)?.sourceSequence !== job.lastSourceSequence ||
+        JSON.stringify(ordered) !== JSON.stringify(job.sourceMembers)) {
+      context.addIssue({ code: "custom", message: "Formation job membership must be unique, ordered, and match its bounds." });
+    }
+  }
+  if (job.terminalOutcome !== undefined && job.status !== "FAILED") {
+    context.addIssue({ code: "custom", message: "Only failed passive jobs may carry a terminal outcome." });
   }
 });
 
@@ -152,6 +169,8 @@ export interface PassiveMemoryEvidenceReader {
     workspaceId: z.infer<typeof WorkspaceIdSchema>;
     firstSourceSequence: number;
     lastSourceSequence: number;
+    sourceMembers?: readonly z.infer<typeof FormationSourceMemberSchema>[];
+    formationPolicyVersion?: PassiveMemoryJob["formationPolicyVersion"];
   }): Promise<PassiveMemoryEvidenceBatch>;
 }
 
@@ -181,5 +200,8 @@ export interface PassiveMemoryJobRepository {
     fence: PassiveMemoryAttemptFence,
     records?: readonly DynamicMemoryRecord[],
   ): Promise<PassiveMemoryJob>;
-  getCursor(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<number>;
+  getCursor(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+    formationPolicyVersion?: PassiveMemoryJob["formationPolicyVersion"],
+  ): Promise<number>;
 }

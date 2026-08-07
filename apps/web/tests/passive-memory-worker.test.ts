@@ -32,10 +32,14 @@ async function harness(options: {
   attempts?: number;
   block?: boolean;
   evidenceFailure?: Error;
+  editBody?: string;
+  editIdSuffix?: string;
+  formationPolicyVersion?: "memory-formation-v1" | "memory-formation-v1-verification-small";
 } = {}) {
   const freshness = new InMemoryMemorySourceFreshnessStore();
   const continuity = new InMemoryContinuityRepository(freshness);
   const bodies = options.bodies ?? ["Please use Traditional Chinese for responses."];
+  const editSuffix = options.editIdSuffix ?? "";
   for (const [index, body] of bodies.entries()) {
     const source = SourceEventSchema.parse({
       id: `source-event:fictional-passive-${index}`,
@@ -51,13 +55,28 @@ async function harness(options: {
     void _sequence;
     await continuity.acceptSourceEvent({ ...accepted, receiptKey: `event:fictional-passive-${index}` });
   }
+  if (options.editBody !== undefined) {
+    await continuity.acceptSourceEvent({
+      receiptKey: `event:fictional-passive-edit${editSuffix}`, id: `source-event:fictional-passive-edit${editSuffix}`,
+      workspaceId, occurredAt: "2026-08-06T12:09:00.000Z", acceptedAt: "2026-08-06T12:09:01.000Z",
+      providerMessageId: "message:fictional-passive-edit",
+      authorMemberId: "member:fictional-passive",
+      payload: { kind: "TEXT_EDIT", targetMessageId: "message:fictional-passive-0", body: options.editBody },
+    } as never);
+  }
   const jobs = new InMemoryPassiveMemoryJobRepository(freshness);
   const job = await jobs.createOrGet(PassiveMemoryJobSchema.parse({
     id: jobId,
     workspaceId,
     firstSourceSequence: 1,
-    lastSourceSequence: bodies.length,
+    lastSourceSequence: bodies.length + (options.editBody === undefined ? 0 : 1),
     policyVersion: "passive-memory-v1",
+    ...(options.formationPolicyVersion === undefined ? {} : { formationPolicyVersion: options.formationPolicyVersion }),
+    ...(options.formationPolicyVersion === undefined ? {} : { sourceMembers: [
+      ...bodies.map((_body, index) => ({ sourceEventId: `source-event:fictional-passive-${index}`, sourceSequence: index + 1 })),
+      ...(options.editBody === undefined ? [] : [{ sourceEventId: `source-event:fictional-passive-edit${editSuffix}`,
+        sourceSequence: bodies.length + 1 }]),
+    ] }),
     status: "PENDING",
     attempts: options.attempts ?? 0,
     claimGeneration: options.attempts ?? 0,
@@ -99,7 +118,7 @@ async function harness(options: {
     worker,
     logger: { write: (entry) => logs.push(PassiveMemoryWorkerLogEntrySchema.parse(entry)) },
   });
-  return { called, calls, handler, job, jobs, logs, memories, release, worker };
+  return { called, calls, continuity, handler, job, jobs, logs, memories, release, worker };
 }
 
 describe("silent passive-memory worker", () => {
@@ -114,6 +133,100 @@ describe("silent passive-memory worker", () => {
       policyVersion: "passive-memory-v1",
     }));
     expect(logs.every((entry) => !JSON.stringify(entry).includes(workspaceId))).toBe(true);
+  });
+
+  it("terminally skips a small original replaced by an above-ceiling edit before generation", async () => {
+    const { calls, jobs, worker } = await harness({
+      bodies: ["small"], editBody: "字".repeat(100_000),
+      formationPolicyVersion: "memory-formation-v1-verification-small",
+    });
+    await expect(worker.run({ workspaceId, jobId })).resolves.toBe("EXHAUSTED");
+    expect(calls).toHaveLength(0);
+    await expect(jobs.getCursor(workspaceId, "memory-formation-v1-verification-small")).resolves.toBe(2);
+  });
+
+  it.each([
+    "memory-formation-v1-verification-small",
+    "memory-formation-v1",
+  ] as const)("never sends %s effective evidence above its UTF-16 ceiling", async (formationPolicyVersion) => {
+    const { calls, jobs, memories, worker } = await harness({
+      bodies: ["first", "second"], editBody: "字".repeat(20_000), formationPolicyVersion,
+    });
+    await expect(worker.run({ workspaceId, jobId })).resolves.toBe("EXHAUSTED");
+    expect(calls).toHaveLength(0);
+    await expect(memories.listActive(workspaceId, 10)).resolves.toEqual([]);
+    await expect(jobs.get(workspaceId, jobId)).resolves.toMatchObject({
+      status: "FAILED", terminalOutcome: "EVIDENCE_SIZE_EXCEEDED",
+    });
+  });
+
+  it.each([
+    ["memory-formation-v1-verification-small", 1_800],
+    ["memory-formation-v1", 30_000],
+  ] as const)("allows an exactly-at-ceiling effective edit for %s", async (formationPolicyVersion, ceiling) => {
+    let suffix = "";
+    let seed = await harness({ bodies: ["small"], editBody: "x", editIdSuffix: suffix, formationPolicyVersion });
+    let batch = await new PassiveMemoryEvidenceReaderAdapter(seed.continuity).readEffectiveHumanText({
+      workspaceId, firstSourceSequence: 1, lastSourceSequence: 2,
+    });
+    if ((ceiling - JSON.stringify(batch.evidence).length) % 2 !== 0) {
+      suffix = "x";
+      seed = await harness({ bodies: ["small"], editBody: "x", editIdSuffix: suffix, formationPolicyVersion });
+      batch = await new PassiveMemoryEvidenceReaderAdapter(seed.continuity).readEffectiveHumanText({
+        workspaceId, firstSourceSequence: 1, lastSourceSequence: 2,
+      });
+    }
+    const bodyLength = 1 + (ceiling - JSON.stringify(batch.evidence).length) / 2;
+    expect(bodyLength).toBeGreaterThanOrEqual(0);
+    expect(Number.isInteger(bodyLength)).toBe(true);
+    const exact = await harness({ bodies: ["small"], editBody: "x".repeat(bodyLength), editIdSuffix: suffix,
+      formationPolicyVersion });
+    await expect(exact.worker.run({ workspaceId, jobId })).resolves.toBe("COMPLETED");
+    expect(exact.calls).toHaveLength(1);
+    expect(JSON.stringify((exact.calls[0] as { evidence: unknown }).evidence).length).toBe(ceiling);
+  });
+
+  it("keeps interleaved production and small jobs on their exact source membership", async () => {
+    const freshness = new InMemoryMemorySourceFreshnessStore();
+    const continuity = new InMemoryContinuityRepository(freshness);
+    for (let index = 0; index < 3; index += 1) {
+      await continuity.acceptSourceEvent({ receiptKey: `event:interleaved-${index}`, id: `source-event:interleaved-${index}`,
+        workspaceId, occurredAt: `2026-08-06T12:0${index}:00.000Z`, acceptedAt: `2026-08-06T12:0${index}:01.000Z`,
+        providerMessageId: `message:interleaved-${index}`, authorMemberId: "member:fictional-passive",
+        payload: { kind: "TEXT", body: "Please use Traditional Chinese for responses.", replyRequested: false } } as never);
+    }
+    const jobs = new InMemoryPassiveMemoryJobRepository(freshness);
+    const specifications = [
+      { profile: "memory-formation-v1" as const, sequences: [1, 3] },
+      { profile: "memory-formation-v1-verification-small" as const, sequences: [2] },
+    ];
+    const persisted = [];
+    for (const specification of specifications) {
+      persisted.push(await jobs.createOrGet(PassiveMemoryJobSchema.parse({
+        id: `passive-memory-job:interleaved-${specification.sequences.join("-")}`, workspaceId,
+        firstSourceSequence: specification.sequences[0], lastSourceSequence: specification.sequences.at(-1),
+        policyVersion: "passive-memory-v1", formationPolicyVersion: specification.profile,
+        sourceMembers: specification.sequences.map((sequence) => ({
+          sourceEventId: `source-event:interleaved-${sequence - 1}`, sourceSequence: sequence,
+        })), status: "PENDING", attempts: 0, claimGeneration: 0, createdAt: now,
+      })));
+    }
+    const seen: string[][] = [];
+    const worker = new PassiveMemoryWorker({ jobs, evidence: new PassiveMemoryEvidenceReaderAdapter(continuity),
+      generator: { async generate(input) {
+        seen.push(input.evidence.map((item) => item.canonicalSourceRef));
+        return { output: { proposals: input.evidence.map((item) => ({ sourceRef: item.canonicalSourceRef,
+          payload: { memoryType: "PROCEDURAL" as const, preference: "use Traditional Chinese for responses",
+            preferenceKind: "LANGUAGE" as const, appliesTo: "ALL_RESPONSES" as const, subjectLabels: [] }, tags: [] })) } };
+      } }, memory: new DynamicMemoryService(jobs, () => now), now: () => now, logger: { write() {} } });
+    for (const job of persisted) await expect(worker.run({ workspaceId, jobId: job.id })).resolves.toBe("COMPLETED");
+    expect(seen).toEqual([
+      ["source-event:interleaved-0", "source-event:interleaved-2"],
+      ["source-event:interleaved-1"],
+    ]);
+    const records = await jobs.listActive(workspaceId, 10);
+    expect(records).toHaveLength(3);
+    expect(new Set(records.map((record) => record.canonicalSource.sourceRef)).size).toBe(3);
   });
 
   it("persists exact source-bound proposals from non-reply human text", async () => {

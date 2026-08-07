@@ -43,6 +43,7 @@ export class ContinuityThreadConversationService implements ContinuityConversati
     policy?: ContinuityPolicy;
     dispatcher?: ContinuityTaskDispatcher;
     now?: () => string;
+    formationScheduler?: { reconcileWorkspace(workspaceId: ObserveContinuityConversationInput["workspaceId"]): Promise<void> };
   }) {}
 
   async observe(inputValue: ObserveContinuityConversationInput): Promise<ObserveContinuityConversationResult> {
@@ -63,6 +64,11 @@ export class ContinuityThreadConversationService implements ContinuityConversati
       } catch {
         return { kind: "TECHNICAL_FAILURE", sourceEventId: accepted.event.id };
       }
+    }
+    try {
+      await this.dependencies.formationScheduler?.reconcileWorkspace(input.workspaceId);
+    } catch {
+      // Atomic outbox metadata remains available to the authenticated recovery sweep.
     }
     if (accepted.kind === "DUPLICATE") return { kind: "DUPLICATE" };
 

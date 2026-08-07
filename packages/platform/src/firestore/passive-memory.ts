@@ -49,7 +49,7 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
   async createOrGet(value: PassiveMemoryJob): Promise<PassiveMemoryJob> {
     const job = PassiveMemoryJobSchema.parse(withoutLease(PassiveMemoryJobSchema.parse(value)));
     return this.firestore.runTransaction(async (transaction) => {
-      const stateRef = this.stateRef(job.workspaceId);
+      const stateRef = this.stateRef(job.workspaceId, job.formationPolicyVersion);
       const jobRef = this.jobRef(job.workspaceId, job.id);
       const [state, snapshot] = await Promise.all([transaction.get(stateRef), transaction.get(jobRef)]);
       if (snapshot.exists) {
@@ -62,7 +62,11 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
       if (typeof state.data()?.activeJobId === "string") {
         throw new Error("A workspace already has an active passive-memory job.");
       }
-      if (job.firstSourceSequence !== cursor(state.data()?.cursor) + 1 || job.status !== "PENDING") {
+      const storedCursor = cursor(state.data()?.cursor);
+      const continues = job.formationPolicyVersion === undefined
+        ? job.firstSourceSequence === storedCursor + 1
+        : job.firstSourceSequence > storedCursor;
+      if (!continues || job.status !== "PENDING") {
         throw new Error("Passive-memory job does not continue the persisted workspace cursor.");
       }
       transaction.create(jobRef, job);
@@ -90,13 +94,14 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     claimedAt: string,
   ) {
     return this.firestore.runTransaction(async (transaction) => {
-      const stateRef = this.stateRef(workspaceId);
       const jobRef = this.jobRef(workspaceId, jobId);
-      const [state, snapshot] = await Promise.all([transaction.get(stateRef), transaction.get(jobRef)]);
+      const snapshot = await transaction.get(jobRef);
       if (!snapshot.exists) {
         throw new Error("Passive-memory attempt does not match the active persisted workspace job.");
       }
       const job = PassiveMemoryJobSchema.parse(record(snapshot.data()));
+      const stateRef = this.stateRef(workspaceId, job.formationPolicyVersion);
+      const state = await transaction.get(stateRef);
       if (job.workspaceId !== workspaceId || job.id !== jobId) {
         throw new Error("Stored passive-memory job does not match its workspace path.");
       }
@@ -136,8 +141,8 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     return this.update(value, fenceValue, true, records);
   }
 
-  async getCursor(workspaceId: Parameters<PassiveMemoryJobRepository["getCursor"]>[0]): Promise<number> {
-    return cursor((await this.stateRef(workspaceId).get()).data()?.cursor);
+  async getCursor(workspaceId: Parameters<PassiveMemoryJobRepository["getCursor"]>[0], formationPolicyVersion?: PassiveMemoryJob["formationPolicyVersion"]): Promise<number> {
+    return cursor((await this.stateRef(workspaceId, formationPolicyVersion).get()).data()?.cursor);
   }
 
   private async update(
@@ -149,7 +154,7 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     const job = PassiveMemoryJobSchema.parse(withoutLease(PassiveMemoryJobSchema.parse(value)));
     const fence = PassiveMemoryAttemptFenceSchema.parse(fenceValue);
     return this.firestore.runTransaction(async (transaction) => {
-      const stateRef = this.stateRef(job.workspaceId);
+      const stateRef = this.stateRef(job.workspaceId, job.formationPolicyVersion);
       const jobRef = this.jobRef(job.workspaceId, job.id);
       const memoryRefs = records.map((memory) => this.memoryRef(memory.workspaceId, memory.id));
       const freshnessRefs = records.map((memory) => dynamicMemorySourceFreshnessRef(
@@ -170,13 +175,17 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
       }
       if (job.workspaceId !== stored.workspaceId || job.id !== stored.id ||
           job.firstSourceSequence !== stored.firstSourceSequence || job.lastSourceSequence !== stored.lastSourceSequence ||
-          job.policyVersion !== stored.policyVersion || job.createdAt !== stored.createdAt) {
+          job.policyVersion !== stored.policyVersion || job.formationPolicyVersion !== stored.formationPolicyVersion ||
+          !same(job.sourceMembers, stored.sourceMembers) || job.createdAt !== stored.createdAt) {
         throw new Error("Passive-memory job identity conflict.");
       }
       if (terminal) {
         if (job.status !== "COMPLETED" && job.status !== "FAILED") throw new Error("A terminal passive-memory outcome is required.");
         const storedCursor = cursor(state.data()?.cursor);
-        if (stored.firstSourceSequence !== storedCursor + 1) throw new Error("Passive-memory cursor conflict.");
+        const continues = stored.formationPolicyVersion === undefined
+          ? stored.firstSourceSequence === storedCursor + 1
+          : stored.firstSourceSequence > storedCursor;
+        if (!continues) throw new Error("Passive-memory cursor conflict.");
         transaction.set(stateRef, { cursor: stored.lastSourceSequence, activeJobId: null });
       } else if (job.status !== "PENDING") {
         throw new Error("A retryable passive-memory attempt must return to pending.");
@@ -205,8 +214,8 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     return this.firestore.collection("workspaces").doc(workspaceId);
   }
 
-  private stateRef(workspaceId: string) {
-    return this.workspaceRef(workspaceId).collection("passiveMemoryState").doc("current");
+  private stateRef(workspaceId: string, formationPolicyVersion?: PassiveMemoryJob["formationPolicyVersion"]) {
+    return this.workspaceRef(workspaceId).collection("passiveMemoryState").doc(formationPolicyVersion ?? "current");
   }
 
   private jobRef(workspaceId: string, jobId: string) {

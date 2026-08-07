@@ -138,6 +138,65 @@ resource "google_firestore_index" "passive_text_lineage" {
   }
 }
 
+# The bounded recovery sweep queries due workspace scheduler states across all
+# workspace subcollections. Collection-group indexes are not created by the
+# per-document automatic index configuration.
+resource "google_firestore_index" "memory_formation_due" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "memoryFormationState"
+  query_scope = "COLLECTION_GROUP"
+
+  fields {
+    field_path = "policyVersion"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "scheduledFor"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}
+
+resource "google_firestore_index" "memory_formation_outbox_policy" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "memoryFormationOutbox"
+  query_scope = "COLLECTION_GROUP"
+
+  fields {
+    field_path = "policyVersion"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}
+
+resource "google_firestore_index" "memory_formation_outbox_workspace_scan" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "memoryFormationOutbox"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "policyVersion"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "sourceSequence"
+    order      = "ASCENDING"
+  }
+}
+
 resource "google_storage_bucket" "attachments" {
   name                        = local.attachment_bucket_name
   project                     = local.project_id

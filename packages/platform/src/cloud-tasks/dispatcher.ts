@@ -3,9 +3,13 @@ import {
   AttachmentTaskInputSchema,
   CaptureJobInputSchema,
   ContinuityTaskInputSchema,
+  MemoryFormationWakeInputSchema,
+  PassiveMemoryTaskInputSchema,
   type AttachmentTaskDispatcher,
   type CaptureDispatcher,
   type ContinuityTaskDispatcher,
+  type MemoryFormationTaskDispatcher,
+  type PassiveMemoryJobDispatcher,
 } from "@medbuddy/contracts";
 import { createHash } from "node:crypto";
 
@@ -123,6 +127,54 @@ export class CloudTasksAttachmentDispatcher implements AttachmentTaskDispatcher 
       if ((error as { code?: unknown }).code !== 6 && (error as { code?: unknown }).code !== "ALREADY_EXISTS") {
         throw error;
       }
+    }
+  }
+}
+
+export class CloudTasksMemoryFormationDispatcher implements MemoryFormationTaskDispatcher {
+  constructor(
+    private readonly client: Pick<CloudTasksClient, "queuePath" | "taskPath" | "createTask">,
+    private readonly options: CloudTasksDispatcherOptions,
+  ) {}
+
+  async dispatch(inputValue: Parameters<MemoryFormationTaskDispatcher["dispatch"]>[0]): Promise<void> {
+    const { scheduleTime, ...wakeValue } = inputValue;
+    const input = MemoryFormationWakeInputSchema.parse(wakeValue);
+    const parent = this.client.queuePath(this.options.projectId, this.options.location, this.options.queue);
+    const identity = createHash("sha256").update(`${input.workspaceId}:${input.generation}:${input.policyVersion}`).digest("hex");
+    const task = {
+      name: this.client.taskPath(this.options.projectId, this.options.location, this.options.queue, `memory-formation-${identity}`),
+      ...(scheduleTime === undefined ? {} : { scheduleTime: { seconds: Math.floor(Date.parse(scheduleTime) / 1_000) } }),
+      httpRequest: {
+        httpMethod: "POST" as const, url: this.options.callbackUrl,
+        headers: { "Content-Type": "application/json" },
+        body: Buffer.from(JSON.stringify(input)).toString("base64"),
+        oidcToken: { serviceAccountEmail: this.options.serviceAccountEmail, audience: this.options.callbackUrl },
+      },
+    };
+    try { await this.client.createTask({ parent, task }); } catch (error) {
+      if ((error as { code?: unknown }).code !== 6 && (error as { code?: unknown }).code !== "ALREADY_EXISTS") throw error;
+    }
+  }
+}
+
+export class CloudTasksPassiveMemoryDispatcher implements PassiveMemoryJobDispatcher {
+  constructor(
+    private readonly client: Pick<CloudTasksClient, "queuePath" | "taskPath" | "createTask">,
+    private readonly options: CloudTasksDispatcherOptions,
+  ) {}
+
+  async dispatch(inputValue: Parameters<PassiveMemoryJobDispatcher["dispatch"]>[0]): Promise<void> {
+    const input = PassiveMemoryTaskInputSchema.parse(inputValue);
+    const parent = this.client.queuePath(this.options.projectId, this.options.location, this.options.queue);
+    const identity = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    try { await this.client.createTask({ parent, task: {
+      name: this.client.taskPath(this.options.projectId, this.options.location, this.options.queue, `passive-memory-${identity}`),
+      httpRequest: { httpMethod: "POST", url: this.options.callbackUrl,
+        headers: { "Content-Type": "application/json" }, body: Buffer.from(JSON.stringify(input)).toString("base64"),
+        oidcToken: { serviceAccountEmail: this.options.serviceAccountEmail, audience: this.options.callbackUrl } },
+    } }); } catch (error) {
+      if ((error as { code?: unknown }).code !== 6 && (error as { code?: unknown }).code !== "ALREADY_EXISTS") throw error;
     }
   }
 }

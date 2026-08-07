@@ -11,6 +11,21 @@ bucket, the capture queue, and keyless runtime/task-invoker service accounts.
 The attachment bucket deliberately has no automatic expiry until a reviewed
 retention policy exists.
 
+After the callback service exists, supply its HTTPS memory-formation URL to
+provision independent five-minute, OIDC-authenticated, content-free recovery
+sweeps for both the production and verification-small policy namespaces:
+
+```sh
+terraform -chdir=infra/terraform/prototype plan \
+  -var='memory_formation_callback_url=https://<cloud-run-host>/api/internal/memory-formation'
+```
+
+Runtime acceptance still selects one whole paired profile through application
+configuration. Both recovery triggers remain provisioned so pending work from
+a previous profile can drain safely after a profile switch. The schedulers are
+intentionally absent while the callback URL is null; enabling real traffic
+without them leaves dispatch recovery incomplete.
+
 Cloud Tasks receives `roles/iam.serviceAccountUser` on the dedicated callback
 invoker identity, following the documented HTTP-target OIDC flow. The later
 Cloud Run deployment slice will grant that invoker identity `roles/run.invoker`
