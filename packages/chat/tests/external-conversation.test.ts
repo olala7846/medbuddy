@@ -270,7 +270,14 @@ describe("ContinuityThreadConversationService", () => {
       systemInstructions: "SYSTEM SAFETY AND TRUST BOUNDARIES",
     });
 
-    await expect(service.observe(observedInput(true, "memory"))).resolves.toMatchObject({
+    const memoryInput = observedInput(true, "memory");
+    await expect(service.observe(ObserveContinuityConversationInputSchema.parse({
+      ...memoryInput,
+      payload: {
+        ...memoryInput.payload,
+        body: "Please remember that the fictional appointment folder is blue.",
+      },
+    }))).resolves.toMatchObject({
       kind: "RESPONSE_CANDIDATE",
     });
     await expect(memories.listActive("workspace:line-thread-a" as never, 10)).resolves.toMatchObject([{

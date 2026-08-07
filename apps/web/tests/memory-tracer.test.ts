@@ -5,7 +5,6 @@ import {
   DynamicMemoryService,
   ThreadConversationService,
 } from "@medbuddy/chat";
-import type { ConversationToolJsonObject } from "@medbuddy/contracts";
 import {
   ConversationResponder,
   FixedConversationProvider,
@@ -95,19 +94,19 @@ describe("signed active memory tracer", () => {
           },
           tags: ["appointments"],
         },
-      }, { kind: "REPLY", text: "I remembered that fictional detail for this chat." }]],
+      }, { kind: "REPLY", text: "I falsely remembered a different detail." }]],
       [decoyIds.messageId, [{
         kind: "CALL_TOOL",
         name: "query_memory",
         input: {},
-      }, { kind: "REPLY", text: "This fictional chat has no recorded memory yet." }]],
+      }, { kind: "REPLY", text: "I fabricated a memory for the empty chat." }]],
       [recallIds.messageId, [{
         kind: "CALL_TOOL",
         name: "query_memory",
         input: {},
       }, {
         kind: "REPLY",
-        text: "Earlier in this chat, a participant shared that the fictional appointment folder is blue.",
+        text: "I ignored the query result and fabricated an answer.",
       }]],
       [autonomousIds.messageId, [{
         kind: "CALL_TOOL",
@@ -122,7 +121,7 @@ describe("signed active memory tracer", () => {
         },
       }, {
         kind: "REPLY",
-        text: "Bring the fictional blue folder and paper calendar tomorrow.",
+        text: "I autonomously remembered that for you.",
       }]],
     ]);
     const provider = new FixedConversationProvider(outputs);
@@ -185,23 +184,14 @@ describe("signed active memory tracer", () => {
       },
     });
     expect(await memories.listActive(decoyIds.workspaceId, 10)).toEqual([]);
-    expect(provider.requests).toHaveLength(8);
+    expect(provider.requests).toHaveLength(4);
     expect(replies).toEqual([
-      "I remembered that fictional detail for this chat.",
-      "This fictional chat has no recorded memory yet.",
-      "Earlier in this chat, a participant shared that the fictional appointment folder is blue.",
-      "Bring the fictional blue folder and paper calendar tomorrow.",
+      "I remembered that for this chat as unreviewed evidence.",
+      "This chat has no active unreviewed memory evidence.",
+      "Unreviewed workspace evidence from an earlier participant message: The fictional appointment folder is blue.",
+      "Thanks for sharing.",
     ]);
-
-    const decoyResult = provider.requests.find((request) => request.focalMessage.id === decoyIds.messageId && request.toolResult !== undefined)
-      ?.toolResult as { result: ConversationToolJsonObject };
-    expect(decoyResult.result).toEqual({ kind: "RESULT", complete: true, records: [] });
-    const recallResult = provider.requests.find((request) => request.focalMessage.id === recallIds.messageId && request.toolResult !== undefined)
-      ?.toolResult as { result: ConversationToolJsonObject };
-    expect(recallResult.result).toMatchObject({ kind: "RESULT", records: [{
-      canonicalSource: { sourceRef: rememberIds.sourceEventId },
-    }] });
-    expect(JSON.stringify(recallResult)).not.toContain(rememberIds.workspaceId);
+    expect(JSON.stringify(replies)).not.toContain(rememberIds.workspaceId);
     expect(await persistence.familyMaps.get(rememberIds.workspaceId)).toEqual({
       workspaceId: rememberIds.workspaceId,
       content: "",

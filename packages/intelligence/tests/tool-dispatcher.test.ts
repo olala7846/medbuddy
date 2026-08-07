@@ -80,6 +80,66 @@ describe("capability-scoped conversation tool dispatcher", () => {
     vi.useRealTimers();
   });
 
+  it("does not accept a direct reply while a capability is required for the turn", async () => {
+    const provider = new FixedConversationProvider(new Map([[
+      focalMessage.id,
+      { kind: "REPLY", text: "I remembered that without storing it." },
+    ]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => ({ complete: true, matches: [] })),
+        requiredBeforeReply: true,
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true });
+  });
+
+  it("returns an application-owned terminal success after a required capability succeeds", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "REPLY", text: "A fabricated model answer." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => ({ complete: true, matches: ["Fictional preference."] })),
+        requiredBeforeReply: true,
+        classifyResult: () => ({
+          kind: "TERMINAL_SUCCESS" as const,
+          responseText: "Unreviewed workspace evidence: Fictional preference.",
+        }),
+      }],
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: "Unreviewed workspace evidence: Fictional preference.",
+      retryable: false,
+      toolCalls: 1,
+    });
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("cannot bypass a required capability with another capability terminal success", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, {
+      kind: "CALL_TOOL",
+      name: "optional_tool",
+      input: { query: "preferences" },
+    }]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+    const terminalOptional = {
+      ...queryCapability(async () => ({ complete: true, matches: [] })),
+      declaration: { ...queryDeclaration, name: "optional_tool" },
+      classifyResult: () => ({ kind: "TERMINAL_SUCCESS" as const, responseText: "Must not escape." }),
+    };
+    await expect(responder.respond(request, {
+      modelTools: [
+        { ...queryCapability(async () => ({ complete: true, matches: [] })), requiredBeforeReply: true },
+        terminalOptional,
+      ],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+  });
+
   it.each([
     ["provider prose", { kind: "REPLY", text: "I saved that relationship." }],
     ["a provider tool call", {

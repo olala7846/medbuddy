@@ -11,14 +11,6 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function sameIdentity(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {
-  const withoutRecordedAt = ({ recordedAt, ...memory }: DynamicMemoryRecord) => {
-    void recordedAt;
-    return memory;
-  };
-  return JSON.stringify(withoutRecordedAt(left)) === JSON.stringify(withoutRecordedAt(right));
-}
-
 /** Workspace-path-bound storage for the narrow active-memory tracer. */
 export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository {
   constructor(private readonly firestore: Firestore) {}
@@ -30,11 +22,7 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
       const snapshot = await transaction.get(reference);
       if (snapshot.exists) {
         const existing = DynamicMemoryRecordSchema.parse(record(snapshot.data()));
-        if (
-          existing.workspaceId !== memory.workspaceId
-          || existing.id !== memory.id
-          || !sameIdentity(existing, memory)
-        ) {
+        if (existing.workspaceId !== memory.workspaceId || existing.id !== memory.id) {
           throw new Error("A dynamic-memory identity already exists with different content.");
         }
         return CreateDynamicMemoryResultSchema.parse({ kind: "EXISTING", record: existing });

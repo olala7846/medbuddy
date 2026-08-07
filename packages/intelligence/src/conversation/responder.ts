@@ -126,6 +126,7 @@ type BoundSafeParse = (
 
 type BoundConversationToolCapability = Readonly<{
   declaration: ConversationToolDeclaration;
+  requiredBeforeReply: boolean;
   parseInput: BoundSafeParse;
   parseOutput: BoundSafeParse;
   classifyResult(output: ConversationToolJsonObject): ConversationToolResultDisposition;
@@ -248,6 +249,7 @@ function bindModelTools(
       ) => Promise<unknown>;
       bound.set(declaration.data.name, Object.freeze({
         declaration: declaration.data,
+        requiredBeforeReply: capability.requiredBeforeReply === true,
         parseInput,
         parseOutput,
         classifyResult,
@@ -559,6 +561,7 @@ export class ConversationResponder implements ConversationResponderPort {
       let familyMapToolCalls = 0;
       let retryAfterConflict = false;
       let terminalToolFailure = false;
+      const completedModelTools = new Set<string>();
       let toolResult: unknown;
       const toolHistory: unknown[] = [];
       for (let modelStep = 0; modelStep < CONVERSATION_MAX_MODEL_STEPS; modelStep += 1) {
@@ -604,6 +607,12 @@ export class ConversationResponder implements ConversationResponderPort {
           instruction.data.kind !== "UPDATE_WORKSPACE_FAMILY_MAP"
           && instruction.data.kind !== "CALL_TOOL"
         ) {
+          if ([...boundModelTools.entries()].some(
+            ([name, capability]) => capability.requiredBeforeReply && !completedModelTools.has(name),
+          )) {
+            this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
+            return technicalFailure(toolCalls || undefined);
+          }
           const response = await this.respondToInstruction(instruction.data);
           this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return toolCalls === 0 ? response : { ...response, toolCalls };
@@ -687,6 +696,18 @@ export class ConversationResponder implements ConversationResponderPort {
           ) return technicalFailure(toolCalls);
           if (!disposition.success) return technicalFailure(toolCalls);
           if (disposition.data.kind === "TERMINAL_FAILURE") {
+            return {
+              kind: "RESPONDED",
+              responseText: disposition.data.responseText,
+              retryable: false,
+              toolCalls,
+            };
+          }
+          completedModelTools.add(instruction.data.name);
+          if (disposition.data.kind === "TERMINAL_SUCCESS") {
+            if ([...boundModelTools.entries()].some(
+              ([name, boundCapability]) => boundCapability.requiredBeforeReply && !completedModelTools.has(name),
+            )) return technicalFailure(toolCalls);
             return {
               kind: "RESPONDED",
               responseText: disposition.data.responseText,

@@ -12,14 +12,6 @@ function clone<Value>(value: Value): Value {
   return structuredClone(value);
 }
 
-function sameIdentity(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {
-  const withoutRecordedAt = ({ recordedAt, ...record }: DynamicMemoryRecord) => {
-    void recordedAt;
-    return record;
-  };
-  return JSON.stringify(withoutRecordedAt(left)) === JSON.stringify(withoutRecordedAt(right));
-}
-
 export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository {
   readonly #records = new Map<string, DynamicMemoryRecord>();
   readonly #transactions = new InMemoryTransactionQueue();
@@ -30,9 +22,6 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
       const key = `${record.workspaceId}\u0000${record.id}`;
       const existing = this.#records.get(key);
       if (existing !== undefined) {
-        if (!sameIdentity(existing, record)) {
-          throw new Error("A dynamic-memory identity already exists with different content.");
-        }
         return CreateDynamicMemoryResultSchema.parse({ kind: "EXISTING", record: clone(existing) });
       }
       this.#records.set(key, clone(record));

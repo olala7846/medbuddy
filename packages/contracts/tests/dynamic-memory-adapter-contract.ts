@@ -39,6 +39,12 @@ export function describeDynamicMemoryRepositoryContract(
       });
       await expect(repository.createOrGet({
         ...firstRecord,
+        payload: {
+          memoryType: "SEMANTIC",
+          statement: "A retry derived different fictional wording.",
+          subjectLabels: [],
+        },
+        tags: ["retry-wording"],
         recordedAt: "2026-08-06T12:01:00.000Z",
       })).resolves.toEqual({
         kind: "EXISTING",

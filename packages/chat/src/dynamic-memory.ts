@@ -41,9 +41,47 @@ function isRelationshipMaterial(payload: DynamicMemoryPayload): boolean {
 
 function isUnsafeProceduralPreference(payload: DynamicMemoryPayload): boolean {
   if (payload.memoryType !== "PROCEDURAL") return false;
-  return /\b(?:ignore|bypass|override|disable|reveal|expose|grant|authorize|delete|retain)\b.*\b(?:safety|policy|permission|authorization|private|secret|record|memory|instruction|rule)\b/iu
-    .test(payload.preference)
-    || /(?:忽略|繞過|停用|揭露|授權|刪除).*(?:安全|政策|權限|隱私|秘密|紀錄|記憶|指令|規則)/u.test(payload.preference);
+  const text = payload.preference;
+  const policyManipulation = /\b(?:ignore|bypass|override|disable|reveal|expose|grant|authorize|delete|retain)\b.*\b(?:safety|policy|permission|authorization|private|secret|record|memory|instruction|rule)\b/iu.test(text)
+    || /(?:忽略|繞過|停用|揭露|授權|刪除).*(?:安全|政策|權限|隱私|秘密|紀錄|記憶|指令|規則)/u.test(text);
+  const clinicalDecision = /\b(?:diagnos(?:e|is|ing)|prescrib(?:e|ing)|medical\s+decision)\b/iu.test(text)
+    || /\b(?:medication|medicine|drug|dose|treatment)\b.{0,100}\b(?:change|start|stop|increase|decrease|adjust|recommend|choose|decide)\b/iu.test(text)
+    || /\b(?:change|start|stop|increase|decrease|adjust|recommend|choose|decide|tell)\b.{0,100}\b(?:medication|medicine|drug|dose|treatment)\b/iu.test(text)
+    || /(?:診斷|開藥|處方|停掉|停用|停藥|換藥|改藥|調整劑量|用藥決定)/u.test(text);
+  return policyManipulation || clinicalDecision;
+}
+
+const SOURCE_SUPPORT_STOPWORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "for", "from", "has", "i", "in", "is", "it", "me",
+  "my", "of", "our", "participant", "please", "remember", "that", "the", "this", "to", "we", "was",
+  "were", "with", "you", "your",
+]);
+const SOURCE_SUPPORT_HAN_STOP_CHARS = new Set([..."我你他她它們的了是請把將在和與及個這那有要用記住記得說"]);
+
+function supportTokens(value: string): Set<string> {
+  const normalized = value.normalize("NFKC").toLocaleLowerCase("en-US");
+  const tokens = new Set<string>();
+  for (const token of normalized.match(/[\p{Script=Latin}\p{N}]+|\p{Script=Han}/gu) ?? []) {
+    if (/^\p{Script=Han}$/u.test(token)) {
+      if (!SOURCE_SUPPORT_HAN_STOP_CHARS.has(token)) tokens.add(token);
+    } else if (token.length >= 2 && !SOURCE_SUPPORT_STOPWORDS.has(token)) {
+      tokens.add(token);
+    }
+  }
+  return tokens;
+}
+
+function isSupportedByFocalText(payload: DynamicMemoryPayload, sourceBody: string): boolean {
+  if (payload.memoryType === "PROCEDURAL") return true;
+  const proposedText = [payloadText(payload), ...payload.subjectLabels].join(" ");
+  const sourceNegations = new Set(sourceBody.normalize("NFKC").toLocaleLowerCase("en-US")
+    .match(/\b(?:no|not|never|without)\b|[不沒無未別]/gu) ?? []);
+  const proposedNegations = new Set(proposedText.normalize("NFKC").toLocaleLowerCase("en-US")
+    .match(/\b(?:no|not|never|without)\b|[不沒無未別]/gu) ?? []);
+  if ([...sourceNegations].some((negation) => !proposedNegations.has(negation))) return false;
+  const sourceTokens = supportTokens(sourceBody);
+  const proposedTokens = supportTokens(proposedText);
+  return proposedTokens.size > 0 && [...proposedTokens].every((token) => sourceTokens.has(token));
 }
 
 function isExplicitPresentationPreference(payload: DynamicMemoryPayload, sourceBody: string): boolean {
@@ -61,12 +99,10 @@ function isExplicitPresentationPreference(payload: DynamicMemoryPayload, sourceB
   return kindPattern.test(payload.preference) && kindPattern.test(sourceBody);
 }
 
-function memoryId(workspaceId: WorkspaceId, sourceRef: SourceEvent["id"], input: ProposeMemoryInput): string {
+function memoryId(workspaceId: WorkspaceId, sourceRef: SourceEvent["id"]): string {
   const fingerprint = JSON.stringify({
     policyVersion: DYNAMIC_MEMORY_POLICY_VERSION,
     sourceRef,
-    payload: input.payload,
-    tags: [...new Set(input.tags)].sort(),
   });
   return `memory-record:${createHash("sha256").update(`${workspaceId}\u0000${fingerprint}`).digest("hex")}`;
 }
@@ -99,6 +135,9 @@ export class DynamicMemoryService {
     if (isRelationshipMaterial(parsed.data.payload)) {
       return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     }
+    if (!isSupportedByFocalText(parsed.data.payload, source.payload.body)) {
+      return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
+    }
     if (isUnsafeProceduralPreference(parsed.data.payload)) {
       return { kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" };
     }
@@ -110,7 +149,7 @@ export class DynamicMemoryService {
       tags: [...new Set(parsed.data.tags)].sort(),
     };
     const record = DynamicMemoryRecordSchema.parse({
-      id: memoryId(context.workspaceId, source.id, normalizedInput),
+      id: memoryId(context.workspaceId, source.id),
       workspaceId: context.workspaceId,
       payload: normalizedInput.payload,
       sourceClass: "HUMAN_CONVERSATION",
