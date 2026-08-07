@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { CONTINUITY_POLICIES, SourceEventSchema, WorkspaceIdSchema } from "@medbuddy/contracts";
+import { assembleConversationContext } from "@medbuddy/chat";
 
 import {
   loadSyntheticContinuityFixture,
   parseSyntheticContinuityJsonl,
   SYNTHETIC_CONTINUITY_FIXTURE_URL,
   SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
+  type SyntheticContinuitySendStep,
 } from "./support/continuity-verification-fixture.js";
 
 describe("synthetic continuity JSONL fixture", () => {
@@ -115,6 +118,54 @@ describe("synthetic continuity JSONL fixture", () => {
     }
     expect(JSON.stringify(steps)).not.toContain("{{RUN_NONCE}}");
     expect(JSON.stringify(steps)).toContain("fictional-primary-fixture-zh-tw");
+  });
+
+  it("assembles the realistic Traditional Chinese JSONL under both production and verification ceilings", async () => {
+    const steps = await loadSyntheticContinuityFixture(
+      SYNTHETIC_CONTINUITY_TRADITIONAL_CHINESE_FIXTURE_URL,
+      "fixture-profile-ceilings",
+    );
+    const primary = steps.filter((step): step is SyntheticContinuitySendStep =>
+      step.action === "SEND" && step.event.source.groupId.includes("fictional-primary"));
+    const workspaceId = WorkspaceIdSchema.parse("workspace:realistic-profile");
+    const events = primary.map((step, index) => SourceEventSchema.parse({
+      id: `source-event:${step.step}`,
+      workspaceId,
+      sourceSequence: index + 1,
+      occurredAt: new Date(step.event.timestamp).toISOString(),
+      acceptedAt: new Date(step.event.timestamp).toISOString(),
+      providerMessageId: `message:${step.step}`,
+      authorMemberId: `member:${step.event.source.userId}`,
+      payload: {
+        kind: "TEXT",
+        body: step.event.message.text,
+        replyRequested: step.event.message.mention !== undefined,
+      },
+    }));
+    const focal = events.at(-1)!;
+    const assembled = Object.fromEntries(Object.entries(CONTINUITY_POLICIES).map(([name, policy]) => [
+      name,
+      assembleConversationContext({
+        workspaceId,
+        focalSourceEventId: focal.id,
+        sourceEvents: events,
+        readySegments: [],
+        system: "Fictional deterministic profile-ceiling verification.",
+        compactionPending: true,
+        policy,
+      }),
+    ])) as Record<keyof typeof CONTINUITY_POLICIES, ReturnType<typeof assembleConversationContext>>;
+
+    expect(CONTINUITY_POLICIES.production.recentHardCeilingUtf16).toBe(30_000);
+    expect(CONTINUITY_POLICIES["verification-small"].recentHardCeilingUtf16).toBe(1_800);
+    for (const [name, context] of Object.entries(assembled)) {
+      expect(context.recentConversation.length).toBeLessThanOrEqual(
+        CONTINUITY_POLICIES[name as keyof typeof CONTINUITY_POLICIES].recentHardCeilingUtf16,
+      );
+      expect(context.recentConversation).toContain(primary.at(-1)!.event.message.text);
+    }
+    expect(assembled.production.recentConversation.length)
+      .toBeGreaterThan(assembled["verification-small"].recentConversation.length);
   });
 
   it("rejects unknown actions, duplicate step IDs and references, and unknown placeholders", () => {
