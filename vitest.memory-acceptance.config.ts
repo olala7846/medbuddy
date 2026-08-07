@@ -25,6 +25,8 @@ export default defineConfig({
     include: [
       "apps/web/tests/memory-acceptance.test.ts",
       "apps/web/tests/memory-acceptance-fixture.test.ts",
+      "apps/web/tests/deployed-memory-smoke.test.ts",
+      "apps/web/tests/deployed-memory-smoke-fixture.test.ts",
       "apps/web/tests/memory-tracer.test.ts",
       "apps/web/tests/line-webhook.test.ts",
       "apps/web/tests/passive-memory-direct-proof.test.ts",
