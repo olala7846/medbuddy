@@ -62,6 +62,26 @@ resource "google_firestore_index" "dynamic_memory_oldest" {
   }
 }
 
+# readPassiveTextLineage binds one provider target and reads the newest bounded
+# edit prefix through a source sequence. The equality field precedes the exact
+# descending range/order direction used by the Firestore adapter.
+resource "google_firestore_index" "passive_text_lineage" {
+  project     = local.project_id
+  database    = google_firestore_database.default.name
+  collection  = "sourceEvents"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "payload.targetMessageId"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "sourceSequence"
+    order      = "DESCENDING"
+  }
+}
+
 resource "google_storage_bucket" "attachments" {
   name                        = local.attachment_bucket_name
   project                     = local.project_id

@@ -57,6 +57,7 @@ Rules:
 | Conversational agent | Reply after deterministic refusal; call server-bound family-map replacement and current dynamic-memory proposal/query tools | Access repositories/another workspace, search raw history or reviewed care, mutate medical facts, grant access, advise medication changes |
 | LINE webhook | Verify raw body, validate provider event, derive opaque IDs, reply with event token | Parse before verification; log content, tokens, or provider identifiers |
 | Capture pipeline | Propose candidate facts from a focal message | Skip validation, invent provenance, process pre-approval history as approved |
+| Passive memory worker | Read one leased workspace range and submit structured, source-bound proposals | Reply, call LINE/active responders, read attachments/compaction/family maps, or schedule itself |
 | Deterministic domain services | Consent eligibility, authz, review, handoff immutability, refusals | Defer those decisions to the model |
 
 ## As-built tree

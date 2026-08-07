@@ -135,6 +135,40 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
     });
   }
 
+  async readPassiveSourceRange(input: { workspaceId: string; firstSourceSequence: number; lastSourceSequence: number; limit: number }): Promise<readonly SourceEvent[]> {
+    if (input.limit < 1 || input.limit > 100) throw new Error("Passive source query limit is invalid.");
+    const snapshot = await this.workspaceRef(input.workspaceId).collection("sourceEvents")
+      .where("sourceSequence", ">=", input.firstSourceSequence)
+      .where("sourceSequence", "<=", input.lastSourceSequence)
+      .orderBy("sourceSequence").limit(input.limit).get();
+    return snapshot.docs.map((document) => this.pathBoundEvent(input.workspaceId, document.data()));
+  }
+
+  async readPassiveTextLineage(input: { workspaceId: string; targetMessageId: string; throughSourceSequence: number; limit: number }): Promise<readonly SourceEvent[]> {
+    if (input.limit < 1 || input.limit > 32) throw new Error("Passive lineage query limit is invalid.");
+    const collection = this.workspaceRef(input.workspaceId).collection("sourceEvents");
+    const [originals, edits] = await Promise.all([
+      collection.where("providerMessageId", "==", input.targetMessageId).limit(1).get(),
+      collection.where("payload.targetMessageId", "==", input.targetMessageId)
+        .where("sourceSequence", "<=", input.throughSourceSequence)
+        .orderBy("sourceSequence", "desc").limit(input.limit).get(),
+    ]);
+    const original = originals.docs.map((document) => this.pathBoundEvent(input.workspaceId, document.data()))
+      .find((event) => event.sourceSequence <= input.throughSourceSequence && event.payload.kind === "TEXT");
+    const lineageEdits = edits.docs.map((document) => this.pathBoundEvent(input.workspaceId, document.data()));
+    if (lineageEdits.length >= input.limit) {
+      throw new Error("Passive text lineage exceeds its exact bounded representation.");
+    }
+    if (original === undefined) return [];
+    return [original, ...lineageEdits].sort((left, right) => left.sourceSequence - right.sourceSequence);
+  }
+
+  private pathBoundEvent(workspaceId: string, value: unknown): SourceEvent {
+    const event = SourceEventSchema.parse(record(value));
+    if (event.workspaceId !== workspaceId) throw new Error("Stored source event does not match its workspace path.");
+    return event;
+  }
+
   async getSourceEvent(
     workspaceId: Parameters<ContinuityRepository["getSourceEvent"]>[0],
     sourceEventId: Parameters<ContinuityRepository["getSourceEvent"]>[1],

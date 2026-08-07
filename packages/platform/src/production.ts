@@ -11,6 +11,8 @@ import {
 import { FirestorePersistence } from "./firestore/repositories.js";
 import { FirestoreContinuityRepository } from "./firestore/continuity.js";
 import { FirestoreDynamicMemoryRepository } from "./firestore/dynamic-memory.js";
+import { FirestorePassiveMemoryJobRepository } from "./firestore/passive-memory.js";
+import { PassiveMemoryEvidenceReaderAdapter } from "./passive-memory.js";
 import { PrivateAttachmentStorage } from "./storage/attachments.js";
 import { ContinuityPrivateAttachmentStorage } from "./storage/attachments.js";
 import { EncryptedLineAttachmentLocatorStore, FirestoreAttachmentLocatorDocuments } from "./firestore/attachment-locator.js";
@@ -25,6 +27,18 @@ export function createConversationPlatform(projectId: string) {
   return {
     persistence: new FirestorePersistence(firestore),
     continuity: new FirestoreContinuityRepository(firestore),
+    memory: new FirestoreDynamicMemoryRepository(firestore),
+  };
+}
+
+/** Storage-only composition for the internal passive worker; it schedules nothing. */
+export function createPassiveMemoryPlatform(projectId: string) {
+  const firestore = new Firestore({ projectId });
+  const continuity = new FirestoreContinuityRepository(firestore);
+  return {
+    continuity,
+    evidence: new PassiveMemoryEvidenceReaderAdapter(continuity),
+    jobs: new FirestorePassiveMemoryJobRepository(firestore),
     memory: new FirestoreDynamicMemoryRepository(firestore),
   };
 }

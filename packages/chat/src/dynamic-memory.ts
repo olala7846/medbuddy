@@ -19,6 +19,7 @@ import {
   type DynamicMemoryRepository,
   type DynamicMemoryScanResult,
   type MemoryRecordId,
+  type PassiveMemoryEvidence,
   type ProposeMemoryInput,
   type ProposeMemoryResult,
   type QueryMemoryInput,
@@ -34,6 +35,16 @@ export type ActiveMemorySourceContext = {
   workspaceId: WorkspaceId;
   focalSource: SourceEvent;
 };
+
+export type PassiveMemorySourceContext = {
+  workspaceId: WorkspaceId;
+  evidence: PassiveMemoryEvidence;
+  proposalSlot: number;
+};
+
+export type MaterializePassiveMemoryResult =
+  | { kind: "MATERIALIZED"; record: DynamicMemoryRecord }
+  | Extract<ProposeMemoryResult, { kind: "REJECTED" }>;
 
 export type DynamicMemoryQueryScope =
   | { kind: "AUTHORIZED"; workspaceId: WorkspaceId }
@@ -185,10 +196,47 @@ function isAllowlistedPresentationPreference(payload: DynamicMemoryPayload): boo
   return allowed.has(preference);
 }
 
-function memoryId(workspaceId: WorkspaceId, sourceRef: SourceEvent["id"]): MemoryRecordId {
+function isGovernedPassiveEvidence(evidence: PassiveMemoryEvidence, input: ProposeMemoryInput): boolean {
+  const body = evidence.effectiveText.normalize("NFKC");
+  if (/[?？]/u.test(body) ||
+      /\b(?:whether|who|what|when|where|why|how|which|wonder|asking|asked|tell me)\b|(?:是否|是不是|請問|哪個|哪一|誰|何時|為什麼|怎麼|如何|嗎|呢)/iu.test(body)) {
+    return false;
+  }
+  if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|according to)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如|我想知道|根據.+(?:說法|表示))/iu.test(body)) return false;
+  if (/\b(?:no|not|never|without|don['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|won['’]?t)\b|(?:沒有|沒|不是|不會|未曾|尚未)/iu.test(body)) return false;
+  if (/["“”「」『』]/u.test(body) ||
+      /\b(?:said|says|told|quoted|hears?|heard|hearing|claims?|claimed|claiming|reports?|reported|reporting)\b|(?:轉述|聽說|聽見|表示|說道|聲稱|宣稱|回報|報告|據報)/iu.test(body)) {
+    return false;
+  }
+  if (containsFamilyRelationshipTerm(body)) return false;
+  if (input.payload.memoryType !== "PROCEDURAL" &&
+      /\b(?:response|reply|summary|bullet|format|tone|language|concise|brief|detailed)\b|(?:回覆|回答|摘要|總結|條列|清單|格式|語氣|繁體中文|英文)/iu.test(body)) {
+    return false;
+  }
+  const trimmed = body.trim();
+  const captured = input.payload.memoryType === "PROCEDURAL"
+    ? (/^(?:(?:please\s+)?(?:use|keep|make)\b|(?:i|we)\s+(?:prefer|want):|請(?:用|使用|保持)|我(?:們)?(?:偏好|希望|想要)[：:])/iu.test(trimmed) ? trimmed : null)
+    : (/^(?:i|we)\s+confirm:\s*(.+)$/iu.exec(trimmed)?.[1]
+      ?? /^我(?:們)?確認[：:]\s*(.+)$/u.exec(trimmed)?.[1]
+      ?? null);
+  if (captured === null) return false;
+  const source = normalizedSpan(captured);
+  if (input.payload.memoryType !== "PROCEDURAL" && normalizedSpan(payloadText(input.payload)) !== source) {
+    return false;
+  }
+  return [...input.payload.subjectLabels, ...input.tags]
+    .every((value) => source.includes(normalizedSpan(value)));
+}
+
+function memoryId(
+  workspaceId: WorkspaceId,
+  sourceRef: SourceEvent["id"],
+  proposalSlot?: number,
+): MemoryRecordId {
   const fingerprint = JSON.stringify({
     policyVersion: DYNAMIC_MEMORY_POLICY_VERSION,
     sourceRef,
+    ...(proposalSlot === undefined ? {} : { operation: "PASSIVE_PROPOSAL", proposalSlot }),
   });
   return MemoryRecordIdSchema.parse(
     `memory-record:${createHash("sha256").update(`${workspaceId}\u0000${fingerprint}`).digest("hex")}`,
@@ -224,47 +272,90 @@ export class DynamicMemoryService {
       || sourceBody === undefined
       || (source.payload.kind === "TEXT" && !source.payload.replyRequested)
     ) return { kind: "REJECTED", code: "INELIGIBLE_SOURCE" };
-    const id = memoryId(context.workspaceId, source.id);
-    try {
-      const existing = await this.repository.get(context.workspaceId, id);
-      if (existing !== null) {
-        return ProposeMemoryResultSchema.parse({ kind: "EXISTING", record: withoutWorkspace(existing) });
-      }
-    } catch {
-      return { kind: "TECHNICAL_FAILURE" };
+    return this.proposeBound({
+      workspaceId: context.workspaceId,
+      sourceRef: source.id,
+      lineageSourceRefs: [source.id],
+      authorMemberRef: source.authorMemberId,
+      acceptedAt: source.acceptedAt,
+      sourceBody,
+    }, parsed.data);
+  }
+
+  materializePassive(
+    context: PassiveMemorySourceContext,
+    inputValue: ProposeMemoryInput,
+  ): MaterializePassiveMemoryResult {
+    const parsed = ProposeMemoryInputSchema.safeParse(inputValue);
+    if (!parsed.success) return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
+    const evidence = context.evidence;
+    if (evidence.workspaceId !== context.workspaceId ||
+        !Number.isInteger(context.proposalSlot) || context.proposalSlot < 0 || context.proposalSlot >= 16) {
+      return { kind: "REJECTED", code: "INELIGIBLE_SOURCE" };
     }
-    if (isRelationshipMaterial(parsed.data.payload)) {
+    if (!isGovernedPassiveEvidence(evidence, parsed.data)) {
       return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     }
-    if (!isAllowlistedPresentationPreference(parsed.data.payload)) {
+    const materialized = this.materializeBound({
+      workspaceId: context.workspaceId,
+      sourceRef: evidence.canonicalSourceRef,
+      lineageSourceRefs: evidence.lineageSourceRefs,
+      authorMemberRef: evidence.authorMemberId,
+      acceptedAt: evidence.acceptedAt,
+      sourceBody: evidence.effectiveText,
+      proposalSlot: context.proposalSlot,
+    }, parsed.data);
+    return "id" in materialized ? { kind: "MATERIALIZED", record: materialized } : materialized;
+  }
+
+  private materializeBound(source: {
+    workspaceId: WorkspaceId;
+    sourceRef: SourceEvent["id"];
+    lineageSourceRefs: readonly SourceEvent["id"][];
+    authorMemberRef: Exclude<SourceEvent["authorMemberId"], "MEDBUDDY">;
+    acceptedAt: string;
+    sourceBody: string;
+    proposalSlot?: number;
+  }, input: ProposeMemoryInput): DynamicMemoryRecord | Extract<ProposeMemoryResult, { kind: "REJECTED" }> {
+    if (isRelationshipMaterial(input.payload)) return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
+    if (!isAllowlistedPresentationPreference(input.payload)) {
       return { kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" };
     }
-    if (!hasExactSourceSpans(parsed.data, sourceBody)) {
-      return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
-    }
-    const normalizedInput = {
-      ...parsed.data,
-      tags: [...new Set(parsed.data.tags)].sort(),
-    };
-    const record = DynamicMemoryRecordSchema.parse({
-      id,
-      workspaceId: context.workspaceId,
-      payload: normalizedInput.payload,
+    if (!hasExactSourceSpans(input, source.sourceBody)) return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
+    return DynamicMemoryRecordSchema.parse({
+      id: memoryId(source.workspaceId, source.sourceRef, source.proposalSlot),
+      workspaceId: source.workspaceId,
+      payload: input.payload,
       sourceClass: "HUMAN_CONVERSATION",
       trustClass: "UNREVIEWED_DERIVED",
       lifecycle: "ACTIVE",
       canonicalSource: {
-        sourceRef: source.id,
-        lineageSourceRefs: [source.id],
-        authorMemberRef: source.authorMemberId,
+        sourceRef: source.sourceRef,
+        lineageSourceRefs: source.lineageSourceRefs,
+        authorMemberRef: source.authorMemberRef,
         acceptedAt: source.acceptedAt,
       },
-      tags: normalizedInput.tags,
+      tags: [...new Set(input.tags)].sort(),
       policyVersion: DYNAMIC_MEMORY_POLICY_VERSION,
       recordedAt: this.now?.() ?? new Date().toISOString(),
     });
+  }
+
+  private async proposeBound(source: {
+    workspaceId: WorkspaceId;
+    sourceRef: SourceEvent["id"];
+    lineageSourceRefs: readonly SourceEvent["id"][];
+    authorMemberRef: Exclude<SourceEvent["authorMemberId"], "MEDBUDDY">;
+    acceptedAt: string;
+    sourceBody: string;
+    proposalSlot?: number;
+  }, input: ProposeMemoryInput): Promise<ProposeMemoryResult> {
+    const materialized = this.materializeBound(source, input);
+    if (!("id" in materialized)) return materialized;
+    const record = materialized;
     try {
       const result = await this.repository.createOrGet(record);
+      if (result.kind === "CONFLICT") return { kind: "CONFLICT" };
       return ProposeMemoryResultSchema.parse({
         kind: result.kind,
         record: withoutWorkspace(result.record),

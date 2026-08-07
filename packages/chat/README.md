@@ -14,6 +14,11 @@ narrow family-map and dynamic-memory capabilities passed to Intelligence.
 trusted workspace. Query filters are literal and deterministic; source excerpts
 are exact, bounded evidence, and incomplete or uncertain reads fail explicitly.
 
+`DynamicMemoryService` is shared by active tools and the silent passive worker.
+Passive proposals are validated and materialized without storage mutation;
+the fenced passive job repository owns their atomic batch commit. Deterministic
+per-source slots preserve edit lineage and make array-order retries stable.
+
 ## Depends on
 
 - `@medbuddy/contracts`

@@ -48,9 +48,11 @@ export function describeDynamicMemoryRepositoryContract(
         tags: ["retry-wording"],
         recordedAt: "2026-08-06T12:01:00.000Z",
       })).resolves.toEqual({
-        kind: "EXISTING",
+        kind: "CONFLICT",
         record: firstRecord,
       });
+      await expect(repository.createOrGet({ ...firstRecord, recordedAt: "2026-08-06T12:01:00.000Z" }))
+        .resolves.toEqual({ kind: "EXISTING", record: firstRecord });
       await expect(repository.listActive(firstRecord.workspaceId, 10)).resolves.toEqual([firstRecord]);
     });
 
