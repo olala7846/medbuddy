@@ -20,6 +20,8 @@ const firstRecord = DynamicMemoryRecordSchema.parse({
   canonicalSource: {
     sourceRef: "source-event:memory-first",
     lineageSourceRefs: ["source-event:memory-first"],
+    messageRef: "message:memory-first",
+    sourceSequence: 1,
     authorMemberRef: "member:memory-a",
     acceptedAt: "2026-08-06T12:00:00.000Z",
   },
@@ -66,6 +68,8 @@ export function describeDynamicMemoryRepositoryContract(
           ...firstRecord.canonicalSource,
           sourceRef: "source-event:memory-second",
           lineageSourceRefs: ["source-event:memory-second"],
+          messageRef: "message:memory-second",
+          sourceSequence: 2,
           acceptedAt: "2026-08-06T12:05:00.000Z",
         },
         recordedAt: "2026-08-06T12:05:00.000Z",
@@ -125,6 +129,8 @@ export function describeDynamicMemoryRepositoryContract(
         canonicalSource: {
           sourceRef: "source-event:correction",
           lineageSourceRefs: [firstRecord.canonicalSource.sourceRef, "source-event:correction"],
+          messageRef: "message:correction",
+          sourceSequence: 2,
           authorMemberRef: "member:corrector",
           acceptedAt: "2026-08-06T13:00:00.000Z",
         },
@@ -171,6 +177,8 @@ export function describeDynamicMemoryRepositoryContract(
           canonicalSource: {
             sourceRef: `source-event:${suffix}`,
             lineageSourceRefs: [`source-event:${suffix}`],
+            messageRef: `message:${suffix}`,
+            sourceSequence: suffix === "forget-a" ? 2 : 3,
             authorMemberRef: "member:memory-a",
             acceptedAt: "2026-08-06T13:00:00.000Z",
           },
@@ -200,6 +208,8 @@ export function describeDynamicMemoryRepositoryContract(
           canonicalSource: {
             sourceRef: "source-event:cross-workspace",
             lineageSourceRefs: ["source-event:cross-workspace"],
+            messageRef: "message:cross-workspace",
+            sourceSequence: 1,
             authorMemberRef: "member:memory-b",
             acceptedAt: "2026-08-06T13:00:00.000Z",
           },

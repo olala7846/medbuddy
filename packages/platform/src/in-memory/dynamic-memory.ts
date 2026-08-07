@@ -10,6 +10,7 @@ import {
 } from "@medbuddy/contracts";
 
 import { InMemoryTransactionQueue } from "./transactions.js";
+import { InMemoryMemorySourceFreshnessStore } from "./memory-source-freshness.js";
 
 function clone<Value>(value: Value): Value {
   return structuredClone(value);
@@ -29,6 +30,8 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
   readonly #lifecycleEvents = new Map<string, import("@medbuddy/contracts").MemoryLifecycleEvent>();
   readonly #transactions = new InMemoryTransactionQueue();
 
+  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore(true)) {}
+
   async get(
     workspaceId: Parameters<DynamicMemoryRepository["get"]>[0],
     id: Parameters<DynamicMemoryRepository["get"]>[1],
@@ -39,7 +42,7 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
 
   async createOrGet(value: DynamicMemoryRecord) {
     const record = DynamicMemoryRecordSchema.parse(value);
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       const key = `${record.workspaceId}\u0000${record.id}`;
       const existing = this.#records.get(key);
       if (existing !== undefined) {
@@ -48,9 +51,10 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
           record: clone(existing),
         });
       }
+      this.memoryFreshness.assertCurrent(record);
       this.#records.set(key, clone(record));
       return CreateDynamicMemoryResultSchema.parse({ kind: "STORED", record: clone(record) });
-    });
+    }));
   }
 
   async listActive(
@@ -92,7 +96,7 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
 
   async applyLifecycleTransition(inputValue: Parameters<DynamicMemoryRepository["applyLifecycleTransition"]>[0]) {
     const input = ApplyMemoryLifecycleTransitionInputSchema.parse(inputValue);
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       const operationKey = `${input.event.workspaceId}\u0000${input.operationId}`;
       const fingerprint = JSON.stringify(input);
       const replay = this.#lifecycleOperations.get(operationKey);
@@ -109,6 +113,7 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
         return { kind: "LIFECYCLE_CONFLICT" as const };
       }
       if (input.successor !== undefined) {
+        this.memoryFreshness.assertCurrent(input.successor);
         const successorKey = `${input.successor.workspaceId}\u0000${input.successor.id}`;
         if (this.#records.has(successorKey)) return { kind: "LIFECYCLE_CONFLICT" as const };
         this.#records.set(successorKey, clone(input.successor));
@@ -126,7 +131,7 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
       this.#lifecycleEvents.set(`${input.event.workspaceId}\u0000${input.event.id}`, clone(input.event));
       this.#lifecycleOperations.set(operationKey, { fingerprint, result: clone(result) });
       return result;
-    });
+    }));
   }
 
   async listBySourceLineage(

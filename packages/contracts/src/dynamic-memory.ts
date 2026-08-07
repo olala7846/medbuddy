@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   MemberIdSchema,
+  MessageIdSchema,
   MemoryLifecycleEventIdSchema,
   MemoryLifecycleOperationIdSchema,
   MemoryRecordIdSchema,
@@ -69,6 +70,8 @@ export const DynamicMemoryPayloadSchema = z.discriminatedUnion("memoryType", [
 export const CanonicalMemorySourceSchema = z.object({
   sourceRef: SourceEventIdSchema,
   lineageSourceRefs: z.array(SourceEventIdSchema).min(1).max(32),
+  messageRef: MessageIdSchema,
+  sourceSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   authorMemberRef: MemberIdSchema,
   acceptedAt: TimestampSchema,
 }).strict().superRefine((source, context) => {

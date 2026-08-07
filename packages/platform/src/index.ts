@@ -2,6 +2,7 @@ export * from "./in-memory/repositories.js";
 export * from "./in-memory/continuity.js";
 export * from "./in-memory/dynamic-memory.js";
 export * from "./in-memory/transactions.js";
+export * from "./in-memory/memory-source-freshness.js";
 export * from "./firestore/repositories.js";
 export * from "./firestore/continuity.js";
 export * from "./firestore/dynamic-memory.js";

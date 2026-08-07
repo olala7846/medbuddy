@@ -79,6 +79,8 @@ describe("dynamic memory contracts", () => {
       canonicalSource: {
         sourceRef: "source-event:correction",
         lineageSourceRefs: ["source-event:correction"],
+        messageRef: "message:correction",
+        sourceSequence: 2,
         authorMemberRef: "member:corrector",
         acceptedAt: "2026-08-06T13:00:00.000Z",
       },

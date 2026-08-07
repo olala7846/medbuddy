@@ -221,6 +221,8 @@ export function describePassiveMemoryAdapterContract(create: () => {
         canonicalSource: {
           sourceRef: "source-event:passive-edit",
           lineageSourceRefs: ["source-event:passive-original", "source-event:passive-edit"],
+          messageRef: "message:passive-original",
+          sourceSequence: 2,
           authorMemberRef: "member:fictional-a",
           acceptedAt: "2026-08-06T12:02:00.000Z",
         },

@@ -103,6 +103,20 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       transaction.create(this.sourceEventRef(input.workspaceId, event.id), event);
       transaction.set(counterRef, { nextSourceSequence: sourceSequence });
       transaction.create(receiptRef, { workspaceId: input.workspaceId, sourceEventId: event.id });
+      const freshnessRef = this.memorySourceFreshnessRef(event);
+      if (freshnessRef !== null) {
+        transaction.set(freshnessRef, {
+          workspaceId: event.workspaceId,
+          messageRef: event.payload.kind === "TEXT"
+            ? event.providerMessageId
+            : event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND"
+              ? event.payload.targetMessageId
+              : undefined,
+          currentSourceRef: event.id,
+          sourceSequence: event.sourceSequence,
+          status: event.payload.kind === "UNSEND" ? "UNSENT" : "ACTIVE",
+        });
+      }
       if (compatibilityRefs !== undefined && compatibilityMessage !== undefined && compatibilityCounter !== undefined && !compatibilityMessage.exists) {
         const revision = nonnegativeInteger(compatibilityCounter.data()?.nextRevision, "Message revision counter") + 1;
         transaction.create(compatibilityRefs.message, MessageDocumentSchema.parse({
@@ -573,6 +587,17 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
 
   private sourceEventRef(workspaceId: string, sourceEventId: string) {
     return this.workspaceRef(workspaceId).collection("sourceEvents").doc(sourceEventId);
+  }
+
+  private memorySourceFreshnessRef(event: SourceEvent) {
+    const messageRef = event.payload.kind === "TEXT"
+      ? event.providerMessageId
+      : event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND"
+        ? event.payload.targetMessageId
+        : undefined;
+    return messageRef === undefined
+      ? null
+      : this.workspaceRef(event.workspaceId).collection("dynamicMemorySourceFreshness").doc(messageRef);
   }
 
   private compatibilityMessageRef(workspaceId: string, messageId: string) {

@@ -34,6 +34,8 @@ import {
   containsFamilyRelationshipTerm,
 } from "@medbuddy/contracts";
 
+import { classifyExplicitMemoryLifecycle } from "./memory-lifecycle-intent.js";
+
 export type ActiveMemorySourceContext = {
   workspaceId: WorkspaceId;
   focalSource: SourceEvent;
@@ -87,22 +89,10 @@ function normalizedSpan(value: string): string {
   return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
 }
 
-function isExplicitCorrectionSource(sourceBody: string): boolean {
-  const body = normalizedSpan(sourceBody).replace(/^@\S+\s+/u, "");
-  return /^(?:please\s+)?(?:correct|correction\s*:)/u.test(body)
-    || /^(?:請)?(?:更正|修正)/u.test(body);
-}
-
-function isExplicitSupersedeSource(
-  sourceBody: string,
-  reason: "WITHDRAWN" | "FORGOTTEN" | "DELETED",
-): boolean {
-  const body = normalizedSpan(sourceBody).replace(/^@\S+\s+/u, "");
-  switch (reason) {
-    case "WITHDRAWN": return /^(?:please\s+)?(?:withdraw|retract)\b/u.test(body) || /^(?:請)?撤回/u.test(body);
-    case "FORGOTTEN": return /^(?:please\s+)?forget\b/u.test(body) || /^(?:請)?忘記/u.test(body);
-    case "DELETED": return /^(?:please\s+)?(?:delete|remove)\b/u.test(body) || /^(?:請)?刪除/u.test(body);
-  }
+function messageRefForSource(source: SourceEvent): MessageId | null {
+  if (source.payload.kind === "TEXT") return source.providerMessageId ?? null;
+  if (source.payload.kind === "TEXT_EDIT" || source.payload.kind === "UNSEND") return source.payload.targetMessageId;
+  return null;
 }
 
 function matchesQuery(record: DynamicMemoryRecord, query: ReturnType<typeof QueryMemoryInputSchema.parse>): boolean {
@@ -314,10 +304,12 @@ export class DynamicMemoryService {
     const sourceBody = source.payload.kind === "TEXT" || source.payload.kind === "TEXT_EDIT"
       ? source.payload.body
       : undefined;
+    const messageRef = messageRefForSource(source);
     if (
       source.workspaceId !== context.workspaceId
       || source.authorMemberId === "MEDBUDDY"
       || sourceBody === undefined
+      || messageRef === null
       || (source.payload.kind === "TEXT" && !source.payload.replyRequested)
     ) return { kind: "REJECTED", code: "INELIGIBLE_SOURCE" };
     if (parsed.data.operation === "SUPERSEDE_ONLY") {
@@ -329,12 +321,14 @@ export class DynamicMemoryService {
         workspaceId: context.workspaceId,
         sourceRef: source.id,
         lineageSourceRefs: [source.id],
+        messageRef,
+        sourceSequence: source.sourceSequence,
         authorMemberRef: source.authorMemberId,
         acceptedAt: source.acceptedAt,
         sourceBody,
       }, proposal);
     }
-    if (!isExplicitCorrectionSource(sourceBody)) {
+    if (classifyExplicitMemoryLifecycle(sourceBody) !== "CORRECTED") {
       return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     }
     let target: DynamicMemoryRecord | null;
@@ -350,6 +344,8 @@ export class DynamicMemoryService {
       workspaceId: context.workspaceId,
       sourceRef: source.id,
       lineageSourceRefs: [...new Set([...target.canonicalSource.lineageSourceRefs, source.id])],
+      messageRef,
+      sourceSequence: source.sourceSequence,
       authorMemberRef: source.authorMemberId,
       acceptedAt: source.acceptedAt,
       sourceBody,
@@ -380,6 +376,8 @@ export class DynamicMemoryService {
       workspaceId: context.workspaceId,
       sourceRef: evidence.canonicalSourceRef,
       lineageSourceRefs: evidence.lineageSourceRefs,
+      messageRef: evidence.providerMessageId,
+      sourceSequence: evidence.sourceSequence,
       authorMemberRef: evidence.authorMemberId,
       acceptedAt: evidence.acceptedAt,
       sourceBody: evidence.effectiveText,
@@ -392,6 +390,8 @@ export class DynamicMemoryService {
     workspaceId: WorkspaceId;
     sourceRef: SourceEvent["id"];
     lineageSourceRefs: readonly SourceEvent["id"][];
+    messageRef: MessageId;
+    sourceSequence: number;
     authorMemberRef: Exclude<SourceEvent["authorMemberId"], "MEDBUDDY">;
     acceptedAt: string;
     sourceBody: string;
@@ -414,6 +414,8 @@ export class DynamicMemoryService {
       canonicalSource: {
         sourceRef: source.sourceRef,
         lineageSourceRefs: source.lineageSourceRefs,
+        messageRef: source.messageRef,
+        sourceSequence: source.sourceSequence,
         authorMemberRef: source.authorMemberRef,
         acceptedAt: source.acceptedAt,
       },
@@ -428,6 +430,8 @@ export class DynamicMemoryService {
     workspaceId: WorkspaceId;
     sourceRef: SourceEvent["id"];
     lineageSourceRefs: readonly SourceEvent["id"][];
+    messageRef: MessageId;
+    sourceSequence: number;
     authorMemberRef: Exclude<SourceEvent["authorMemberId"], "MEDBUDDY">;
     acceptedAt: string;
     sourceBody: string;
@@ -468,6 +472,8 @@ export class DynamicMemoryService {
           canonicalSource: {
             sourceRef: source.id,
             lineageSourceRefs: [source.id],
+            messageRef: messageRefForSource(source)!,
+            sourceSequence: source.sourceSequence,
             authorMemberRef: source.authorMemberId as Exclude<SourceEvent["authorMemberId"], "MEDBUDDY">,
             acceptedAt: source.acceptedAt,
           },
@@ -496,7 +502,7 @@ export class DynamicMemoryService {
     const sourceBody = source.payload.kind === "TEXT" || source.payload.kind === "TEXT_EDIT"
       ? source.payload.body
       : "";
-    if (!isExplicitSupersedeSource(sourceBody, action)) {
+    if (classifyExplicitMemoryLifecycle(sourceBody) !== action) {
       return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     }
     const ids = lifecycleIds(context.workspaceId, input.targetRecordId, action, source.id);
@@ -511,6 +517,8 @@ export class DynamicMemoryService {
           canonicalSource: {
             sourceRef: source.id,
             lineageSourceRefs: [source.id],
+            messageRef: messageRefForSource(source)!,
+            sourceSequence: source.sourceSequence,
             authorMemberRef: source.authorMemberId as Exclude<SourceEvent["authorMemberId"], "MEDBUDDY">,
             acceptedAt: source.acceptedAt,
           },
@@ -562,6 +570,8 @@ export class DynamicMemoryService {
           canonicalSource: {
             sourceRef: mutation.id,
             lineageSourceRefs: [mutation.id],
+            messageRef: mutation.payload.targetMessageId,
+            sourceSequence: mutation.sourceSequence,
             authorMemberRef: mutation.authorMemberId as Exclude<SourceEvent["authorMemberId"], "MEDBUDDY">,
             acceptedAt: mutation.acceptedAt,
           },

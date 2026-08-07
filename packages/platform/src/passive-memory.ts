@@ -23,6 +23,7 @@ import {
 } from "@medbuddy/contracts";
 
 import { InMemoryTransactionQueue } from "./in-memory/transactions.js";
+import { InMemoryMemorySourceFreshnessStore } from "./in-memory/memory-source-freshness.js";
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -142,12 +143,14 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
   readonly #lifecycleOperations = new Map<string, { fingerprint: string; result: unknown }>();
   readonly #lifecycleEvents = new Map<string, import("@medbuddy/contracts").MemoryLifecycleEvent>();
 
+  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore(true)) {}
+
   async claimAttempt(
     workspaceId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[0],
     jobId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[1],
     claimedAt: string,
   ) {
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       const job = this.#jobs.get(this.key(workspaceId, jobId));
       if (job === undefined || job.workspaceId !== workspaceId) {
         throw new Error("Passive-memory attempt does not match the active persisted workspace job.");
@@ -169,7 +172,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
       });
       this.#jobs.set(this.key(workspaceId, jobId), clone(claimed));
       return PassiveMemoryAttemptClaimSchema.parse({ kind: "CLAIMED", job: claimed });
-    });
+    }));
   }
 
   async releaseAttempt(value: PassiveMemoryJob, fence: PassiveMemoryAttemptFence): Promise<PassiveMemoryJob> {
@@ -183,19 +186,20 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
     if (job.status !== "COMPLETED" && parsedRecords.length > 0) {
       throw new Error("Only a completed passive-memory job may commit active records.");
     }
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       this.validateFenced(job, fence, true);
       const pending = parsedRecords.map((record) => {
         if (record.workspaceId !== job.workspaceId) throw new Error("Passive memory cannot cross a workspace boundary.");
         const existing = this.#records.get(this.memoryKey(record.workspaceId, record.id));
         if (existing !== undefined && !sameMemoryOperation(existing, record)) throw new Error("Passive proposal operation conflict.");
+        if (existing === undefined) this.memoryFreshness.assertCurrent(record);
         return { record, existing };
       });
       for (const { record, existing } of pending) {
         if (existing === undefined) this.#records.set(this.memoryKey(record.workspaceId, record.id), clone(record));
       }
       return this.applyFenced(job, true);
-    });
+    }));
   }
 
   async get(workspaceId: Parameters<PassiveMemoryJobRepository["get"]>[0], id: Parameters<PassiveMemoryJobRepository["get"]>[1]): Promise<PassiveMemoryJob | null>;
@@ -210,22 +214,23 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
   async createOrGet(value: PassiveMemoryJob | DynamicMemoryRecord): Promise<unknown> {
     if ("policyVersion" in value && value.policyVersion === "dynamic-memory-v1") {
       const record = DynamicMemoryRecordSchema.parse(value);
-      return this.#transactions.run(async () => {
+      return this.memoryFreshness.run(() => this.#transactions.run(async () => {
         const key = this.memoryKey(record.workspaceId, record.id);
         const existing = this.#records.get(key);
         if (existing !== undefined) return CreateDynamicMemoryResultSchema.parse({
           kind: sameMemoryOperation(existing, record) ? "EXISTING" : "CONFLICT", record: clone(existing),
         });
+        this.memoryFreshness.assertCurrent(record);
         this.#records.set(key, clone(record));
         return CreateDynamicMemoryResultSchema.parse({ kind: "STORED", record: clone(record) });
-      });
+      }));
     }
     const job = PassiveMemoryJobSchema.parse(value);
     return this.createOrGetJob(job);
   }
 
   private async createOrGetJob(job: PassiveMemoryJob): Promise<PassiveMemoryJob> {
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       const existing = this.#jobs.get(this.key(job.workspaceId, job.id));
       if (existing !== undefined) {
         if (!same(existing, job)) throw new Error("Passive-memory job identity conflict.");
@@ -238,7 +243,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
       this.#jobs.set(this.key(job.workspaceId, job.id), clone(job));
       this.#active.set(job.workspaceId, job.id);
       return clone(job);
-    });
+    }));
   }
 
   async listActive(workspaceId: string, limit: number): Promise<readonly DynamicMemoryRecord[]> {
@@ -272,7 +277,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
 
   async applyLifecycleTransition(inputValue: Parameters<DynamicMemoryRepository["applyLifecycleTransition"]>[0]) {
     const input = ApplyMemoryLifecycleTransitionInputSchema.parse(inputValue);
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       const operationKey = this.memoryKey(input.event.workspaceId, input.operationId);
       const fingerprint = JSON.stringify(input);
       const replay = this.#lifecycleOperations.get(operationKey);
@@ -289,6 +294,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
         return { kind: "LIFECYCLE_CONFLICT" as const };
       }
       if (input.successor !== undefined) {
+        this.memoryFreshness.assertCurrent(input.successor);
         const successorKey = this.memoryKey(input.successor.workspaceId, input.successor.id);
         if (this.#records.has(successorKey)) return { kind: "LIFECYCLE_CONFLICT" as const };
         this.#records.set(successorKey, clone(input.successor));
@@ -306,7 +312,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
       this.#lifecycleEvents.set(this.memoryKey(input.event.workspaceId, input.event.id), clone(input.event));
       this.#lifecycleOperations.set(operationKey, { fingerprint, result: clone(result) });
       return result;
-    });
+    }));
   }
 
   async listBySourceLineage(

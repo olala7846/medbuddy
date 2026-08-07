@@ -9,7 +9,10 @@ workspace-isolated compare-and-set contract. Firestore stores only
 Dynamic-memory adapters expose deterministic current/history scans capped at
 500 records plus atomic, idempotent lifecycle transitions. Lifecycle events are
 auditable metadata; correction successors and source-lineage lookups remain
-workspace-path-bound. The adapters do not search raw conversation, continuity
+workspace-path-bound. Source acceptance atomically advances a per-message
+lineage head (including unsend tombstones); active, correction-successor, and
+passive publication validate that head in the same transaction as their write.
+The adapters do not search raw conversation, continuity
 compaction, relationship maps, or reviewed-care records.
 
 Passive-memory adapters expose only capped effective human text/edit ranges and

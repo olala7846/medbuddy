@@ -66,6 +66,8 @@ function record(input: {
     canonicalSource: {
       sourceRef,
       lineageSourceRefs: [sourceRef],
+      messageRef: `message:${input.id.replace("memory-record:", "")}`,
+      sourceSequence: 1,
       authorMemberRef: input.memberRef ?? "member:memory-a",
       acceptedAt: input.acceptedAt,
     },
@@ -430,6 +432,14 @@ describe("DynamicMemoryService", () => {
     ["Don't forget that the folder is blue.", "EXPLICIT_WRITE"],
     ["請記住資料夾是藍色的。", "EXPLICIT_WRITE"],
     ["別忘記資料夾是藍色的。", "EXPLICIT_WRITE"],
+    ["Please correct it: the folder is green.", "EXPLICIT_WRITE"],
+    ["請刪除那筆資料夾記憶。", "EXPLICIT_WRITE"],
+    ["Correct me if I’m wrong: the folder is green?", "NEUTRAL"],
+    ["Correction: is the folder green?", "NEUTRAL"],
+    ["Correction: is the folder green", "NEUTRAL"],
+    ["Maybe delete that memory?", "NEUTRAL"],
+    ["她說「請忘記那筆記憶」。", "NEUTRAL"],
+    ["如果我錯了，請更正：資料夾是綠色的？", "NEUTRAL"],
     ["The folder is blue. What should I bring?", "NEUTRAL"],
   ])("classifies one precedence-ordered active-memory intent: %s", (body, expected) => {
     expect(classifyActiveMemoryIntent(body)).toBe(expected);
@@ -768,6 +778,42 @@ describe("DynamicMemoryService", () => {
 });
 
 describe("dynamic memory lifecycle", () => {
+  it.each([
+    ["Correct me if I’m wrong: our fictional appointment folder is green?", "CORRECTION"],
+    ["Correction: is our fictional appointment folder green?", "CORRECTION"],
+    ["Correction: is our fictional appointment folder green", "CORRECTION"],
+    ["Maybe delete that memory?", "DELETED"],
+    ["她說「請忘記那筆記憶」。", "FORGOTTEN"],
+    ["如果我錯了，請更正：我們的虛構資料夾是綠色的？", "CORRECTION"],
+  ] as const)("does not supersede memory for non-affirmative lifecycle text: %s", async (body, action) => {
+    const repository = new InMemoryDynamicMemoryRepository();
+    const service = new DynamicMemoryService(repository);
+    const original = await service.propose({ workspaceId: source.workspaceId, focalSource: source }, semanticProposal);
+    if (original.kind !== "STORED") throw new Error("Expected stored original.");
+    const focalSource = SourceEventSchema.parse({
+      ...source,
+      id: `source-event:rejected-lifecycle-${action.toLowerCase()}`,
+      sourceSequence: 2,
+      providerMessageId: `message:rejected-lifecycle-${action.toLowerCase()}`,
+      payload: { ...source.payload, body },
+    });
+    const proposal = action === "CORRECTION"
+      ? ProposeMemoryInputSchema.parse({
+          operation: "STORE",
+          supersedesRecordId: original.record.id,
+          payload: { memoryType: "SEMANTIC", statement: body.includes("我們") ? "我們的虛構資料夾是綠色的" : "our fictional appointment folder is green", subjectLabels: [] },
+        })
+      : ProposeMemoryInputSchema.parse({
+          operation: "SUPERSEDE_ONLY",
+          targetRecordId: original.record.id,
+          reason: action,
+        });
+    await expect(service.propose({ workspaceId: source.workspaceId, focalSource }, proposal))
+      .resolves.toEqual({ kind: "REJECTED", code: "INELIGIBLE_CONTENT" });
+    await expect(repository.get(source.workspaceId, original.record.id))
+      .resolves.toMatchObject({ lifecycle: "ACTIVE" });
+  });
+
   it("lets another workspace participant correct shared memory with current-only and typed history views", async () => {
     const repository = new InMemoryDynamicMemoryRepository();
     const correction = SourceEventSchema.parse({
@@ -848,6 +894,26 @@ describe("dynamic memory lifecycle", () => {
       .resolves.toMatchObject({ records: [] });
     await expect(repository.scan(source.workspaceId, "NEWEST_FIRST", 500, true))
       .resolves.toMatchObject({ records: [expect.objectContaining({ id: original.record.id })] });
+  });
+
+  it("accepts an affirmative Traditional Chinese delete command", async () => {
+    const repository = new InMemoryDynamicMemoryRepository();
+    const service = new DynamicMemoryService(repository);
+    const original = await service.propose({ workspaceId: source.workspaceId, focalSource: source }, semanticProposal);
+    if (original.kind !== "STORED") throw new Error("Expected stored original.");
+    const deletion = SourceEventSchema.parse({
+      ...source,
+      id: "source-event:memory-delete-zh",
+      sourceSequence: 2,
+      providerMessageId: "message:memory-delete-zh",
+      payload: { ...source.payload, body: "請刪除那筆虛構的資料夾記憶。" },
+    });
+    await expect(service.propose({ workspaceId: source.workspaceId, focalSource: deletion }, {
+      operation: "SUPERSEDE_ONLY",
+      targetRecordId: original.record.id,
+      reason: "DELETED",
+    })).resolves.toMatchObject({ kind: "SUPERSEDED", targetRecordId: original.record.id });
+    await expect(repository.listActive(source.workspaceId, 10)).resolves.toEqual([]);
   });
 
   it("allows only one winner when different corrections race", async () => {
@@ -1058,6 +1124,8 @@ describe("active memory capabilities", () => {
         canonicalSource: {
           sourceRef: source.id,
           lineageSourceRefs: [source.id],
+          messageRef: source.providerMessageId,
+          sourceSequence: source.sourceSequence,
           authorMemberRef: source.authorMemberId,
           acceptedAt: source.acceptedAt,
         },
@@ -1142,6 +1210,8 @@ describe("active memory capabilities", () => {
         canonicalSource: {
           sourceRef: autonomousSource.id,
           lineageSourceRefs: [autonomousSource.id],
+          messageRef: autonomousSource.providerMessageId,
+          sourceSequence: autonomousSource.sourceSequence,
           authorMemberRef: autonomousSource.authorMemberId,
           acceptedAt: autonomousSource.acceptedAt,
         },

@@ -16,6 +16,8 @@ import {
   SourceEventSchema,
 } from "@medbuddy/contracts";
 
+import { InMemoryMemorySourceFreshnessStore } from "./memory-source-freshness.js";
+
 function clone<Value>(value: Value): Value {
   return structuredClone(value);
 }
@@ -76,9 +78,11 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
   private readonly segments = new Map<string, CompactionSegment>();
   private readonly queue = new WorkspaceQueue();
 
+  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore()) {}
+
   async acceptSourceEvent(inputValue: Parameters<ContinuityRepository["acceptSourceEvent"]>[0]): Promise<AcceptSourceEventResult> {
     const input = AcceptSourceEventInputSchema.parse(inputValue);
-    return this.queue.run(input.workspaceId, () => {
+    return this.memoryFreshness.run(() => this.queue.run(input.workspaceId, () => {
       const existing = this.receipts.get(input.receiptKey);
       if (existing !== undefined) return { kind: "DUPLICATE", event: clone(existing) };
       const workspaceEvents = this.events.get(input.workspaceId) ?? [];
@@ -91,8 +95,9 @@ export class InMemoryContinuityRepository implements ContinuityRepository {
       workspaceEvents.push(clone(event));
       this.events.set(input.workspaceId, workspaceEvents);
       this.receipts.set(input.receiptKey, clone(event));
+      this.memoryFreshness.recordAccepted(event);
       return { kind: "ACCEPTED", event };
-    });
+    }));
   }
 
   async listSourceEvents(workspaceId: Parameters<ContinuityRepository["listSourceEvents"]>[0], afterSequence = 0): Promise<readonly SourceEvent[]> {

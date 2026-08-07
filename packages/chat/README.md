@@ -17,6 +17,10 @@ deletion. `includeHistory` adds typed lifecycle lineage. Query filters remain
 literal and deterministic; source excerpts are exact, bounded evidence, and
 incomplete or uncertain reads fail explicitly.
 
+Lifecycle authority comes from one structural command classifier shared by
+intent binding and storage mutation. Questions, conditional or uncertain
+phrasing, and quoted or reported commands never authorize correction or removal.
+
 `DynamicMemoryService` is shared by active tools and the silent passive worker.
 Passive proposals are validated and materialized without storage mutation;
 the fenced passive job repository owns their atomic batch commit. Deterministic

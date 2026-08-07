@@ -13,6 +13,7 @@ import {
 } from "@medbuddy/contracts";
 
 import { DynamicMemoryService } from "./dynamic-memory.js";
+import { classifyExplicitMemoryLifecycle } from "./memory-lifecycle-intent.js";
 
 export const MEMORY_WRITE_FAILURE_TEXT = "I couldn’t remember that right now. Please try again.";
 export const MEMORY_QUERY_FAILURE_TEXT = "I couldn’t check this chat’s memory right now. Please try again.";
@@ -40,8 +41,7 @@ export function classifyActiveMemoryIntent(bodyValue: string): ActiveMemoryInten
     || /^(?:do\s+not|don['’]?t)\s+forget\b/iu.test(body)
     || /^(?:請)?(?:記住|記錄|保存|存下)/u.test(body)
     || /^別忘記/u.test(body)
-    || /^(?:please\s+)?(?:correct|forget|withdraw|delete)\b/iu.test(body)
-    || /^(?:請)?(?:更正|修正|忘記|撤回|刪除)/u.test(body);
+    || classifyExplicitMemoryLifecycle(body) !== null;
   return write ? "EXPLICIT_WRITE" : "NEUTRAL";
 }
 
