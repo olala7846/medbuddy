@@ -167,6 +167,15 @@ describe("first-threshold-wins memory formation", () => {
       policyVersion: "memory-formation-v1-verification-small" }, at(1))).resolves.toBe("POLICY_MISMATCH");
   });
 
+  it("fails closed when crash recovery encounters an outbox entry from another whole profile", async () => {
+    const mismatched = { ...event(1, 100, at(0)),
+      policyVersion: "memory-formation-v1-verification-small" as const };
+    const h = harness([mismatched]);
+    await expect(h.scheduler.reconcileWorkspace(workspaceId)).rejects.toThrow(/outbox policy/i);
+    expect(h.getState()).toBeNull();
+    expect(h.dispatches).toHaveLength(0);
+  });
+
   it("retries durable lifecycle cleanup without inflating count or rendered size", async () => {
     const cleanup = vi.fn().mockRejectedValueOnce(new Error("temporary")).mockResolvedValue(undefined);
     const lifecycle: AcceptedFormationEvent = { workspaceId, sourceEventId: "source-event:edit" as never,
