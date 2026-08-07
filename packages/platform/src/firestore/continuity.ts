@@ -19,6 +19,8 @@ import {
   SourceEventSchema,
 } from "@medbuddy/contracts";
 
+import { dynamicMemorySourceFreshnessRef } from "./memory-source-freshness.js";
+
 function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
@@ -103,6 +105,20 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       transaction.create(this.sourceEventRef(input.workspaceId, event.id), event);
       transaction.set(counterRef, { nextSourceSequence: sourceSequence });
       transaction.create(receiptRef, { workspaceId: input.workspaceId, sourceEventId: event.id });
+      const freshnessRef = this.memorySourceFreshnessRef(event);
+      if (freshnessRef !== null) {
+        transaction.set(freshnessRef, {
+          workspaceId: event.workspaceId,
+          messageRef: event.payload.kind === "TEXT"
+            ? event.providerMessageId
+            : event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND"
+              ? event.payload.targetMessageId
+              : undefined,
+          currentSourceRef: event.id,
+          sourceSequence: event.sourceSequence,
+          status: event.payload.kind === "UNSEND" ? "UNSENT" : "ACTIVE",
+        });
+      }
       if (compatibilityRefs !== undefined && compatibilityMessage !== undefined && compatibilityCounter !== undefined && !compatibilityMessage.exists) {
         const revision = nonnegativeInteger(compatibilityCounter.data()?.nextRevision, "Message revision counter") + 1;
         transaction.create(compatibilityRefs.message, MessageDocumentSchema.parse({
@@ -133,6 +149,28 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       if (event.workspaceId !== workspaceId) throw new Error("Stored source event does not match its workspace path.");
       return event;
     });
+  }
+
+  async listSourceLineageForMessage(
+    workspaceId: Parameters<ContinuityRepository["listSourceLineageForMessage"]>[0],
+    messageId: Parameters<ContinuityRepository["listSourceLineageForMessage"]>[1],
+    limit: number,
+  ): Promise<readonly SourceEvent[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 32) throw new Error("Source lineage reads are capped at 32 events.");
+    const collection = this.workspaceRef(workspaceId).collection("sourceEvents");
+    const [originals, mutations] = await Promise.all([
+      collection.where("providerMessageId", "==", messageId).limit(limit).get(),
+      collection.where("payload.targetMessageId", "==", messageId).limit(limit).get(),
+    ]);
+    const byId = new Map([...originals.docs, ...mutations.docs].map((document) => {
+      const event = SourceEventSchema.parse(record(document.data()));
+      if (event.workspaceId !== workspaceId) throw new DynamicMemoryWorkspaceScopeError();
+      return [event.id, event] as const;
+    }));
+    return [...byId.values()]
+      .filter((event) => event.payload.kind === "TEXT" || event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND")
+      .sort((left, right) => left.sourceSequence - right.sourceSequence)
+      .slice(0, limit);
   }
 
   async readPassiveSourceRange(input: { workspaceId: string; firstSourceSequence: number; lastSourceSequence: number; limit: number }): Promise<readonly SourceEvent[]> {
@@ -551,6 +589,17 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
 
   private sourceEventRef(workspaceId: string, sourceEventId: string) {
     return this.workspaceRef(workspaceId).collection("sourceEvents").doc(sourceEventId);
+  }
+
+  private memorySourceFreshnessRef(event: SourceEvent) {
+    const messageRef = event.payload.kind === "TEXT"
+      ? event.providerMessageId
+      : event.payload.kind === "TEXT_EDIT" || event.payload.kind === "UNSEND"
+        ? event.payload.targetMessageId
+        : undefined;
+    return messageRef === undefined
+      ? null
+      : dynamicMemorySourceFreshnessRef(this.firestore, event.workspaceId, messageRef);
   }
 
   private compatibilityMessageRef(workspaceId: string, messageId: string) {

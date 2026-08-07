@@ -10,9 +10,16 @@ Deterministic chat application service: append/list messages, request capture re
 workspace, then binds workspace, actor, and source-message identity around the
 narrow family-map and dynamic-memory capabilities passed to Intelligence.
 
-`DynamicMemoryService` scans only current dynamic-memory records from one
-trusted workspace. Query filters are literal and deterministic; source excerpts
-are exact, bounded evidence, and incomplete or uncertain reads fail explicitly.
+`DynamicMemoryService` scans current dynamic-memory records from one trusted
+workspace by default. Explicit corrections create one source-backed successor;
+forget/delete operations and LINE edit/unsend events supersede without physical
+deletion. `includeHistory` adds typed lifecycle lineage. Query filters remain
+literal and deterministic; source excerpts are exact, bounded evidence, and
+incomplete or uncertain reads fail explicitly.
+
+Lifecycle authority comes from one structural command classifier shared by
+intent binding and storage mutation. Questions, conditional or uncertain
+phrasing, and quoted or reported commands never authorize correction or removal.
 
 `DynamicMemoryService` is shared by active tools and the silent passive worker.
 Passive proposals are validated and materialized without storage mutation;

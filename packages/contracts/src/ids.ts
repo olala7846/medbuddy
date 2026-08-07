@@ -22,6 +22,8 @@ export const OutboundCandidateIdSchema = brandedId<"OutboundCandidateId">("outbo
 export const CompactionJobIdSchema = brandedId<"CompactionJobId">("compaction-job");
 export const CompactionSegmentIdSchema = brandedId<"CompactionSegmentId">("compaction-segment");
 export const MemoryRecordIdSchema = brandedId<"MemoryRecordId">("memory-record");
+export const MemoryLifecycleEventIdSchema = brandedId<"MemoryLifecycleEventId">("memory-lifecycle");
+export const MemoryLifecycleOperationIdSchema = brandedId<"MemoryLifecycleOperationId">("memory-lifecycle-operation");
 export const PassiveMemoryJobIdSchema = brandedId<"PassiveMemoryJobId">("passive-memory-job");
 
 export type AccountId = z.infer<typeof AccountIdSchema>;
@@ -37,4 +39,6 @@ export type OutboundCandidateId = z.infer<typeof OutboundCandidateIdSchema>;
 export type CompactionJobId = z.infer<typeof CompactionJobIdSchema>;
 export type CompactionSegmentId = z.infer<typeof CompactionSegmentIdSchema>;
 export type MemoryRecordId = z.infer<typeof MemoryRecordIdSchema>;
+export type MemoryLifecycleEventId = z.infer<typeof MemoryLifecycleEventIdSchema>;
+export type MemoryLifecycleOperationId = z.infer<typeof MemoryLifecycleOperationIdSchema>;
 export type PassiveMemoryJobId = z.infer<typeof PassiveMemoryJobIdSchema>;

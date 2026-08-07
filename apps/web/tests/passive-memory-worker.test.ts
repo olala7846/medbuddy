@@ -8,6 +8,7 @@ import {
 } from "@medbuddy/contracts";
 import {
   InMemoryContinuityRepository,
+  InMemoryMemorySourceFreshnessStore,
   InMemoryPassiveMemoryJobRepository,
   PassiveMemoryEvidenceReaderAdapter,
 } from "@medbuddy/platform";
@@ -32,7 +33,8 @@ async function harness(options: {
   block?: boolean;
   evidenceFailure?: Error;
 } = {}) {
-  const continuity = new InMemoryContinuityRepository();
+  const freshness = new InMemoryMemorySourceFreshnessStore();
+  const continuity = new InMemoryContinuityRepository(freshness);
   const bodies = options.bodies ?? ["Please use Traditional Chinese for responses."];
   for (const [index, body] of bodies.entries()) {
     const source = SourceEventSchema.parse({
@@ -49,7 +51,7 @@ async function harness(options: {
     void _sequence;
     await continuity.acceptSourceEvent({ ...accepted, receiptKey: `event:fictional-passive-${index}` });
   }
-  const jobs = new InMemoryPassiveMemoryJobRepository();
+  const jobs = new InMemoryPassiveMemoryJobRepository(freshness);
   const job = await jobs.createOrGet(PassiveMemoryJobSchema.parse({
     id: jobId,
     workspaceId,

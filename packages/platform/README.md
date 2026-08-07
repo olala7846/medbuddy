@@ -6,16 +6,21 @@ The Firestore and in-memory family-map adapters implement the same source-bound,
 workspace-isolated compare-and-set contract. Firestore stores only
 `workspaces/{workspaceId}/workspaceMemory/familyMap`; there is no history collection.
 
+Dynamic-memory adapters expose deterministic current/history scans capped at
+500 records plus atomic, idempotent lifecycle transitions. Lifecycle events are
+auditable metadata; correction successors and source-lineage lookups remain
+workspace-path-bound. Source acceptance atomically advances a per-message
+lineage head (including unsend tombstones); active, correction-successor, and
+passive publication validate that head in the same transaction as their write.
+The adapters do not search raw conversation, continuity
+compaction, relationship maps, or reviewed-care records.
+
 Passive-memory adapters expose only capped effective human text/edit ranges and
 bounded edit lineage, reserving one lineage slot for the original and at most 31
 edits. Overflow fails closed for retry rather than producing empty evidence.
 Successful dynamic-memory records, terminal state, and the cursor commit
 atomically behind the attempt fence; failed or stale attempts create no active
 records.
-
-Dynamic-memory adapters expose a deterministic current-record scan capped at
-500 records. They remain workspace-path-bound and do not search raw history,
-continuity compaction, relationship maps, or reviewed-care records.
 
 ## Public entry
 

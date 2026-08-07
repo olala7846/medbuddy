@@ -2,6 +2,9 @@ import { z } from "zod";
 
 import {
   MemberIdSchema,
+  MessageIdSchema,
+  MemoryLifecycleEventIdSchema,
+  MemoryLifecycleOperationIdSchema,
   MemoryRecordIdSchema,
   SourceEventIdSchema,
   WorkspaceIdSchema,
@@ -67,6 +70,8 @@ export const DynamicMemoryPayloadSchema = z.discriminatedUnion("memoryType", [
 export const CanonicalMemorySourceSchema = z.object({
   sourceRef: SourceEventIdSchema,
   lineageSourceRefs: z.array(SourceEventIdSchema).min(1).max(32),
+  messageRef: MessageIdSchema,
+  sourceSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   authorMemberRef: MemberIdSchema,
   acceptedAt: TimestampSchema,
 }).strict().superRefine((source, context) => {
@@ -85,21 +90,40 @@ export const DynamicMemoryRecordSchema = z.object({
   payload: DynamicMemoryPayloadSchema,
   sourceClass: z.literal("HUMAN_CONVERSATION"),
   trustClass: z.literal("UNREVIEWED_DERIVED"),
-  lifecycle: z.literal("ACTIVE"),
+  lifecycle: z.enum(["ACTIVE", "SUPERSEDED"]),
   canonicalSource: CanonicalMemorySourceSchema,
   tags: z.array(MemoryTagSchema).max(DYNAMIC_MEMORY_TAG_MAX_COUNT),
   policyVersion: z.literal(DYNAMIC_MEMORY_POLICY_VERSION),
   recordedAt: TimestampSchema,
-}).strict();
+  supersedesRecordId: MemoryRecordIdSchema.optional(),
+  supersededByRecordId: MemoryRecordIdSchema.optional(),
+}).strict().superRefine((memory, context) => {
+  if (memory.lifecycle === "ACTIVE" && memory.supersededByRecordId !== undefined) {
+    context.addIssue({ code: "custom", message: "An active record cannot name a successor.", path: ["supersededByRecordId"] });
+  }
+});
 
 export const ModelVisibleDynamicMemoryRecordSchema = DynamicMemoryRecordSchema.omit({
   workspaceId: true,
 });
 
-export const ProposeMemoryInputSchema = z.object({
+const StoreMemoryInputSchema = z.object({
+  operation: z.literal("STORE").default("STORE"),
   payload: DynamicMemoryPayloadSchema,
   tags: z.array(MemoryTagSchema).max(DYNAMIC_MEMORY_TAG_MAX_COUNT).default([]),
+  supersedesRecordId: MemoryRecordIdSchema.optional(),
 }).strict();
+
+const SupersedeOnlyMemoryInputSchema = z.object({
+  operation: z.literal("SUPERSEDE_ONLY"),
+  targetRecordId: MemoryRecordIdSchema,
+  reason: z.enum(["WITHDRAWN", "FORGOTTEN", "DELETED"]),
+}).strict();
+
+export const ProposeMemoryInputSchema = z.union([
+  StoreMemoryInputSchema,
+  SupersedeOnlyMemoryInputSchema,
+]);
 
 const QueryMemoryFilterFields = {
   memoryTypes: z.array(z.enum(["SEMANTIC", "EPISODIC", "PROCEDURAL"]))
@@ -121,6 +145,7 @@ const QueryMemoryFilterFields = {
   order: z.enum(["NEWEST_FIRST", "OLDEST_FIRST"]).default("NEWEST_FIRST"),
   limit: z.number().int().positive().max(DYNAMIC_MEMORY_QUERY_HARD_LIMIT)
     .default(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT),
+  includeHistory: z.boolean().default(false),
 } as const;
 
 function validateAcceptedRange(
@@ -162,6 +187,50 @@ export const ProposeMemoryResultSchema = z.discriminatedUnion("kind", [
   }).strict(),
   z.object({ kind: z.literal("CONFLICT") }).strict(),
   z.object({ kind: z.literal("TECHNICAL_FAILURE") }).strict(),
+  z.object({
+    kind: z.literal("SUPERSEDED"),
+    targetRecordId: MemoryRecordIdSchema,
+    lifecycleEventId: MemoryLifecycleEventIdSchema,
+  }).strict(),
+  z.object({ kind: z.literal("LIFECYCLE_CONFLICT") }).strict(),
+]);
+
+export const MemoryLifecycleEventSchema = z.object({
+  id: MemoryLifecycleEventIdSchema,
+  workspaceId: WorkspaceIdSchema,
+  targetRecordId: MemoryRecordIdSchema,
+  action: z.enum(["CORRECTED", "WITHDRAWN", "FORGOTTEN", "DELETED", "EDITED", "UNSENT"]),
+  canonicalSource: CanonicalMemorySourceSchema,
+  successorRecordId: MemoryRecordIdSchema.optional(),
+  recordedAt: TimestampSchema,
+}).strict().superRefine((event, context) => {
+  if ((event.action === "CORRECTED") !== (event.successorRecordId !== undefined)) {
+    context.addIssue({ code: "custom", message: "Only correction lifecycle events name a successor.", path: ["successorRecordId"] });
+  }
+});
+
+export const ModelVisibleMemoryLifecycleEventSchema = MemoryLifecycleEventSchema.omit({ workspaceId: true });
+
+export const ApplyMemoryLifecycleTransitionInputSchema = z.object({
+  operationId: MemoryLifecycleOperationIdSchema,
+  event: MemoryLifecycleEventSchema,
+  successor: DynamicMemoryRecordSchema.optional(),
+}).strict().superRefine((input, context) => {
+  const successor = input.successor;
+  if ((input.event.action === "CORRECTED") !== (successor !== undefined)) {
+    context.addIssue({ code: "custom", message: "Correction transitions require exactly one successor.", path: ["successor"] });
+  }
+  if (successor !== undefined && (
+    successor.workspaceId !== input.event.workspaceId
+    || successor.id !== input.event.successorRecordId
+    || successor.supersedesRecordId !== input.event.targetRecordId
+    || successor.lifecycle !== "ACTIVE"
+  )) context.addIssue({ code: "custom", message: "Lifecycle successor does not match its event.", path: ["successor"] });
+});
+
+export const ApplyMemoryLifecycleTransitionResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.enum(["APPLIED", "EXISTING"]), event: MemoryLifecycleEventSchema, successor: DynamicMemoryRecordSchema.optional() }).strict(),
+  z.object({ kind: z.literal("LIFECYCLE_CONFLICT") }).strict(),
 ]);
 
 const DynamicMemoryProvenanceBase = {
@@ -183,6 +252,7 @@ export const DynamicMemoryProvenanceSchema = z.union([
 
 export const QueryMemoryRecordSchema = ModelVisibleDynamicMemoryRecordSchema.extend({
   provenance: z.array(DynamicMemoryProvenanceSchema).length(1),
+  lifecycleEvents: z.array(ModelVisibleMemoryLifecycleEventSchema).max(32).optional(),
 }).strict();
 
 const QueryMemoryRecordsResultSchema = z.object({
@@ -235,6 +305,9 @@ export type CreateDynamicMemoryResult = z.infer<typeof CreateDynamicMemoryResult
 export type ProposeMemoryResult = z.infer<typeof ProposeMemoryResultSchema>;
 export type QueryMemoryResult = z.infer<typeof QueryMemoryResultSchema>;
 export type DynamicMemoryScanResult = z.infer<typeof DynamicMemoryScanResultSchema>;
+export type MemoryLifecycleEvent = z.infer<typeof MemoryLifecycleEventSchema>;
+export type ApplyMemoryLifecycleTransitionInput = z.infer<typeof ApplyMemoryLifecycleTransitionInputSchema>;
+export type ApplyMemoryLifecycleTransitionResult = z.infer<typeof ApplyMemoryLifecycleTransitionResultSchema>;
 
 export interface DynamicMemoryRepository {
   get(
@@ -251,4 +324,21 @@ export interface DynamicMemoryRepository {
     order: z.infer<typeof QueryMemoryInputSchema>["order"],
     limit: number,
   ): Promise<DynamicMemoryScanResult>;
+  scan(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+    order: z.infer<typeof QueryMemoryInputSchema>["order"],
+    limit: number,
+    includeHistory: boolean,
+  ): Promise<DynamicMemoryScanResult>;
+  applyLifecycleTransition(
+    input: ApplyMemoryLifecycleTransitionInput,
+  ): Promise<ApplyMemoryLifecycleTransitionResult>;
+  listBySourceLineage(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+    sourceRef: z.infer<typeof SourceEventIdSchema>,
+  ): Promise<readonly DynamicMemoryRecord[]>;
+  listLifecycleEvents(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+    targetRecordId: z.infer<typeof MemoryRecordIdSchema>,
+  ): Promise<readonly MemoryLifecycleEvent[]>;
 }

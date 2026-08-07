@@ -1,7 +1,9 @@
 import { describePassiveMemoryAdapterContract } from "@medbuddy/contracts/passive-memory-adapter-contract-tests";
+import { describeDynamicMemoryRepositoryContract } from "@medbuddy/contracts/dynamic-memory-adapter-contract-tests";
 
 import {
   InMemoryContinuityRepository,
+  InMemoryMemorySourceFreshnessStore,
   InMemoryPassiveMemoryJobRepository,
   PassiveMemoryEvidenceReaderAdapter,
 } from "../src/index.js";
@@ -9,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 
 describePassiveMemoryAdapterContract(() => {
   const continuity = new InMemoryContinuityRepository();
-  const jobs = new InMemoryPassiveMemoryJobRepository();
+  const jobs = new InMemoryPassiveMemoryJobRepository(InMemoryMemorySourceFreshnessStore.untrackedForTests());
   return {
     continuity,
     evidence: new PassiveMemoryEvidenceReaderAdapter(continuity),
@@ -18,6 +20,10 @@ describePassiveMemoryAdapterContract(() => {
     ledger: continuity,
   };
 });
+
+describeDynamicMemoryRepositoryContract(() => new InMemoryPassiveMemoryJobRepository(
+  InMemoryMemorySourceFreshnessStore.untrackedForTests(),
+));
 
 describe("bounded passive-memory evidence access", () => {
   it("rejects an oversized range before touching the source ledger", async () => {

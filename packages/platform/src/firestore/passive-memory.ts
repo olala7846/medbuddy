@@ -11,6 +11,11 @@ import {
   type PassiveMemoryJobRepository,
 } from "@medbuddy/contracts";
 
+import {
+  assertCurrentDynamicMemorySource,
+  dynamicMemorySourceFreshnessRef,
+} from "./memory-source-freshness.js";
+
 function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
@@ -36,7 +41,10 @@ function withoutLease(job: PassiveMemoryJob) {
 
 /** Firestore mechanics for leased passive batches; domain eligibility remains outside this adapter. */
 export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepository {
-  constructor(private readonly firestore: Firestore) {}
+  constructor(
+    private readonly firestore: Firestore,
+    private readonly allowUntrackedSources = false,
+  ) {}
 
   async createOrGet(value: PassiveMemoryJob): Promise<PassiveMemoryJob> {
     const job = PassiveMemoryJobSchema.parse(withoutLease(PassiveMemoryJobSchema.parse(value)));
@@ -144,8 +152,14 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
       const stateRef = this.stateRef(job.workspaceId);
       const jobRef = this.jobRef(job.workspaceId, job.id);
       const memoryRefs = records.map((memory) => this.memoryRef(memory.workspaceId, memory.id));
-      const [state, snapshot, memorySnapshots] = await Promise.all([
+      const freshnessRefs = records.map((memory) => dynamicMemorySourceFreshnessRef(
+        this.firestore,
+        memory.workspaceId,
+        memory.canonicalSource.messageRef,
+      ));
+      const [state, snapshot, memorySnapshots, freshnessSnapshots] = await Promise.all([
         transaction.get(stateRef), transaction.get(jobRef), memoryRefs.length === 0 ? Promise.resolve([]) : transaction.getAll(...memoryRefs),
+        freshnessRefs.length === 0 ? Promise.resolve([]) : transaction.getAll(...freshnessRefs),
       ]);
       if (!snapshot.exists) throw new Error("Passive-memory attempt fencing conflict.");
       const stored = PassiveMemoryJobSchema.parse(record(snapshot.data()));
@@ -173,6 +187,10 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
         if (existingSnapshot?.exists) {
           const existing = DynamicMemoryRecordSchema.parse(record(existingSnapshot.data()));
           if (!sameMemoryOperation(existing, memory)) throw new Error("Passive proposal operation conflict.");
+        } else {
+          const freshness = freshnessSnapshots[index];
+          if (!freshness?.exists && !this.allowUntrackedSources) throw new Error("Dynamic-memory source freshness is missing.");
+          if (freshness?.exists) assertCurrentDynamicMemorySource(freshness.data(), memory);
         }
       });
       records.forEach((memory, index) => {
@@ -198,6 +216,7 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
   private memoryRef(workspaceId: string, memoryId: string) {
     return this.workspaceRef(workspaceId).collection("dynamicMemoryRecords").doc(memoryId);
   }
+
 }
 
 function sameMemoryOperation(left: DynamicMemoryRecord, right: DynamicMemoryRecord): boolean {

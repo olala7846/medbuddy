@@ -8,6 +8,7 @@ import {
 } from "@medbuddy/contracts";
 import {
   InMemoryContinuityRepository,
+  InMemoryMemorySourceFreshnessStore,
   InMemoryPassiveMemoryJobRepository,
   PassiveMemoryEvidenceReaderAdapter,
 } from "@medbuddy/platform";
@@ -30,7 +31,8 @@ describe("passive-memory-direct-proof", () => {
     const raw = await readFile(new URL("./fixtures/passive-memory-zh-TW.jsonl", import.meta.url), "utf8");
     const rows = raw.trim().split("\n").map((line) => JSON.parse(line) as FixtureRow);
     const workspaceId = WorkspaceIdSchema.parse("workspace:passive-zh-proof");
-    const continuity = new InMemoryContinuityRepository();
+    const freshness = new InMemoryMemorySourceFreshnessStore();
+    const continuity = new InMemoryContinuityRepository(freshness);
     for (const [index, row] of rows.entries()) {
       const event = SourceEventSchema.parse({
         id: row.id,
@@ -48,7 +50,7 @@ describe("passive-memory-direct-proof", () => {
       void _sequence;
       await continuity.acceptSourceEvent({ ...input, receiptKey: `event:passive-zh-${index}` });
     }
-    const jobs = new InMemoryPassiveMemoryJobRepository();
+    const jobs = new InMemoryPassiveMemoryJobRepository(freshness);
     const job = await jobs.createOrGet(PassiveMemoryJobSchema.parse({
       id: "passive-memory-job:passive-zh-proof",
       workspaceId,

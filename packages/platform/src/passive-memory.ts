@@ -2,6 +2,8 @@ import {
   PASSIVE_MEMORY_ATTEMPT_LEASE_MS,
   PASSIVE_MEMORY_MAX_ATTEMPTS,
   PASSIVE_MEMORY_MAX_RANGE_SIZE,
+  ApplyMemoryLifecycleTransitionInputSchema,
+  ApplyMemoryLifecycleTransitionResultSchema,
   CreateDynamicMemoryResultSchema,
   DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT,
   DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
@@ -21,6 +23,7 @@ import {
 } from "@medbuddy/contracts";
 
 import { InMemoryTransactionQueue } from "./in-memory/transactions.js";
+import { InMemoryMemorySourceFreshnessStore } from "./in-memory/memory-source-freshness.js";
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -137,13 +140,17 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
   readonly #cursors = new Map<string, number>();
   readonly #transactions = new InMemoryTransactionQueue();
   readonly #records = new Map<string, DynamicMemoryRecord>();
+  readonly #lifecycleOperations = new Map<string, { fingerprint: string; result: unknown }>();
+  readonly #lifecycleEvents = new Map<string, import("@medbuddy/contracts").MemoryLifecycleEvent>();
+
+  constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore()) {}
 
   async claimAttempt(
     workspaceId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[0],
     jobId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[1],
     claimedAt: string,
   ) {
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       const job = this.#jobs.get(this.key(workspaceId, jobId));
       if (job === undefined || job.workspaceId !== workspaceId) {
         throw new Error("Passive-memory attempt does not match the active persisted workspace job.");
@@ -165,7 +172,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
       });
       this.#jobs.set(this.key(workspaceId, jobId), clone(claimed));
       return PassiveMemoryAttemptClaimSchema.parse({ kind: "CLAIMED", job: claimed });
-    });
+    }));
   }
 
   async releaseAttempt(value: PassiveMemoryJob, fence: PassiveMemoryAttemptFence): Promise<PassiveMemoryJob> {
@@ -179,19 +186,20 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
     if (job.status !== "COMPLETED" && parsedRecords.length > 0) {
       throw new Error("Only a completed passive-memory job may commit active records.");
     }
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       this.validateFenced(job, fence, true);
       const pending = parsedRecords.map((record) => {
         if (record.workspaceId !== job.workspaceId) throw new Error("Passive memory cannot cross a workspace boundary.");
         const existing = this.#records.get(this.memoryKey(record.workspaceId, record.id));
         if (existing !== undefined && !sameMemoryOperation(existing, record)) throw new Error("Passive proposal operation conflict.");
+        if (existing === undefined) this.memoryFreshness.assertCurrent(record);
         return { record, existing };
       });
       for (const { record, existing } of pending) {
         if (existing === undefined) this.#records.set(this.memoryKey(record.workspaceId, record.id), clone(record));
       }
       return this.applyFenced(job, true);
-    });
+    }));
   }
 
   async get(workspaceId: Parameters<PassiveMemoryJobRepository["get"]>[0], id: Parameters<PassiveMemoryJobRepository["get"]>[1]): Promise<PassiveMemoryJob | null>;
@@ -206,22 +214,23 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
   async createOrGet(value: PassiveMemoryJob | DynamicMemoryRecord): Promise<unknown> {
     if ("policyVersion" in value && value.policyVersion === "dynamic-memory-v1") {
       const record = DynamicMemoryRecordSchema.parse(value);
-      return this.#transactions.run(async () => {
+      return this.memoryFreshness.run(() => this.#transactions.run(async () => {
         const key = this.memoryKey(record.workspaceId, record.id);
         const existing = this.#records.get(key);
         if (existing !== undefined) return CreateDynamicMemoryResultSchema.parse({
           kind: sameMemoryOperation(existing, record) ? "EXISTING" : "CONFLICT", record: clone(existing),
         });
+        this.memoryFreshness.assertCurrent(record);
         this.#records.set(key, clone(record));
         return CreateDynamicMemoryResultSchema.parse({ kind: "STORED", record: clone(record) });
-      });
+      }));
     }
     const job = PassiveMemoryJobSchema.parse(value);
     return this.createOrGetJob(job);
   }
 
   private async createOrGetJob(job: PassiveMemoryJob): Promise<PassiveMemoryJob> {
-    return this.#transactions.run(async () => {
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       const existing = this.#jobs.get(this.key(job.workspaceId, job.id));
       if (existing !== undefined) {
         if (!same(existing, job)) throw new Error("Passive-memory job identity conflict.");
@@ -234,7 +243,7 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
       this.#jobs.set(this.key(job.workspaceId, job.id), clone(job));
       this.#active.set(job.workspaceId, job.id);
       return clone(job);
-    });
+    }));
   }
 
   async listActive(workspaceId: string, limit: number): Promise<readonly DynamicMemoryRecord[]> {
@@ -243,17 +252,86 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
   }
 
   async scanCurrent(workspaceId: string, order: "NEWEST_FIRST" | "OLDEST_FIRST", limit: number) {
+    return this.scan(workspaceId as never, order, limit, false);
+  }
+
+  async scan(
+    workspaceId: Parameters<DynamicMemoryRepository["scan"]>[0],
+    order: Parameters<DynamicMemoryRepository["scan"]>[1],
+    limit: number,
+    includeHistory: boolean,
+  ) {
     if (!Number.isInteger(limit) || limit < 0 || limit > DYNAMIC_MEMORY_QUERY_SCAN_LIMIT) {
       throw new Error(`Dynamic-memory scans are capped at ${DYNAMIC_MEMORY_QUERY_SCAN_LIMIT} records.`);
     }
     const direction = order === "NEWEST_FIRST" ? -1 : 1;
-    const records = [...this.#records.values()].filter((record) => record.workspaceId === workspaceId)
+    const records = [...this.#records.values()]
+      .filter((record) => record.workspaceId === workspaceId && (includeHistory || record.lifecycle === "ACTIVE"))
       .sort((left, right) =>
         direction * left.canonicalSource.acceptedAt.localeCompare(right.canonicalSource.acceptedAt)
         || direction * left.recordedAt.localeCompare(right.recordedAt)
         || left.id.localeCompare(right.id))
       .slice(0, limit).map(clone);
     return { complete: true as const, incompleteReasons: [], records };
+  }
+
+  async applyLifecycleTransition(inputValue: Parameters<DynamicMemoryRepository["applyLifecycleTransition"]>[0]) {
+    const input = ApplyMemoryLifecycleTransitionInputSchema.parse(inputValue);
+    return this.memoryFreshness.run(() => this.#transactions.run(async () => {
+      const operationKey = this.memoryKey(input.event.workspaceId, input.operationId);
+      const fingerprint = JSON.stringify(input);
+      const replay = this.#lifecycleOperations.get(operationKey);
+      if (replay !== undefined) {
+        if (replay.fingerprint !== fingerprint) return { kind: "LIFECYCLE_CONFLICT" as const };
+        return ApplyMemoryLifecycleTransitionResultSchema.parse({
+          ...(replay.result as object),
+          kind: "EXISTING",
+        });
+      }
+      const targetKey = this.memoryKey(input.event.workspaceId, input.event.targetRecordId);
+      const target = this.#records.get(targetKey);
+      if (target === undefined || target.workspaceId !== input.event.workspaceId || target.lifecycle !== "ACTIVE") {
+        return { kind: "LIFECYCLE_CONFLICT" as const };
+      }
+      if (input.successor !== undefined) {
+        this.memoryFreshness.assertCurrent(input.successor);
+        const successorKey = this.memoryKey(input.successor.workspaceId, input.successor.id);
+        if (this.#records.has(successorKey)) return { kind: "LIFECYCLE_CONFLICT" as const };
+        this.#records.set(successorKey, clone(input.successor));
+      }
+      this.#records.set(targetKey, DynamicMemoryRecordSchema.parse({
+        ...target,
+        lifecycle: "SUPERSEDED",
+        ...(input.successor === undefined ? {} : { supersededByRecordId: input.successor.id }),
+      }));
+      const result = ApplyMemoryLifecycleTransitionResultSchema.parse({
+        kind: "APPLIED",
+        event: input.event,
+        ...(input.successor === undefined ? {} : { successor: input.successor }),
+      });
+      this.#lifecycleEvents.set(this.memoryKey(input.event.workspaceId, input.event.id), clone(input.event));
+      this.#lifecycleOperations.set(operationKey, { fingerprint, result: clone(result) });
+      return result;
+    }));
+  }
+
+  async listBySourceLineage(
+    workspaceId: Parameters<DynamicMemoryRepository["listBySourceLineage"]>[0],
+    sourceRef: Parameters<DynamicMemoryRepository["listBySourceLineage"]>[1],
+  ) {
+    return [...this.#records.values()]
+      .filter((record) => record.workspaceId === workspaceId && record.canonicalSource.lineageSourceRefs.includes(sourceRef))
+      .map(clone);
+  }
+
+  async listLifecycleEvents(
+    workspaceId: Parameters<DynamicMemoryRepository["listLifecycleEvents"]>[0],
+    targetRecordId: Parameters<DynamicMemoryRepository["listLifecycleEvents"]>[1],
+  ) {
+    return [...this.#lifecycleEvents.values()]
+      .filter((event) => event.workspaceId === workspaceId && event.targetRecordId === targetRecordId)
+      .sort((left, right) => left.recordedAt.localeCompare(right.recordedAt) || left.id.localeCompare(right.id))
+      .map(clone);
   }
 
   async getCursor(workspaceId: Parameters<PassiveMemoryJobRepository["getCursor"]>[0]): Promise<number> {

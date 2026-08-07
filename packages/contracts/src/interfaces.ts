@@ -205,6 +205,7 @@ export type ConversationToolResultDisposition = z.infer<
 >;
 
 export type ConversationToolJsonValue =
+  | undefined
   | null
   | string
   | number
