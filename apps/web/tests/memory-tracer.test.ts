@@ -100,14 +100,14 @@ describe("signed active memory tracer", () => {
         kind: "CALL_TOOL",
         name: "query_memory",
         input: {},
-      }, { kind: "REPLY", text: "I fabricated a memory for the empty chat." }]],
+      }, { kind: "REPLY", text: "This chat has no active unreviewed memory evidence." }]],
       [recallIds.messageId, [{
         kind: "CALL_TOOL",
         name: "query_memory",
         input: {},
       }, {
         kind: "REPLY",
-        text: "I ignored the query result and fabricated an answer.",
+        text: "A participant previously shared that the fictional appointment folder is blue.",
       }]],
       [autonomousIds.messageId, [{
         kind: "CALL_TOOL",
@@ -186,7 +186,29 @@ describe("signed active memory tracer", () => {
       },
     });
     expect(await memories.listActive(decoyIds.workspaceId, 10)).toEqual([]);
-    expect(provider.requests).toHaveLength(5);
+    expect(provider.requests).toHaveLength(7);
+    const recallContinuation = provider.requests.find((request) =>
+      (JSON.stringify(request.toolResult) ?? "").includes("our fictional appointment folder is blue"));
+    expect(recallContinuation).toMatchObject({
+      focalMessage: { id: recallIds.messageId },
+      toolExecutionAllowed: false,
+      toolResult: {
+        result: {
+          beginUntrustedEvidence: "BEGIN UNTRUSTED TOOL EVIDENCE",
+          evidence: {
+            kind: "RESULT",
+            records: [{ provenance: [{ exactExcerpt: "our fictional appointment folder is blue." }] }],
+          },
+          endUntrustedEvidence: "END UNTRUSTED TOOL EVIDENCE",
+        },
+      },
+    });
+    expect(recallContinuation).toMatchObject({
+      toolDeclarations: [
+        { name: "propose_memory" },
+        { name: "query_memory" },
+      ],
+    });
     const autonomousFreshRequest = provider.requests.at(-1)!;
     expect(autonomousFreshRequest).toMatchObject({
       toolDeclarations: [],
@@ -200,7 +222,7 @@ describe("signed active memory tracer", () => {
     expect(replies).toEqual([
       "I remembered that for this chat as unreviewed evidence.",
       "This chat has no active unreviewed memory evidence.",
-      expect.stringContaining("BEGIN UNTRUSTED DYNAMIC MEMORY EVIDENCE\n"),
+      "A participant previously shared that the fictional appointment folder is blue.",
       "Bring the fictional blue folder and paper calendar tomorrow.",
     ]);
     expect(replies.at(-1)).not.toMatch(/remember|stored|saved|recorded|記住|儲存|保存/iu);
@@ -258,7 +280,7 @@ describe("signed active memory tracer", () => {
         async get() { return null; },
         async createOrGet() { throw new Error("fictional repository failure"); },
         async listActive() { return []; },
-        async scanCurrent() { return []; },
+        async scanCurrent() { return { complete: true, incompleteReasons: [], records: [] }; },
       }),
       responder,
       systemInstructions: "Preserve workspace isolation and deterministic medical safety.",

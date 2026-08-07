@@ -7,6 +7,7 @@ import {
   DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16,
   DynamicMemoryWorkspaceScopeError,
   DynamicMemoryRecordSchema,
+  DynamicMemoryScanResultSchema,
   ModelVisibleDynamicMemoryRecordSchema,
   MemoryRecordIdSchema,
   ProposeMemoryInputSchema,
@@ -16,6 +17,7 @@ import {
   type DynamicMemoryPayload,
   type DynamicMemoryRecord,
   type DynamicMemoryRepository,
+  type DynamicMemoryScanResult,
   type MemoryRecordId,
   type ProposeMemoryInput,
   type ProposeMemoryResult,
@@ -282,23 +284,25 @@ export class DynamicMemoryService {
       return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
     }
     const workspaceId = scope.workspaceId;
-    let scanned: readonly DynamicMemoryRecord[];
+    let scan: DynamicMemoryScanResult;
     try {
-      scanned = await this.repository.scanCurrent(
+      scan = DynamicMemoryScanResultSchema.parse(await this.repository.scanCurrent(
         workspaceId,
         parsed.data.order,
         DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
-      );
+      ));
     } catch (error) {
       if (error instanceof DynamicMemoryWorkspaceScopeError) {
         return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
       }
       return { kind: "TECHNICAL_FAILURE" };
     }
+    const scanned = scan.records;
     if (scanned.some((record) => record.workspaceId !== workspaceId)) {
       return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
     }
     const reasons = new Set<IncompleteReason>();
+    for (const reason of scan.incompleteReasons) reasons.add(reason);
     if (scanned.length === DYNAMIC_MEMORY_QUERY_SCAN_LIMIT) reasons.add("SCAN_LIMIT_REACHED");
     const selected = scanned.filter((record) => matchesQuery(record, parsed.data)).slice(0, parsed.data.limit);
     const records: QueryMemoryRecord[] = [];

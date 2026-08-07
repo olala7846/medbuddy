@@ -211,6 +211,16 @@ export const QueryMemoryResultSchema = z.union([
   z.object({ kind: z.literal("TECHNICAL_FAILURE") }).strict(),
 ]);
 
+export const DynamicMemoryScanResultSchema = z.object({
+  complete: z.boolean(),
+  incompleteReasons: z.array(z.literal("ADAPTER_PARTIAL_FAILURE")).max(1),
+  records: z.array(DynamicMemoryRecordSchema).max(DYNAMIC_MEMORY_QUERY_SCAN_LIMIT),
+}).strict().superRefine((result, context) => {
+  if (result.complete !== (result.incompleteReasons.length === 0)) {
+    context.addIssue({ code: "custom", message: "Complete scans cannot have incomplete reasons." });
+  }
+});
+
 export type DynamicMemoryPayload = z.infer<typeof DynamicMemoryPayloadSchema>;
 export type CanonicalMemorySource = z.infer<typeof CanonicalMemorySourceSchema>;
 export type DynamicMemoryRecord = z.infer<typeof DynamicMemoryRecordSchema>;
@@ -222,6 +232,7 @@ export type QueryMemoryRecord = z.infer<typeof QueryMemoryRecordSchema>;
 export type CreateDynamicMemoryResult = z.infer<typeof CreateDynamicMemoryResultSchema>;
 export type ProposeMemoryResult = z.infer<typeof ProposeMemoryResultSchema>;
 export type QueryMemoryResult = z.infer<typeof QueryMemoryResultSchema>;
+export type DynamicMemoryScanResult = z.infer<typeof DynamicMemoryScanResultSchema>;
 
 export interface DynamicMemoryRepository {
   get(
@@ -237,5 +248,5 @@ export interface DynamicMemoryRepository {
     workspaceId: z.infer<typeof WorkspaceIdSchema>,
     order: z.infer<typeof QueryMemoryInputSchema>["order"],
     limit: number,
-  ): Promise<readonly DynamicMemoryRecord[]>;
+  ): Promise<DynamicMemoryScanResult>;
 }

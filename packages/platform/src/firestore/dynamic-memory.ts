@@ -52,18 +52,18 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
     limit: number,
   ): Promise<readonly DynamicMemoryRecord[]> {
     const boundedLimit = Math.min(DYNAMIC_MEMORY_QUERY_DEFAULT_LIMIT, Math.max(0, limit));
-    return this.scanCurrent(workspaceId, "NEWEST_FIRST", boundedLimit);
+    return (await this.scanCurrent(workspaceId, "NEWEST_FIRST", boundedLimit)).records;
   }
 
   async scanCurrent(
     workspaceId: Parameters<DynamicMemoryRepository["scanCurrent"]>[0],
     order: Parameters<DynamicMemoryRepository["scanCurrent"]>[1],
     limit: number,
-  ): Promise<readonly DynamicMemoryRecord[]> {
+  ) {
     if (!Number.isInteger(limit) || limit < 0 || limit > DYNAMIC_MEMORY_QUERY_SCAN_LIMIT) {
       throw new Error(`Dynamic-memory scans are capped at ${DYNAMIC_MEMORY_QUERY_SCAN_LIMIT} records.`);
     }
-    if (limit === 0) return [];
+    if (limit === 0) return { complete: true as const, incompleteReasons: [], records: [] };
     const timestampDirection = order === "NEWEST_FIRST" ? "desc" : "asc";
     const snapshot = await this.workspaceRef(workspaceId).collection("dynamicMemoryRecords")
       .orderBy("canonicalSource.acceptedAt", timestampDirection)
@@ -71,7 +71,7 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
       .orderBy(FieldPath.documentId(), "asc")
       .limit(limit)
       .get();
-    return snapshot.docs
+    const records = snapshot.docs
       .map((document) => DynamicMemoryRecordSchema.parse(record(document.data())))
       .map((memory) => {
         if (memory.workspaceId !== workspaceId) {
@@ -80,6 +80,7 @@ export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository
         return memory;
       })
       .filter((memory) => memory.lifecycle === "ACTIVE");
+    return { complete: true as const, incompleteReasons: [], records };
   }
 
   private workspaceRef(workspaceId: string) {

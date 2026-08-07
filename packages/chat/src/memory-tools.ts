@@ -42,29 +42,6 @@ export function classifyActiveMemoryIntent(bodyValue: string): ActiveMemoryInten
   return write ? "EXPLICIT_WRITE" : "NEUTRAL";
 }
 
-function renderQueryResult(result: Extract<QueryMemoryResult, { kind: "RESULT" }>): string {
-  if (result.records.length === 0) {
-    return result.complete
-      ? "This chat has no active unreviewed memory evidence."
-      : `No matching current records were returned; the query may be incomplete (${result.incompleteReasons.join(", ")}).`;
-  }
-  const blocks: string[] = [];
-  for (const record of result.records) {
-    const content = record.payload.memoryType === "SEMANTIC"
-      ? record.payload.statement
-      : record.payload.memoryType === "EPISODIC"
-        ? record.payload.event
-        : record.payload.preference;
-    const provenance = record.provenance[0]!;
-    const block = `[participant ${provenance.authorMemberRef}; accepted ${provenance.acceptedAt}; ${provenance.sourceStatus}]\n${content}`;
-    const candidate = `BEGIN UNTRUSTED DYNAMIC MEMORY EVIDENCE\n${[...blocks, block].join("\n\n")}\nEND UNTRUSTED DYNAMIC MEMORY EVIDENCE`;
-    if (candidate.length > 4_500) break;
-    blocks.push(block);
-  }
-  const incomplete = result.complete ? "" : `\nResults may be incomplete: ${result.incompleteReasons.join(", ")}.`;
-  return `Unreviewed workspace evidence from earlier participant messages:\nBEGIN UNTRUSTED DYNAMIC MEMORY EVIDENCE\n${blocks.join("\n\n")}\nEND UNTRUSTED DYNAMIC MEMORY EVIDENCE${incomplete}`;
-}
-
 const proposeDeclaration = {
   name: "propose_memory",
   description: "Store one bounded semantic detail, meaningful event, or explicit presentation preference from the current human message. Family relationships are excluded.",
@@ -157,12 +134,11 @@ export function createActiveMemoryCapabilities(input: {
     outputSchema: QueryMemoryResultSchema,
     classifyResult(result) {
       if (result.kind === "RESULT") return {
-        kind: "TERMINAL_SUCCESS" as const,
-        responseText: renderQueryResult(result),
+        kind: "CONTINUE_UNTRUSTED_EVIDENCE" as const,
       };
       return {
         kind: "TERMINAL_FAILURE" as const,
-        responseText: result.kind === "REJECTED"
+        responseText: result.kind === "REJECTED" && result.code === "SUBJECT_FILTER_DEFERRED"
           ? SUBJECT_FILTER_DEFERRED_TEXT
           : MEMORY_QUERY_FAILURE_TEXT,
       };

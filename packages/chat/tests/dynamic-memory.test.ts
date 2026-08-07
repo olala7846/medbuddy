@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 import {
   classifyActiveMemoryIntent,
   DynamicMemoryService,
+  MEMORY_QUERY_FAILURE_TEXT,
+  SUBJECT_FILTER_DEFERRED_TEXT,
   createActiveMemoryCapabilities,
 } from "../src/index.js";
 
@@ -371,7 +373,7 @@ describe("DynamicMemoryService", () => {
       async get() { return null; },
       async createOrGet() { throw new Error("not used"); },
       async listActive() { reads += 1; return []; },
-      async scanCurrent() { reads += 1; return []; },
+      async scanCurrent() { reads += 1; return { complete: true, incompleteReasons: [], records: [] }; },
     });
     await expect(service.query({ kind: "AUTHORIZED", workspaceId: source.workspaceId }, QueryMemoryInputSchema.parse({
       subjectLabels: ["Grandparent"],
@@ -479,7 +481,7 @@ describe("DynamicMemoryService", () => {
       async get() { return null; },
       async createOrGet() { throw new Error("not used"); },
       async listActive() { return []; },
-      async scanCurrent() { memoryReads += 1; return []; },
+      async scanCurrent() { memoryReads += 1; return { complete: true, incompleteReasons: [], records: [] }; },
     }, undefined, {
       async getSourceEvent() { evidenceReads += 1; return null; },
     });
@@ -601,6 +603,36 @@ describe("DynamicMemoryService", () => {
     });
   });
 
+  it("preserves records from a scope-proven partial memory scan", async () => {
+    const available = record({
+      id: "memory-record:partial-scan",
+      text: "A fictional partial result.",
+      acceptedAt: "2026-08-06T12:00:00.000Z",
+    });
+    const service = new DynamicMemoryService({
+      async get() { return null; },
+      async createOrGet(value) { return { kind: "STORED", record: value }; },
+      async listActive() { return [available]; },
+      async scanCurrent() {
+        return {
+          complete: false,
+          incompleteReasons: ["ADAPTER_PARTIAL_FAILURE"] as const,
+          records: [available],
+        };
+      },
+    });
+
+    await expect(service.query(
+      { kind: "AUTHORIZED", workspaceId: source.workspaceId },
+      QueryMemoryInputSchema.parse({}),
+    )).resolves.toMatchObject({
+      kind: "RESULT",
+      complete: false,
+      incompleteReasons: ["SOURCE_EXCERPT_UNAVAILABLE", "ADAPTER_PARTIAL_FAILURE"],
+      records: [{ id: available.id }],
+    });
+  });
+
   it("reports the deterministic 500-record scan ceiling without claiming completeness", async () => {
     const records = Array.from({ length: 500 }, (_, index) => record({
       id: `memory-record:scan-${String(index).padStart(3, "0")}`,
@@ -611,7 +643,7 @@ describe("DynamicMemoryService", () => {
       async get() { return null; },
       async createOrGet(value) { return { kind: "STORED", record: value }; },
       async listActive() { return records.slice(0, 10); },
-      async scanCurrent() { return records; },
+      async scanCurrent() { return { complete: true, incompleteReasons: [], records }; },
     });
     await expect(service.query(
       { kind: "AUTHORIZED", workspaceId: source.workspaceId },
@@ -779,8 +811,7 @@ describe("active memory capabilities", () => {
       incompleteReasons: [],
       records: [],
     }))).toEqual({
-      kind: "TERMINAL_SUCCESS",
-      responseText: "This chat has no active unreviewed memory evidence.",
+      kind: "CONTINUE_UNTRUSTED_EVIDENCE",
     });
   });
 
@@ -808,10 +839,7 @@ describe("active memory capabilities", () => {
       signal: new AbortController().signal,
     });
     const classified = capabilities[1].classifyResult(QueryMemoryResultSchema.parse(result));
-    expect(classified).toMatchObject({ kind: "TERMINAL_SUCCESS" });
-    if (classified.kind !== "TERMINAL_SUCCESS") throw new Error("Expected an application-owned terminal result.");
-    expect(classified.responseText).toContain("BEGIN UNTRUSTED DYNAMIC MEMORY EVIDENCE");
-    expect(classified.responseText).toContain("END UNTRUSTED DYNAMIC MEMORY EVIDENCE");
+    expect(classified).toEqual({ kind: "CONTINUE_UNTRUSTED_EVIDENCE" });
     expect(capabilities.map((capability) => capability.declaration.name)).toEqual(["propose_memory", "query_memory"]);
   });
 
@@ -861,7 +889,7 @@ describe("active memory capabilities", () => {
         async get() { return null; },
         async createOrGet() { throw new Error("fictional storage failure"); },
         async listActive() { return []; },
-        async scanCurrent() { return []; },
+        async scanCurrent() { return { complete: true, incompleteReasons: [], records: [] }; },
       }),
       workspaceId: source.workspaceId,
       focalSource: source,
@@ -875,5 +903,21 @@ describe("active memory capabilities", () => {
       kind: "TERMINAL_FAILURE",
       responseText: "I couldn’t remember that right now. Please try again.",
     });
+  });
+
+  it("distinguishes deferred person filtering from workspace-scope uncertainty", () => {
+    const capabilities = createActiveMemoryCapabilities({
+      service: new DynamicMemoryService(new InMemoryDynamicMemoryRepository()),
+      workspaceId: source.workspaceId,
+      focalSource: source,
+    });
+    expect(capabilities[1].classifyResult({
+      kind: "REJECTED",
+      code: "SUBJECT_FILTER_DEFERRED",
+    })).toEqual({ kind: "TERMINAL_FAILURE", responseText: SUBJECT_FILTER_DEFERRED_TEXT });
+    expect(capabilities[1].classifyResult({
+      kind: "REJECTED",
+      code: "WORKSPACE_SCOPE_UNCERTAIN",
+    })).toEqual({ kind: "TERMINAL_FAILURE", responseText: MEMORY_QUERY_FAILURE_TEXT });
   });
 });
