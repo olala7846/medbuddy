@@ -2,8 +2,12 @@ import { createHash } from "node:crypto";
 
 import {
   DYNAMIC_MEMORY_POLICY_VERSION,
-  DYNAMIC_MEMORY_TRACER_QUERY_LIMIT,
+  DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16,
+  DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
+  DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16,
+  DynamicMemoryWorkspaceScopeError,
   DynamicMemoryRecordSchema,
+  DynamicMemoryScanResultSchema,
   ModelVisibleDynamicMemoryRecordSchema,
   MemoryRecordIdSchema,
   ProposeMemoryInputSchema,
@@ -13,12 +17,15 @@ import {
   type DynamicMemoryPayload,
   type DynamicMemoryRecord,
   type DynamicMemoryRepository,
+  type DynamicMemoryScanResult,
   type MemoryRecordId,
   type ProposeMemoryInput,
   type ProposeMemoryResult,
   type QueryMemoryInput,
+  type QueryMemoryRecord,
   type QueryMemoryResult,
   type SourceEvent,
+  type SourceEventId,
   type WorkspaceId,
   containsFamilyRelationshipTerm,
 } from "@medbuddy/contracts";
@@ -27,6 +34,14 @@ export type ActiveMemorySourceContext = {
   workspaceId: WorkspaceId;
   focalSource: SourceEvent;
 };
+
+export type DynamicMemoryQueryScope =
+  | { kind: "AUTHORIZED"; workspaceId: WorkspaceId }
+  | { kind: "UNCERTAIN" };
+
+export interface DynamicMemorySourceEvidenceReader {
+  getSourceEvent(workspaceId: WorkspaceId, sourceEventId: SourceEventId): Promise<SourceEvent | null>;
+}
 
 function payloadText(payload: DynamicMemoryPayload): string {
   switch (payload.memoryType) {
@@ -42,7 +57,47 @@ function isRelationshipMaterial(payload: DynamicMemoryPayload): boolean {
 }
 
 function normalizedSpan(value: string): string {
-  return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLocaleLowerCase("en-US");
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
+}
+
+function matchesQuery(record: DynamicMemoryRecord, query: ReturnType<typeof QueryMemoryInputSchema.parse>): boolean {
+  const source = record.canonicalSource;
+  if (query.memoryTypes.length > 0 && !query.memoryTypes.includes(record.payload.memoryType)) return false;
+  if (query.sourceClasses.length > 0 && !query.sourceClasses.includes(record.sourceClass)) return false;
+  if (query.trustClasses.length > 0 && !query.trustClasses.includes(record.trustClass)) return false;
+  if (query.memberRefs.length > 0 && !query.memberRefs.includes(source.authorMemberRef)) return false;
+  if ("fromInclusive" in query.acceptedAt && source.acceptedAt < query.acceptedAt.fromInclusive) return false;
+  if ("toExclusive" in query.acceptedAt && source.acceptedAt >= query.acceptedAt.toExclusive) return false;
+  const tags = record.tags.map(normalizedSpan);
+  if (!query.tagsAll.every((tag) => tags.includes(normalizedSpan(tag)))) return false;
+  const content = normalizedSpan(payloadText(record.payload));
+  return query.textTerms.every((term) => content.includes(normalizedSpan(term)));
+}
+
+function boundedExactExcerpt(body: string, content: string): string {
+  const index = body.indexOf(content);
+  return sliceUtf16(body, index >= 0 ? index : 0, DYNAMIC_MEMORY_SOURCE_EXCERPT_MAX_UTF16);
+}
+
+function sliceUtf16(value: string, start: number, maximum: number): string {
+  let end = Math.min(value.length, start + maximum);
+  if (end < value.length) {
+    const trailing = value.charCodeAt(end - 1);
+    if (trailing >= 0xD800 && trailing <= 0xDBFF) end -= 1;
+  }
+  return value.slice(start, end);
+}
+
+type IncompleteReason = Extract<QueryMemoryResult, { kind: "RESULT" }>["incompleteReasons"][number];
+const INCOMPLETE_REASON_ORDER = [
+  "SOURCE_EXCERPT_UNAVAILABLE",
+  "ADAPTER_PARTIAL_FAILURE",
+  "SCAN_LIMIT_REACHED",
+  "RESULT_BUDGET_REACHED",
+] as const satisfies readonly IncompleteReason[];
+
+function orderedReasons(reasons: ReadonlySet<IncompleteReason>): IncompleteReason[] {
+  return INCOMPLETE_REASON_ORDER.filter((reason) => reasons.has(reason));
 }
 
 function hasExactSourceSpans(input: ProposeMemoryInput, sourceBody: string): boolean {
@@ -149,7 +204,8 @@ function withoutWorkspace(record: DynamicMemoryRecord) {
 export class DynamicMemoryService {
   constructor(
     private readonly repository: DynamicMemoryRepository,
-    private readonly now: () => string = () => new Date().toISOString(),
+    private readonly now: (() => string) | undefined = undefined,
+    private readonly sourceEvidence?: DynamicMemorySourceEvidenceReader,
   ) {}
 
   async propose(
@@ -159,11 +215,14 @@ export class DynamicMemoryService {
     const parsed = ProposeMemoryInputSchema.safeParse(inputValue);
     if (!parsed.success) return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     const source = context.focalSource;
+    const sourceBody = source.payload.kind === "TEXT" || source.payload.kind === "TEXT_EDIT"
+      ? source.payload.body
+      : undefined;
     if (
       source.workspaceId !== context.workspaceId
       || source.authorMemberId === "MEDBUDDY"
-      || source.payload.kind !== "TEXT"
-      || !source.payload.replyRequested
+      || sourceBody === undefined
+      || (source.payload.kind === "TEXT" && !source.payload.replyRequested)
     ) return { kind: "REJECTED", code: "INELIGIBLE_SOURCE" };
     const id = memoryId(context.workspaceId, source.id);
     try {
@@ -180,7 +239,7 @@ export class DynamicMemoryService {
     if (!isAllowlistedPresentationPreference(parsed.data.payload)) {
       return { kind: "REJECTED", code: "UNSAFE_PROCEDURAL_PREFERENCE" };
     }
-    if (!hasExactSourceSpans(parsed.data, source.payload.body)) {
+    if (!hasExactSourceSpans(parsed.data, sourceBody)) {
       return { kind: "REJECTED", code: "INELIGIBLE_CONTENT" };
     }
     const normalizedInput = {
@@ -202,7 +261,7 @@ export class DynamicMemoryService {
       },
       tags: normalizedInput.tags,
       policyVersion: DYNAMIC_MEMORY_POLICY_VERSION,
-      recordedAt: this.now(),
+      recordedAt: this.now?.() ?? new Date().toISOString(),
     });
     try {
       const result = await this.repository.createOrGet(record);
@@ -215,24 +274,110 @@ export class DynamicMemoryService {
     }
   }
 
-  async query(workspaceId: WorkspaceId, inputValue: QueryMemoryInput): Promise<QueryMemoryResult> {
+  async query(scope: DynamicMemoryQueryScope, inputValue: QueryMemoryInput): Promise<QueryMemoryResult> {
     const parsed = QueryMemoryInputSchema.safeParse(inputValue);
     if (!parsed.success) return { kind: "TECHNICAL_FAILURE" };
     if (parsed.data.subjectLabels.length > 0) {
       return { kind: "REJECTED", code: "SUBJECT_FILTER_DEFERRED" };
     }
+    if (scope.kind !== "AUTHORIZED") {
+      return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+    }
+    const workspaceId = scope.workspaceId;
+    let scan: DynamicMemoryScanResult;
     try {
-      const records = await this.repository.listActive(
+      scan = DynamicMemoryScanResultSchema.parse(await this.repository.scanCurrent(
         workspaceId,
-        DYNAMIC_MEMORY_TRACER_QUERY_LIMIT,
-      );
-      return QueryMemoryResultSchema.parse({
-        kind: "RESULT",
-        complete: true,
-        records: records.map(withoutWorkspace),
-      });
-    } catch {
+        parsed.data.order,
+        DYNAMIC_MEMORY_QUERY_SCAN_LIMIT,
+      ));
+    } catch (error) {
+      if (error instanceof DynamicMemoryWorkspaceScopeError) {
+        return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+      }
       return { kind: "TECHNICAL_FAILURE" };
     }
+    const scanned = scan.records;
+    if (scanned.some((record) => record.workspaceId !== workspaceId)) {
+      return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+    }
+    const reasons = new Set<IncompleteReason>();
+    for (const reason of scan.incompleteReasons) reasons.add(reason);
+    if (scanned.length === DYNAMIC_MEMORY_QUERY_SCAN_LIMIT) reasons.add("SCAN_LIMIT_REACHED");
+    const selected = scanned.filter((record) => matchesQuery(record, parsed.data)).slice(0, parsed.data.limit);
+    const records: QueryMemoryRecord[] = [];
+    for (const record of selected) {
+      const snapshot = record.canonicalSource;
+      const baseProvenance = {
+        sourceRef: snapshot.sourceRef,
+        authorMemberRef: snapshot.authorMemberRef,
+        acceptedAt: snapshot.acceptedAt,
+      };
+      let provenance: typeof baseProvenance & (
+        { sourceStatus: "AVAILABLE"; exactExcerpt: string }
+        | { sourceStatus: "UNAVAILABLE" }
+      );
+      try {
+        const evidence = await this.sourceEvidence?.getSourceEvent(workspaceId, snapshot.sourceRef) ?? null;
+        if (evidence === null) {
+          reasons.add("SOURCE_EXCERPT_UNAVAILABLE");
+          provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
+        } else {
+          if (
+            evidence.workspaceId !== workspaceId
+            || evidence.id !== snapshot.sourceRef
+            || evidence.authorMemberId !== snapshot.authorMemberRef
+            || evidence.acceptedAt !== snapshot.acceptedAt
+          ) return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+          const body = evidence.payload.kind === "TEXT" || evidence.payload.kind === "TEXT_EDIT"
+            ? evidence.payload.body
+            : undefined;
+          if (body === undefined) {
+            reasons.add("SOURCE_EXCERPT_UNAVAILABLE");
+            provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
+          } else {
+            provenance = {
+              ...baseProvenance,
+              sourceStatus: "AVAILABLE",
+              exactExcerpt: boundedExactExcerpt(body, payloadText(record.payload)),
+            };
+          }
+        }
+      } catch (error) {
+        if (error instanceof DynamicMemoryWorkspaceScopeError) {
+          return { kind: "REJECTED", code: "WORKSPACE_SCOPE_UNCERTAIN" };
+        }
+        reasons.add("ADAPTER_PARTIAL_FAILURE");
+        provenance = { ...baseProvenance, sourceStatus: "UNAVAILABLE" };
+      }
+      records.push({ ...withoutWorkspace(record), provenance: [provenance] });
+    }
+
+    const render = () => ({
+      kind: "RESULT" as const,
+      complete: reasons.size === 0,
+      incompleteReasons: orderedReasons(reasons),
+      records,
+    });
+    if (JSON.stringify(render()).length > DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16) {
+      reasons.add("RESULT_BUDGET_REACHED");
+      for (const record of records) {
+        const provenance = record.provenance[0];
+        if (
+          provenance?.sourceStatus !== "AVAILABLE"
+          || !("exactExcerpt" in provenance)
+          || typeof provenance.exactExcerpt !== "string"
+        ) continue;
+        const excess = JSON.stringify(render()).length - DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16;
+        if (excess <= 0) break;
+        const keep = provenance.exactExcerpt.length - excess;
+        if (keep > 0) provenance.exactExcerpt = sliceUtf16(provenance.exactExcerpt, 0, keep);
+        else delete (provenance as { exactExcerpt?: string }).exactExcerpt;
+      }
+      while (records.length > 0 && JSON.stringify(render()).length > DYNAMIC_MEMORY_QUERY_RESULT_MAX_UTF16) {
+        records.pop();
+      }
+    }
+    return QueryMemoryResultSchema.parse(render());
   }
 }

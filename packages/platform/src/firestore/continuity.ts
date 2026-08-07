@@ -11,6 +11,7 @@ import {
   type ContinuityAttachment,
   ContinuityAttachmentSchema,
   type ContinuityRepository,
+  DynamicMemoryWorkspaceScopeError,
   MessageDocumentSchema,
   type OutboundCandidate,
   OutboundCandidateSchema,
@@ -132,6 +133,19 @@ export class FirestoreContinuityRepository implements ContinuityRepository {
       if (event.workspaceId !== workspaceId) throw new Error("Stored source event does not match its workspace path.");
       return event;
     });
+  }
+
+  async getSourceEvent(
+    workspaceId: Parameters<ContinuityRepository["getSourceEvent"]>[0],
+    sourceEventId: Parameters<ContinuityRepository["getSourceEvent"]>[1],
+  ): Promise<SourceEvent | null> {
+    const snapshot = await this.sourceEventRef(workspaceId, sourceEventId).get();
+    if (!snapshot.exists) return null;
+    const event = SourceEventSchema.parse(record(snapshot.data()));
+    if (event.workspaceId !== workspaceId || event.id !== sourceEventId) {
+      throw new DynamicMemoryWorkspaceScopeError();
+    }
+    return event;
   }
 
   async createOutboundCandidate(candidateValue: OutboundCandidate): Promise<OutboundCandidate> {

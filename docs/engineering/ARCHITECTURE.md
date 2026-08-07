@@ -20,7 +20,7 @@ Designed for ≤100 users. No microservices.
 | Package | Owns | Must not own |
 | --- | --- | --- |
 | `@medbuddy/contracts` | Zod schemas, branded IDs, errors, public ports, golden scenario fixtures | Runtime I/O, policy decisions |
-| `@medbuddy/chat` | Chat workflows, isolated external turns, family-map context and turn-bound update capability | Storage vendor and channel details |
+| `@medbuddy/chat` | Chat workflows, isolated external turns, family-map context, and deterministic source-backed dynamic-memory policy | Storage vendor and channel details |
 | `@medbuddy/care-record` | Eligibility, facts, review, handoff, authorization helpers | Model prompts, HTTP |
 | `@medbuddy/intelligence` | Bounded model/tool/model loop, Vertex function transport, capture, safety, medication grounding | Repositories, canonical fact mutation authority, consent grants |
 | `@medbuddy/platform` | Firestore and in-memory family-map adapters, Cloud Tasks, Storage, demo persistence | Consent, safety, review, handoff **policy** |
@@ -54,7 +54,7 @@ Rules:
 | Surface | May | Must not |
 | --- | --- | --- |
 | Browser | Display, input, demo persona header (when allowed), poll | Write DB/storage directly; decide authz or safety |
-| Conversational agent | Reply after deterministic refusal; call the one server-bound family-map replacement tool | Access repositories/another workspace, mutate medical facts, grant access, advise medication changes |
+| Conversational agent | Reply after deterministic refusal; call server-bound family-map replacement and current dynamic-memory proposal/query tools | Access repositories/another workspace, search raw history or reviewed care, mutate medical facts, grant access, advise medication changes |
 | LINE webhook | Verify raw body, validate provider event, derive opaque IDs, reply with event token | Parse before verification; log content, tokens, or provider identifiers |
 | Capture pipeline | Propose candidate facts from a focal message | Skip validation, invent provenance, process pre-approval history as approved |
 | Deterministic domain services | Consent eligibility, authz, review, handoff immutability, refusals | Defer those decisions to the model |
@@ -78,7 +78,7 @@ tasks/                        plan.md, todo.md
 
 - Root `fixtures/`, `scripts/`, `tests/{unit,integration,e2e}`
 - Root medication snapshot script
-- Rolling conversation summaries, retrieval memory, additional agent tools, and specialized medical conversation
+- Reviewed-care retrieval, semantic/vector retrieval, private participant memory, and specialized medical conversation
 
 Tests live next to each package (`packages/*/tests`, `apps/web/tests`).
 

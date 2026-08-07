@@ -73,6 +73,26 @@ export function describeDynamicMemoryRepositoryContract(
         second,
         firstRecord,
       ]);
+      await expect(repository.scanCurrent(firstRecord.workspaceId, "OLDEST_FIRST", 500))
+        .resolves.toEqual({ complete: true, incompleteReasons: [], records: [firstRecord, second] });
+    });
+
+    it("uses record identity as the ascending final tie-breaker in both orders", async () => {
+      const repository = createRepository();
+      const recordA = DynamicMemoryRecordSchema.parse({ ...firstRecord, id: "memory-record:a" });
+      const recordB = DynamicMemoryRecordSchema.parse({ ...firstRecord, id: "memory-record:b" });
+      await repository.createOrGet(recordB);
+      await repository.createOrGet(recordA);
+      await expect(repository.scanCurrent(firstRecord.workspaceId, "NEWEST_FIRST", 500))
+        .resolves.toEqual({ complete: true, incompleteReasons: [], records: [recordA, recordB] });
+      await expect(repository.scanCurrent(firstRecord.workspaceId, "OLDEST_FIRST", 500))
+        .resolves.toEqual({ complete: true, incompleteReasons: [], records: [recordA, recordB] });
+    });
+
+    it("refuses a scan request above the fixed 500-record safety cap", async () => {
+      const repository = createRepository();
+      await expect(repository.scanCurrent(firstRecord.workspaceId, "NEWEST_FIRST", 501))
+        .rejects.toThrow(/500/);
     });
 
     it("never returns another workspace's record", async () => {

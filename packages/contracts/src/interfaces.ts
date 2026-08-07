@@ -189,6 +189,7 @@ export const ConversationToolResultDispositionSchema = z.discriminatedUnion("kin
     kind: z.literal("CONTINUE_FRESH"),
     outcome: z.enum(["SUCCEEDED", "FAILED"]),
   }).strict(),
+  z.object({ kind: z.literal("CONTINUE_UNTRUSTED_EVIDENCE") }).strict(),
   z.object({
     kind: z.literal("TERMINAL_SUCCESS"),
     responseText: z.string().trim().min(1).max(5_000),
