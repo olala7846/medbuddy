@@ -46,6 +46,7 @@ Do **not** load full `docs/PRD.md` or `docs/TDD.md` by default. Open specific se
 ## Development Workflow
 
 - Start every change from an up-to-date `origin/main` in a clean Git worktree and dedicated feature branch.
+- Create manually managed MedBuddy worktrees under `~/.codex/worktrees`; never create sibling worktrees under `~/repositories` or inside this repository. Codex-managed worktrees use the Worktree root configured in Codex desktop Settings.
 - Never implement or merge changes directly on local `main` or `master`.
 - Make small, logical commits as work progresses and preserve their full history. Do not rewrite published commits.
 - Finish every change through a pull request and merge it into `origin/main` with a merge commit. Never squash or rebase PR commits, and do not merge feature branches into a local default branch.
