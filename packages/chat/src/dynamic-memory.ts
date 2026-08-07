@@ -198,7 +198,10 @@ function isAllowlistedPresentationPreference(payload: DynamicMemoryPayload): boo
 
 function isGovernedPassiveEvidence(evidence: PassiveMemoryEvidence, input: ProposeMemoryInput): boolean {
   const body = evidence.effectiveText.normalize("NFKC");
-  if (/[?？]/u.test(body) || /\bwhether\b|^(?:who|what|when|where|why|how|do|does|did|is|are|can|could|should)\b|(?:是否|是不是|嗎|呢)[。！!]?$/iu.test(body)) return false;
+  if (/[?？]/u.test(body) ||
+      /\b(?:whether|who|what|when|where|why|how|which|wonder|asking|asked|tell me)\b|(?:是否|是不是|請問|哪個|哪一|誰|何時|為什麼|怎麼|如何|嗎|呢)/iu.test(body)) {
+    return false;
+  }
   if (/\b(?:maybe|might|perhaps|probably|unsure|uncertain|not sure|i think|i guess|seems?|appears?|if|would|could|according to)\b|(?:可能|也許|或許|大概|不確定|好像|似乎|如果|假如|我想知道|根據.+(?:說法|表示))/iu.test(body)) return false;
   if (/\b(?:no|not|never|without|don['’]?t|didn['’]?t|isn['’]?t|wasn['’]?t|won['’]?t)\b|(?:沒有|沒|不是|不會|未曾|尚未)/iu.test(body)) return false;
   if (/["“”「」『』]/u.test(body) || /\b(?:said|says|told|quoted)\b|(?:轉述|聽說|表示|說道)/iu.test(body)) return false;
