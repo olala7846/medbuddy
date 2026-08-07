@@ -89,10 +89,10 @@ describe("signed active memory tracer", () => {
         input: {
           payload: {
             memoryType: "SEMANTIC",
-            statement: "The fictional appointment folder is blue.",
+            statement: "our fictional appointment folder is blue",
             subjectLabels: [],
           },
-          tags: ["appointments"],
+          tags: ["appointment"],
         },
       }, { kind: "REPLY", text: "I falsely remembered a different detail." }]],
       [decoyIds.messageId, [{
@@ -114,14 +114,14 @@ describe("signed active memory tracer", () => {
         input: {
           payload: {
             memoryType: "EPISODIC",
-            event: "A participant placed the fictional paper calendar beside the door.",
+            event: "I placed the fictional paper calendar beside the door.",
             subjectLabels: [],
           },
           tags: [],
         },
       }, {
         kind: "REPLY",
-        text: "I autonomously remembered that for you.",
+        text: "Bring the fictional blue folder and paper calendar tomorrow.",
       }]],
     ]);
     const provider = new FixedConversationProvider(outputs);
@@ -184,13 +184,14 @@ describe("signed active memory tracer", () => {
       },
     });
     expect(await memories.listActive(decoyIds.workspaceId, 10)).toEqual([]);
-    expect(provider.requests).toHaveLength(4);
+    expect(provider.requests).toHaveLength(5);
     expect(replies).toEqual([
       "I remembered that for this chat as unreviewed evidence.",
       "This chat has no active unreviewed memory evidence.",
-      "Unreviewed workspace evidence from an earlier participant message: The fictional appointment folder is blue.",
-      "Thanks for sharing.",
+      "Unreviewed workspace evidence from an earlier participant message: our fictional appointment folder is blue",
+      "Bring the fictional blue folder and paper calendar tomorrow.",
     ]);
+    expect(replies.at(-1)).not.toMatch(/remember|stored|saved|recorded|記住|儲存|保存/iu);
     expect(JSON.stringify(replies)).not.toContain(rememberIds.workspaceId);
     expect(await persistence.familyMaps.get(rememberIds.workspaceId)).toEqual({
       workspaceId: rememberIds.workspaceId,

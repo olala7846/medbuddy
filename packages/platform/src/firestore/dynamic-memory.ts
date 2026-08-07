@@ -15,6 +15,19 @@ function record(value: unknown): Record<string, unknown> {
 export class FirestoreDynamicMemoryRepository implements DynamicMemoryRepository {
   constructor(private readonly firestore: Firestore) {}
 
+  async get(
+    workspaceId: Parameters<DynamicMemoryRepository["get"]>[0],
+    id: Parameters<DynamicMemoryRepository["get"]>[1],
+  ): Promise<DynamicMemoryRecord | null> {
+    const snapshot = await this.memoryRef(workspaceId, id).get();
+    if (!snapshot.exists) return null;
+    const memory = DynamicMemoryRecordSchema.parse(record(snapshot.data()));
+    if (memory.workspaceId !== workspaceId || memory.id !== id) {
+      throw new Error("Stored dynamic memory does not match its workspace path.");
+    }
+    return memory;
+  }
+
   async createOrGet(value: DynamicMemoryRecord) {
     const memory = DynamicMemoryRecordSchema.parse(value);
     return this.firestore.runTransaction(async (transaction) => {

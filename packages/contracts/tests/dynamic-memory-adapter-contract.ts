@@ -37,6 +37,7 @@ export function describeDynamicMemoryRepositoryContract(
         kind: "STORED",
         record: firstRecord,
       });
+      await expect(repository.get(firstRecord.workspaceId, firstRecord.id)).resolves.toEqual(firstRecord);
       await expect(repository.createOrGet({
         ...firstRecord,
         payload: {
@@ -78,6 +79,7 @@ export function describeDynamicMemoryRepositoryContract(
       const repository = createRepository();
       await repository.createOrGet(firstRecord);
       await expect(repository.listActive("workspace:memory-b" as never, 10)).resolves.toEqual([]);
+      await expect(repository.get("workspace:memory-b" as never, firstRecord.id)).resolves.toBeNull();
     });
 
     it("allows only one stored outcome for concurrent replay", async () => {

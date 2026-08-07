@@ -16,6 +16,14 @@ export class InMemoryDynamicMemoryRepository implements DynamicMemoryRepository 
   readonly #records = new Map<string, DynamicMemoryRecord>();
   readonly #transactions = new InMemoryTransactionQueue();
 
+  async get(
+    workspaceId: Parameters<DynamicMemoryRepository["get"]>[0],
+    id: Parameters<DynamicMemoryRepository["get"]>[1],
+  ): Promise<DynamicMemoryRecord | null> {
+    const existing = this.#records.get(`${workspaceId}\u0000${id}`);
+    return existing === undefined ? null : clone(existing);
+  }
+
   async createOrGet(value: DynamicMemoryRecord) {
     const record = DynamicMemoryRecordSchema.parse(value);
     return this.#transactions.run(async () => {

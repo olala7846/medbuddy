@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   DynamicMemoryPayloadSchema,
   QueryMemoryInputSchema,
+  containsFamilyRelationshipTerm,
 } from "../src/index.js";
 
 describe("dynamic memory contracts", () => {
+  it.each(["Mei is Kai's mum.", "美玲是家豪的媽媽。"])(
+    "classifies shared family-relationship material: %s",
+    (value) => expect(containsFamilyRelationshipTerm(value)).toBe(true),
+  );
   it.each([
     {
       memoryType: "SEMANTIC",

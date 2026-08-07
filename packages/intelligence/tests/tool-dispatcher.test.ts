@@ -140,6 +140,30 @@ describe("capability-scoped conversation tool dispatcher", () => {
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
   });
 
+  it("applies a successful optional capability final-response postcondition", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "REPLY", text: "I stored that and answered the focal request." },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => ({ complete: true, matches: [] })),
+        finalizeResponse(responseText: string) {
+          return responseText.includes("stored")
+            ? { kind: "REPLACE" as const, responseText: "A neutral fallback." }
+            : { kind: "ACCEPT" as const };
+        },
+      }],
+    })).resolves.toEqual({
+      kind: "RESPONDED",
+      responseText: "A neutral fallback.",
+      retryable: false,
+      toolCalls: 1,
+    });
+    expect(provider.requests).toHaveLength(2);
+  });
+
   it.each([
     ["provider prose", { kind: "REPLY", text: "I saved that relationship." }],
     ["a provider tool call", {

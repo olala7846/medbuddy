@@ -128,6 +128,10 @@ export type ProposeMemoryResult = z.infer<typeof ProposeMemoryResultSchema>;
 export type QueryMemoryResult = z.infer<typeof QueryMemoryResultSchema>;
 
 export interface DynamicMemoryRepository {
+  get(
+    workspaceId: z.infer<typeof WorkspaceIdSchema>,
+    id: z.infer<typeof MemoryRecordIdSchema>,
+  ): Promise<DynamicMemoryRecord | null>;
   createOrGet(record: DynamicMemoryRecord): Promise<CreateDynamicMemoryResult>;
   listActive(
     workspaceId: z.infer<typeof WorkspaceIdSchema>,

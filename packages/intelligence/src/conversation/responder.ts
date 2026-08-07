@@ -1,11 +1,14 @@
 import {
   ConversationTurnRequestSchema,
+  CJK_FAMILY_RELATIONSHIP_TERM_PATTERN,
+  ENGLISH_FAMILY_RELATIONSHIP_TERM_PATTERN,
   type ConversationContext,
   type ConversationToolDeclaration,
   type ConversationToolExecutionContext,
   type ConversationToolJsonObject,
   type ConversationToolResultDisposition,
   ConversationToolDeclarationSchema,
+  ConversationToolFinalResponseDispositionSchema,
   ConversationToolResultDispositionSchema,
   type ConversationTurnRequest,
   type ConversationResponder as ConversationResponderPort,
@@ -130,6 +133,7 @@ type BoundConversationToolCapability = Readonly<{
   parseInput: BoundSafeParse;
   parseOutput: BoundSafeParse;
   classifyResult(output: ConversationToolJsonObject): ConversationToolResultDisposition;
+  finalizeResponse?: (responseText: string) => unknown;
   execute(
     input: ConversationToolJsonObject,
     context: ConversationToolExecutionContext,
@@ -234,6 +238,7 @@ function bindModelTools(
         || typeof capability.inputSchema?.safeParse !== "function"
         || typeof capability.outputSchema?.safeParse !== "function"
         || typeof capability.classifyResult !== "function"
+        || capability.finalizeResponse !== undefined && typeof capability.finalizeResponse !== "function"
         || typeof capability.execute !== "function"
       ) return null;
       const inputSchema = capability.inputSchema;
@@ -247,12 +252,14 @@ function bindModelTools(
         input: ConversationToolJsonObject,
         context: ConversationToolExecutionContext,
       ) => Promise<unknown>;
+      const finalizeResponse = capability.finalizeResponse?.bind(capability);
       bound.set(declaration.data.name, Object.freeze({
         declaration: declaration.data,
         requiredBeforeReply: capability.requiredBeforeReply === true,
         parseInput,
         parseOutput,
         classifyResult,
+        ...(finalizeResponse === undefined ? {} : { finalizeResponse }),
         execute,
       }));
     }
@@ -395,9 +402,9 @@ function needsRelationshipTargetClarification(
   return observed.size > 1;
 }
 
-const FAMILY_RELATION_TERM = "mother|mom|father|dad|parent|sister|brother|daughter|son|child|grandmother|grandma|grandfather|grandpa|aunt|uncle|wife|husband|spouse|caregiver";
+const FAMILY_RELATION_TERM = ENGLISH_FAMILY_RELATIONSHIP_TERM_PATTERN;
 const FAMILY_PERSON_NAME = "[\\p{L}\\p{M}][\\p{L}\\p{M}'’.-]*(?:\\s+[\\p{L}\\p{M}][\\p{L}\\p{M}'’.-]*){0,3}";
-const CJK_FAMILY_RELATION_TERM = "媽媽|母親|爸爸|父親|姊姊|姐姐|妹妹|哥哥|弟弟|女兒|兒子|孩子|祖母|祖父|阿姨|叔叔|妻子|丈夫|配偶|照顧者";
+const CJK_FAMILY_RELATION_TERM = CJK_FAMILY_RELATIONSHIP_TERM_PATTERN;
 const CJK_PERSON_NAME = "[\\p{L}\\p{M}]{1,40}";
 const CJK_PERSON_LIST = `${CJK_PERSON_NAME}(?:和${CJK_PERSON_NAME}){1,5}`;
 
@@ -562,6 +569,7 @@ export class ConversationResponder implements ConversationResponderPort {
       let retryAfterConflict = false;
       let terminalToolFailure = false;
       const completedModelTools = new Set<string>();
+      const finalResponsePostconditions: Array<(responseText: string) => unknown> = [];
       let toolResult: unknown;
       const toolHistory: unknown[] = [];
       for (let modelStep = 0; modelStep < CONVERSATION_MAX_MODEL_STEPS; modelStep += 1) {
@@ -613,7 +621,24 @@ export class ConversationResponder implements ConversationResponderPort {
             this.log({ event: "conversation_tool_loop_exhausted", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
             return technicalFailure(toolCalls || undefined);
           }
-          const response = await this.respondToInstruction(instruction.data);
+          let response = await this.respondToInstruction(instruction.data);
+          if (response.kind === "RESPONDED" && response.responseText !== undefined) {
+            for (const finalizeResponse of finalResponsePostconditions) {
+              let disposition: ReturnType<typeof ConversationToolFinalResponseDispositionSchema.safeParse>;
+              try {
+                disposition = ConversationToolFinalResponseDispositionSchema.safeParse(
+                  finalizeResponse(response.responseText),
+                );
+              } catch {
+                return technicalFailure(toolCalls || undefined);
+              }
+              if (!disposition.success) return technicalFailure(toolCalls || undefined);
+              if (disposition.data.kind === "REPLACE") {
+                response = { ...response, responseText: disposition.data.responseText };
+                break;
+              }
+            }
+          }
           this.log({ event: "conversation_tool_loop_completed", toolAttemptCount: toolCalls, modelStepCount: modelStep + 1 });
           return toolCalls === 0 ? response : { ...response, toolCalls };
         }
@@ -714,6 +739,9 @@ export class ConversationResponder implements ConversationResponderPort {
               retryable: false,
               toolCalls,
             };
+          }
+          if (capability.finalizeResponse !== undefined) {
+            finalResponsePostconditions.push(capability.finalizeResponse);
           }
           toolResult = {
             name: instruction.data.name,

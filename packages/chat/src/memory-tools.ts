@@ -18,24 +18,33 @@ export const MEMORY_WRITE_FAILURE_TEXT = "I couldn’t remember that right now. 
 export const MEMORY_QUERY_FAILURE_TEXT = "I couldn’t check this chat’s memory right now. Please try again.";
 export const SUBJECT_FILTER_DEFERRED_TEXT = "I can’t reliably filter this chat’s memory by person yet.";
 export const MEMORY_STORED_TEXT = "I remembered that for this chat as unreviewed evidence.";
-export const MEMORY_AUTONOMOUS_RESPONSE_TEXT = "Thanks for sharing.";
+export const MEMORY_SILENT_FALLBACK_TEXT = "I’m sorry, I couldn’t prepare a reliable response to that request.";
+
+export type ActiveMemoryIntent = "EXPLICIT_QUERY" | "EXPLICIT_WRITE" | "NEUTRAL";
 
 function normalizedFocalBody(source: SourceEvent): string {
   if (source.payload.kind !== "TEXT") return "";
   return source.payload.body.normalize("NFKC").replace(/^\s*@\S+\s*/u, "").trim();
 }
 
-function explicitlyRequestsMemoryWrite(source: SourceEvent): boolean {
-  const body = normalizedFocalBody(source);
-  return /\b(?:remember|record|save|keep\s+(?:a\s+)?note)\b/iu.test(body)
-    || /(?:請)?(?:記住|記得|記錄|存下|保存)/u.test(body);
+export function classifyActiveMemoryIntent(bodyValue: string): ActiveMemoryIntent {
+  const body = bodyValue.normalize("NFKC").replace(/^\s*@\S+\s*/u, "").trim();
+  const query = /^(?:do|did|can|could|would)\s+you\s+(?:remember|recall)\b/iu.test(body)
+    || /^(?:what|which)\b.{0,160}\b(?:remember(?:ed)?|recall|memory|memories|tell|told|share|shared|recorded)\b/iu.test(body)
+    || /^(?:tell|show)\s+me\b.{0,120}\b(?:remembered|recorded|memory|memories)\b/iu.test(body)
+    || /^(?:你|妳)?(?:還)?記得.{0,120}(?:嗎|什么|什麼|\?|？)$/u.test(body)
+    || /^(?:我)?之前告訴你(?:什麼|什么|了什麼|了什么)?[?？]?$/u.test(body)
+    || /^(?:查|查看|告訴我).{0,80}(?:記憶|記錄)[?？]?$/u.test(body);
+  if (query) return "EXPLICIT_QUERY";
+  const write = /^(?:please\s+)?(?:remember|record|save)\b/iu.test(body)
+    || /^(?:do\s+not|don['’]?t)\s+forget\b/iu.test(body)
+    || /^(?:請)?(?:記住|記錄|保存|存下)/u.test(body)
+    || /^別忘記/u.test(body);
+  return write ? "EXPLICIT_WRITE" : "NEUTRAL";
 }
 
-function explicitlyRequestsMemoryQuery(source: SourceEvent): boolean {
-  const body = normalizedFocalBody(source);
-  return /\b(?:what|which|show|tell|recall|check)\b.{0,120}\b(?:remembered|recorded|memory|memories|previously\s+shared?)\b/iu.test(body)
-    || /\bpreviously\b.{0,80}\b(?:said|shared|recorded)\b/iu.test(body)
-    || /(?:記得什麼|記住了什麼|查(?:看)?記憶|之前.{0,40}(?:說|分享|記錄))/u.test(body);
+function forbidsPersistenceAnnouncement(responseText: string) {
+  return !/\b(?:i|we)(?:['’]?(?:ll|ve)|\s+(?:will|have))?\s+(?:remember(?:ed|ing)?|stor(?:e|ed|ing)|sav(?:e|ed|ing)|record(?:ed|ing)?|persist(?:ed|ing)?|not(?:e|ed|ing)|keep\s+(?:it|that|this)\s+in\s+mind)\b|\b(?:it|that|this)\s+(?:is|was|has\s+been)\s+(?:remembered|stored|saved|recorded|persisted|noted)\b|\b(?:remembered|stored|saved|recorded|persisted|noted)\s+(?:it|that|this)\b|(?:(?:我|我們).{0,8}|(?:已|會).{0,4})(?:記住|記下|儲存|保存|記錄|存下)/iu.test(responseText);
 }
 
 function renderQueryResult(result: Extract<QueryMemoryResult, { kind: "RESULT" }>): string {
@@ -93,8 +102,9 @@ export function createActiveMemoryCapabilities(input: {
   ConversationToolCapability<ProposeMemoryInput, ProposeMemoryResult>,
   ConversationToolCapability<QueryMemoryInput, QueryMemoryResult>,
 ] {
-  const explicitWrite = explicitlyRequestsMemoryWrite(input.focalSource);
-  const explicitQuery = explicitlyRequestsMemoryQuery(input.focalSource);
+  const intent = classifyActiveMemoryIntent(normalizedFocalBody(input.focalSource));
+  const explicitWrite = intent === "EXPLICIT_WRITE";
+  const explicitQuery = intent === "EXPLICIT_QUERY";
   return [{
     declaration: proposeDeclaration,
     requiredBeforeReply: explicitWrite,
@@ -102,11 +112,15 @@ export function createActiveMemoryCapabilities(input: {
     outputSchema: ProposeMemoryResultSchema,
     classifyResult(result) {
       return result.kind === "STORED" || result.kind === "EXISTING"
-        ? {
-            kind: "TERMINAL_SUCCESS" as const,
-            responseText: explicitWrite ? MEMORY_STORED_TEXT : MEMORY_AUTONOMOUS_RESPONSE_TEXT,
-          }
+        ? explicitWrite
+          ? { kind: "TERMINAL_SUCCESS" as const, responseText: MEMORY_STORED_TEXT }
+          : { kind: "CONTINUE" as const }
         : { kind: "TERMINAL_FAILURE" as const, responseText: MEMORY_WRITE_FAILURE_TEXT };
+    },
+    finalizeResponse(responseText) {
+      return forbidsPersistenceAnnouncement(responseText)
+        ? { kind: "ACCEPT" as const }
+        : { kind: "REPLACE" as const, responseText: MEMORY_SILENT_FALLBACK_TEXT };
     },
     execute(proposal) {
       return input.service.propose({

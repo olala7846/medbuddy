@@ -199,6 +199,18 @@ export type ConversationToolResultDisposition = z.infer<
   typeof ConversationToolResultDispositionSchema
 >;
 
+export const ConversationToolFinalResponseDispositionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ACCEPT") }).strict(),
+  z.object({
+    kind: z.literal("REPLACE"),
+    responseText: z.string().trim().min(1).max(5_000),
+  }).strict(),
+]);
+
+export type ConversationToolFinalResponseDisposition = z.infer<
+  typeof ConversationToolFinalResponseDispositionSchema
+>;
+
 export type ConversationToolJsonValue =
   | null
   | string
@@ -222,6 +234,8 @@ export interface ConversationToolCapability<
   readonly inputSchema: z.ZodType<Input>;
   readonly outputSchema: z.ZodType<Output>;
   classifyResult(output: Output): ConversationToolResultDisposition;
+  /** Applies trusted postconditions to a later model response after CONTINUE. */
+  finalizeResponse?(responseText: string): ConversationToolFinalResponseDisposition;
   execute(input: Input, context: ConversationToolExecutionContext): Promise<unknown>;
 }
 
