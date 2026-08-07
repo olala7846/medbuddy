@@ -22,6 +22,7 @@ Shared Zod schemas, branded IDs, errors, public service ports, and golden-scenar
 
 - Ports: `ChatService`, `CareRecordService`, `ConversationResponder`, `WorkspaceFamilyMapRepository`, `CaptureProcessor`, `MedicationGrounding`, `DemoWorkspaceProvisioner`
 - Domains: auth, chat, workspace family map, capture, care-record, handoff, grounding, persistence, demo
+- Passive memory: exact effective human evidence, structured proposals, leased jobs, fences, and cursor ports
 
 ## Tests
 

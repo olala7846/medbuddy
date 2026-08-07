@@ -1,0 +1,6 @@
+{"kind":"TEXT","id":"source-event:passive-zh-language","providerMessageId":"message:passive-zh-language","authorMemberId":"member:fictional-owner","body":"請用繁體中文回覆。","replyRequested":false}
+{"kind":"TEXT","id":"source-event:passive-zh-question","providerMessageId":"message:passive-zh-question","authorMemberId":"member:fictional-caregiver","body":"虛構的資料夾是不是放在玄關？","replyRequested":false}
+{"kind":"TEXT","id":"source-event:passive-zh-original","providerMessageId":"message:passive-zh-folder","authorMemberId":"member:fictional-owner","body":"虛構的資料夾放在廚房。","replyRequested":false}
+{"kind":"TEXT_EDIT","id":"source-event:passive-zh-edit","providerMessageId":"message:passive-zh-edit","authorMemberId":"member:fictional-owner","targetMessageId":"message:passive-zh-folder","body":"虛構的藍色資料夾放在玄關櫃子上。"}
+{"kind":"TEXT","id":"source-event:passive-zh-uncertain","providerMessageId":"message:passive-zh-uncertain","authorMemberId":"member:fictional-caregiver","body":"虛構的紅色袋子可能放在車上。","replyRequested":false}
+{"kind":"TEXT","id":"source-event:passive-zh-negated","providerMessageId":"message:passive-zh-negated","authorMemberId":"member:fictional-owner","body":"虛構的備用鑰匙沒有放在抽屜。","replyRequested":false}

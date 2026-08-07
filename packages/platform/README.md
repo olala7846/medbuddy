@@ -6,6 +6,10 @@ The Firestore and in-memory family-map adapters implement the same source-bound,
 workspace-isolated compare-and-set contract. Firestore stores only
 `workspaces/{workspaceId}/workspaceMemory/familyMap`; there is no history collection.
 
+Passive-memory adapters expose only effective human text/edit evidence and
+leased workspace jobs. Terminal success or failure advances the persisted cursor
+atomically; failed jobs retain only metadata and their replay range.
+
 ## Public entry
 
 - `.` → adapters and `createProductionPlatform`

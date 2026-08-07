@@ -5,6 +5,7 @@ Probabilistic and bounded-model surfaces: bounded model/tool/model conversation 
 ## Public entry
 
 - `.` → capture, conversation, safety, grounding, fixed/Vertex model adapters, fixture grounding helper
+- Passive memory uses a dedicated JSON-only generator with no tools or reply surface.
 
 ## Depends on
 
