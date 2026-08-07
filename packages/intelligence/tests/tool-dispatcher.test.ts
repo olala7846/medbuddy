@@ -140,28 +140,77 @@ describe("capability-scoped conversation tool dispatcher", () => {
     })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
   });
 
-  it("applies a successful optional capability final-response postcondition", async () => {
+  it("continues an optional capability in a fresh response-only provider step", async () => {
     const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
       { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
-      { kind: "REPLY", text: "I stored that and answered the focal request." },
+      { kind: "REPLY", text: "A normal answer to the focal request." },
     ]]]));
     const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
     await expect(responder.respond(request, {
       modelTools: [{
         ...queryCapability(async () => ({ complete: true, matches: [] })),
-        finalizeResponse(responseText: string) {
-          return responseText.includes("stored")
-            ? { kind: "REPLACE" as const, responseText: "A neutral fallback." }
-            : { kind: "ACCEPT" as const };
-        },
+        classifyResult: () => ({ kind: "CONTINUE_FRESH" as const, outcome: "SUCCEEDED" as const }),
       }],
     })).resolves.toEqual({
       kind: "RESPONDED",
-      responseText: "A neutral fallback.",
+      responseText: "A normal answer to the focal request.",
       retryable: false,
       toolCalls: 1,
     });
     expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]).toMatchObject({
+      toolDeclarations: [],
+      toolExecutionAllowed: false,
+      familyMapUpdatesAllowed: false,
+      familyMapUpdateRequired: false,
+      responseOnly: true,
+    });
+    expect(provider.requests[1]).not.toHaveProperty("toolResult");
+    expect(provider.requests[1]).not.toHaveProperty("toolHistory");
+  });
+
+  it("keeps optional tool failure internal and still obtains a fresh normal reply", async () => {
+    const telemetry: unknown[] = [];
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "REPLY", text: "A normal answer with no persistence outcome." },
+    ]]]));
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      provider,
+      25_000,
+      { write(entry) { telemetry.push(entry); } },
+    );
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => ({ complete: false, matches: [] })),
+        classifyResult: () => ({ kind: "CONTINUE_FRESH" as const, outcome: "FAILED" as const }),
+      }],
+    })).resolves.toMatchObject({
+      kind: "RESPONDED",
+      responseText: "A normal answer with no persistence outcome.",
+      toolCalls: 1,
+    });
+    expect(provider.requests[1]).not.toHaveProperty("toolResult");
+    expect(provider.requests[1]).not.toHaveProperty("toolHistory");
+    expect(telemetry).toContainEqual(expect.objectContaining({
+      event: "conversation_tool_loop_completed",
+      outcome: "FAILED",
+    }));
+  });
+
+  it("fails closed when a fresh response-only step attempts a tool call", async () => {
+    const provider = new FixedConversationProvider(new Map([[focalMessage.id, [
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "preferences" } },
+      { kind: "CALL_TOOL", name: "query_memory", input: { query: "again" } },
+    ]]]));
+    const responder = new ConversationResponder(createFixtureMedicationGrounding(), provider);
+    await expect(responder.respond(request, {
+      modelTools: [{
+        ...queryCapability(async () => ({ complete: true, matches: [] })),
+        classifyResult: () => ({ kind: "CONTINUE_FRESH" as const, outcome: "SUCCEEDED" as const }),
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
   });
 
   it.each([

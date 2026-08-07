@@ -5,6 +5,7 @@ import {
   DynamicMemoryService,
   ThreadConversationService,
 } from "@medbuddy/chat";
+import type { ConversationTelemetryEntry } from "@medbuddy/contracts";
 import {
   ConversationResponder,
   FixedConversationProvider,
@@ -119,6 +120,7 @@ describe("signed active memory tracer", () => {
           },
           tags: [],
         },
+        continuation: { role: "model", parts: [{ text: "I stored that memory successfully." }] },
       }, {
         kind: "REPLY",
         text: "Bring the fictional blue folder and paper calendar tomorrow.",
@@ -185,6 +187,16 @@ describe("signed active memory tracer", () => {
     });
     expect(await memories.listActive(decoyIds.workspaceId, 10)).toEqual([]);
     expect(provider.requests).toHaveLength(5);
+    const autonomousFreshRequest = provider.requests.at(-1)!;
+    expect(autonomousFreshRequest).toMatchObject({
+      toolDeclarations: [],
+      toolExecutionAllowed: false,
+      familyMapUpdatesAllowed: false,
+      familyMapUpdateRequired: false,
+      responseOnly: true,
+    });
+    expect(autonomousFreshRequest).not.toHaveProperty("toolResult");
+    expect(autonomousFreshRequest).not.toHaveProperty("toolHistory");
     expect(replies).toEqual([
       "I remembered that for this chat as unreviewed evidence.",
       "This chat has no active unreviewed memory evidence.",
@@ -207,5 +219,73 @@ describe("signed active memory tracer", () => {
       rememberIds.sourceEventId,
       rememberIds.memberId,
     ]) expect(renderedLogs).not.toContain(sensitive);
+  });
+
+  it("keeps an autonomous repository failure internal and still returns a fresh normal answer", async () => {
+    const autonomous = (await fixture()).find((step) => step.step === "autonomous" && step.action === "SEND")!;
+    if (autonomous.action !== "SEND") throw new Error("Expected autonomous send fixture.");
+    const ids = deriveLineConversationIds(identity(autonomous.event));
+    const provider = new FixedConversationProvider(new Map([[ids.messageId, [{
+      kind: "CALL_TOOL",
+      name: "propose_memory",
+      input: {
+        payload: {
+          memoryType: "EPISODIC",
+          event: "I placed the fictional paper calendar beside the door.",
+          subjectLabels: [],
+        },
+        tags: [],
+      },
+      continuation: { role: "model", parts: [{ text: "The write failed." }] },
+    }, {
+      kind: "REPLY",
+      text: "Bring the fictional paper calendar tomorrow.",
+    }]]]));
+    const persistence = new InMemoryPersistence();
+    const telemetry: ConversationTelemetryEntry[] = [];
+    const replies: string[] = [];
+    const responder = new ConversationResponder(
+      createFixtureMedicationGrounding(),
+      provider,
+      25_000,
+      { write(entry) { telemetry.push(entry); } },
+    );
+    const conversation = new ContinuityThreadConversationService({
+      continuity: new InMemoryContinuityRepository(),
+      messages: persistence.messages,
+      familyMaps: persistence.familyMaps,
+      memory: new DynamicMemoryService({
+        async get() { return null; },
+        async createOrGet() { throw new Error("fictional repository failure"); },
+        async listActive() { return []; },
+      }),
+      responder,
+      systemInstructions: "Preserve workspace isolation and deterministic medical safety.",
+    });
+    const handler = new LineWebhookHandler({
+      channelSecret: CHANNEL_SECRET,
+      receipts: persistence.externalEvents,
+      conversation: new ThreadConversationService({
+        messages: persistence.messages,
+        familyMaps: persistence.familyMaps,
+        responder,
+      }),
+      continuityConversation: conversation,
+      replyClient: { async reply(input) { replies.push(input.text); } },
+      logger: { write() {} },
+    });
+
+    await expect(handler.handle({
+      ...signed(autonomous.event),
+      correlationId: "request:memory-autonomous-failure",
+    })).resolves.toEqual({ status: 200 });
+    expect(replies).toEqual(["Bring the fictional paper calendar tomorrow."]);
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]).not.toHaveProperty("toolResult");
+    expect(provider.requests[1]).not.toHaveProperty("toolHistory");
+    expect(telemetry).toContainEqual(expect.objectContaining({
+      event: "conversation_tool_loop_completed",
+      outcome: "FAILED",
+    }));
   });
 });

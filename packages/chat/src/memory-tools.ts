@@ -18,7 +18,6 @@ export const MEMORY_WRITE_FAILURE_TEXT = "I couldn’t remember that right now. 
 export const MEMORY_QUERY_FAILURE_TEXT = "I couldn’t check this chat’s memory right now. Please try again.";
 export const SUBJECT_FILTER_DEFERRED_TEXT = "I can’t reliably filter this chat’s memory by person yet.";
 export const MEMORY_STORED_TEXT = "I remembered that for this chat as unreviewed evidence.";
-export const MEMORY_SILENT_FALLBACK_TEXT = "I’m sorry, I couldn’t prepare a reliable response to that request.";
 
 export type ActiveMemoryIntent = "EXPLICIT_QUERY" | "EXPLICIT_WRITE" | "NEUTRAL";
 
@@ -41,10 +40,6 @@ export function classifyActiveMemoryIntent(bodyValue: string): ActiveMemoryInten
     || /^(?:請)?(?:記住|記錄|保存|存下)/u.test(body)
     || /^別忘記/u.test(body);
   return write ? "EXPLICIT_WRITE" : "NEUTRAL";
-}
-
-function forbidsPersistenceAnnouncement(responseText: string) {
-  return !/\b(?:i|we)(?:['’]?(?:ll|ve)|\s+(?:will|have))?\s+(?:remember(?:ed|ing)?|stor(?:e|ed|ing)|sav(?:e|ed|ing)|record(?:ed|ing)?|persist(?:ed|ing)?|not(?:e|ed|ing)|keep\s+(?:it|that|this)\s+in\s+mind)\b|\b(?:it|that|this)\s+(?:is|was|has\s+been)\s+(?:remembered|stored|saved|recorded|persisted|noted)\b|\b(?:remembered|stored|saved|recorded|persisted|noted)\s+(?:it|that|this)\b|(?:(?:我|我們).{0,8}|(?:已|會).{0,4})(?:記住|記下|儲存|保存|記錄|存下)/iu.test(responseText);
 }
 
 function renderQueryResult(result: Extract<QueryMemoryResult, { kind: "RESULT" }>): string {
@@ -111,16 +106,14 @@ export function createActiveMemoryCapabilities(input: {
     inputSchema: ProposeMemoryInputSchema,
     outputSchema: ProposeMemoryResultSchema,
     classifyResult(result) {
-      return result.kind === "STORED" || result.kind === "EXISTING"
-        ? explicitWrite
-          ? { kind: "TERMINAL_SUCCESS" as const, responseText: MEMORY_STORED_TEXT }
-          : { kind: "CONTINUE" as const }
+      const succeeded = result.kind === "STORED" || result.kind === "EXISTING";
+      if (!explicitWrite) return {
+        kind: "CONTINUE_FRESH" as const,
+        outcome: succeeded ? "SUCCEEDED" as const : "FAILED" as const,
+      };
+      return succeeded
+        ? { kind: "TERMINAL_SUCCESS" as const, responseText: MEMORY_STORED_TEXT }
         : { kind: "TERMINAL_FAILURE" as const, responseText: MEMORY_WRITE_FAILURE_TEXT };
-    },
-    finalizeResponse(responseText) {
-      return forbidsPersistenceAnnouncement(responseText)
-        ? { kind: "ACCEPT" as const }
-        : { kind: "REPLACE" as const, responseText: MEMORY_SILENT_FALLBACK_TEXT };
     },
     execute(proposal) {
       return input.service.propose({

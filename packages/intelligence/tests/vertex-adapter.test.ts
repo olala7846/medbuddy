@@ -183,6 +183,31 @@ describe("Vertex adapters", () => {
     ]);
   });
 
+  it("renders a fresh response-only provider step with no declarations and NONE mode", async () => {
+    const requests: VertexGenerationRequest[] = [];
+    const provider = new VertexConversationProvider({
+      async generate(input) {
+        requests.push(input);
+        return { candidates: [{ content: { role: "model", parts: [{ text: "A fresh answer." }] } }] };
+      },
+    });
+    await provider.respond({
+      focalMessage,
+      context: conversationInput.context,
+      toolDeclarations: [],
+      toolExecutionAllowed: false,
+      familyMapUpdatesAllowed: false,
+      familyMapUpdateRequired: false,
+      responseOnly: true,
+    });
+    expect(requests[0]).toMatchObject({
+      tools: [{ functionDeclarations: [] }],
+      toolConfig: { functionCallingConfig: { mode: "NONE" } },
+    });
+    expect(requests[0]?.systemInstruction).not.toContain("propose_memory");
+    expect(JSON.stringify(requests[0]?.contents)).not.toMatch(/functionCall|functionResponse|STORED|EXISTING/u);
+  });
+
   it("bounds the complete conversational provider request including wrappers", async () => {
     const requests: VertexGenerationRequest[] = [];
     const contexts: Array<VertexInvocationContext | undefined> = [];

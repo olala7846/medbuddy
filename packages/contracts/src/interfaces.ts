@@ -186,6 +186,10 @@ export interface ConversationToolExecutionContext {
 export const ConversationToolResultDispositionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("CONTINUE") }).strict(),
   z.object({
+    kind: z.literal("CONTINUE_FRESH"),
+    outcome: z.enum(["SUCCEEDED", "FAILED"]),
+  }).strict(),
+  z.object({
     kind: z.literal("TERMINAL_SUCCESS"),
     responseText: z.string().trim().min(1).max(5_000),
   }).strict(),
@@ -197,18 +201,6 @@ export const ConversationToolResultDispositionSchema = z.discriminatedUnion("kin
 
 export type ConversationToolResultDisposition = z.infer<
   typeof ConversationToolResultDispositionSchema
->;
-
-export const ConversationToolFinalResponseDispositionSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("ACCEPT") }).strict(),
-  z.object({
-    kind: z.literal("REPLACE"),
-    responseText: z.string().trim().min(1).max(5_000),
-  }).strict(),
-]);
-
-export type ConversationToolFinalResponseDisposition = z.infer<
-  typeof ConversationToolFinalResponseDispositionSchema
 >;
 
 export type ConversationToolJsonValue =
@@ -234,8 +226,6 @@ export interface ConversationToolCapability<
   readonly inputSchema: z.ZodType<Input>;
   readonly outputSchema: z.ZodType<Output>;
   classifyResult(output: Output): ConversationToolResultDisposition;
-  /** Applies trusted postconditions to a later model response after CONTINUE. */
-  finalizeResponse?(responseText: string): ConversationToolFinalResponseDisposition;
   execute(input: Input, context: ConversationToolExecutionContext): Promise<unknown>;
 }
 

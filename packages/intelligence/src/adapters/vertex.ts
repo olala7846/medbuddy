@@ -342,16 +342,25 @@ function conversationRequest(input: Parameters<ConversationProvider["respond"]>[
     }
     declarationNames.add(declaration.name);
   }
+  if (input.responseOnly === true && (
+    input.toolExecutionAllowed !== false
+    || input.familyMapUpdatesAllowed === true
+    || input.familyMapUpdateRequired === true
+    || suppliedDeclarations.data.length > 0
+    || exchanges.length > 0
+  )) throw new ConversationProviderError("MALFORMED_TRANSPORT");
   const familyMapToolRequired = input.familyMapUpdatesAllowed === true
     && (input.familyMapUpdateRequired === true || retryRequiresFamilyMapTool);
-  const declarations = [
-    ...(
-      input.familyMapUpdatesAllowed === true || suppliedDeclarations.data.length === 0
-        ? [familyMapFunctionDeclaration]
-        : []
-    ),
-    ...suppliedDeclarations.data,
-  ];
+  const declarations = input.responseOnly === true
+    ? []
+    : [
+        ...(
+          input.familyMapUpdatesAllowed === true || suppliedDeclarations.data.length === 0
+            ? [familyMapFunctionDeclaration]
+            : []
+        ),
+        ...suppliedDeclarations.data,
+      ];
   const familyMapToolMode = input.toolExecutionAllowed === false
     ? "NONE"
     : familyMapToolRequired

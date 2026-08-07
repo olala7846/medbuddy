@@ -474,11 +474,13 @@ describe("active memory capabilities", () => {
         recordedAt: autonomousSource.acceptedAt,
       },
     });
-    expect(capabilities[0].classifyResult(stored)).toEqual({ kind: "CONTINUE" });
-    expect(capabilities[0].finalizeResponse?.("Bring the fictional folder tomorrow.")).toEqual({ kind: "ACCEPT" });
-    expect(capabilities[0].finalizeResponse?.("I stored that memory.")).toEqual({
-      kind: "REPLACE",
-      responseText: "I’m sorry, I couldn’t prepare a reliable response to that request.",
+    expect(capabilities[0].classifyResult(stored)).toEqual({
+      kind: "CONTINUE_FRESH",
+      outcome: "SUCCEEDED",
+    });
+    expect(capabilities[0].classifyResult({ kind: "TECHNICAL_FAILURE" })).toEqual({
+      kind: "CONTINUE_FRESH",
+      outcome: "FAILED",
     });
   });
 
