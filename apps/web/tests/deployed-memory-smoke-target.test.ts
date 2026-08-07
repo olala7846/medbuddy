@@ -27,6 +27,12 @@ import { syntheticContinuityCleanupManifest } from "./support/continuity-verific
 
 const TARGET_ACKNOWLEDGEMENT = "I_ACKNOWLEDGE_FICTIONAL_TARGET_WRITES";
 const targetEnabled = process.env.MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION === TARGET_ACKNOWLEDGEMENT;
+const targetRequired = process.env.MEDBUDDY_REQUIRE_CONTINUITY_TARGET_VERIFICATION === "true";
+if (targetRequired && !targetEnabled) {
+  throw new Error(
+    `Target memory smoke requires MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION=${TARGET_ACKNOWLEDGEMENT}.`,
+  );
+}
 const describeTarget = targetEnabled ? describe : describe.skip;
 
 describeTarget("automated fictional LINE memory smoke (target Firestore)", () => {
@@ -71,7 +77,9 @@ describeTarget("automated fictional LINE memory smoke (target Firestore)", () =>
         primaryActiveMemoryCount: 2,
         isolatedActiveMemoryCount: 0,
         humanCanonicalSourceCount: 2,
-        operationalLogCount: 5,
+        operationalLogCount: 6,
+        medicationRefusalCount: 1,
+        postReplyEligibleMedBuddySourceCount: 0,
       });
     } finally {
       try {

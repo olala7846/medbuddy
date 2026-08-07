@@ -19,6 +19,7 @@ import {
 import {
   ConversationResponder,
   FixedConversationProvider,
+  MEDICATION_DECISION_REFUSAL_TEXT,
   createFixtureMedicationGrounding,
 } from "@medbuddy/intelligence";
 import { PassiveMemoryEvidenceReaderAdapter } from "@medbuddy/platform";
@@ -61,6 +62,8 @@ export type SyntheticDeployedMemorySmokeResult = {
     isolatedActiveMemoryCount: number;
     humanCanonicalSourceCount: number;
     operationalLogCount: number;
+    medicationRefusalCount: number;
+    postReplyEligibleMedBuddySourceCount: number;
   };
 };
 
@@ -99,12 +102,13 @@ export async function runSyntheticDeployedMemorySmoke(
     options.runNonce,
   );
   const steps = parsed.filter((step): step is SyntheticContinuitySendStep => step.action === "SEND");
-  requireCondition(steps.length === parsed.length && steps.length === 5, "Synthetic deployed-memory smoke scope changed.");
+  requireCondition(steps.length === parsed.length && steps.length === 6, "Synthetic deployed-memory smoke scope changed.");
   const passiveSource = sendStep(steps, "passive-source");
   const passiveRecall = sendStep(steps, "passive-recall");
   const explicitRemember = sendStep(steps, "explicit-remember");
   const explicitRecall = sendStep(steps, "explicit-recall");
   const isolationQuery = sendStep(steps, "isolation-query");
+  const medicationRefusal = sendStep(steps, "medication-refusal");
   const cleanup = await syntheticContinuityCleanupManifest(
     options.runNonce,
     SYNTHETIC_DEPLOYED_MEMORY_SMOKE_FIXTURE_URL,
@@ -115,6 +119,7 @@ export async function runSyntheticDeployedMemorySmoke(
   const explicitRememberIds = deriveLineConversationIds(identity(explicitRemember));
   const explicitRecallIds = deriveLineConversationIds(identity(explicitRecall));
   const isolationQueryIds = deriveLineConversationIds(identity(isolationQuery));
+  const medicationRefusalIds = deriveLineConversationIds(identity(medicationRefusal));
   const provider = new FixedConversationProvider(new Map([
     [passiveRecallIds.messageId, [
       { kind: "CALL_TOOL", name: "query_memory", input: {} },
@@ -139,6 +144,8 @@ export async function runSyntheticDeployedMemorySmoke(
   const wakeups: Array<Parameters<MemoryFormationScheduler["wake"]>[0] & { scheduleTime?: string }> = [];
   const replies: string[] = [];
   const logs: LineOperationalLogEntry[] = [];
+  let generationCount = 0;
+  let postReplyEligibleMedBuddySourceCount = -1;
   let now = new Date(passiveSource.event.timestamp + 1_000).toISOString();
   const scheduler = new MemoryFormationScheduler({
     repository: dependencies.continuity,
@@ -190,6 +197,14 @@ export async function runSyntheticDeployedMemorySmoke(
     jobs: dependencies.jobs,
     evidence: new PassiveMemoryEvidenceReaderAdapter(dependencies.continuity),
     generator: { async generate(input) {
+      generationCount += 1;
+      if (generationCount > 1) {
+        requireCondition(input.evidence.length > 0, "Post-reply formation received no eligible source.");
+        postReplyEligibleMedBuddySourceCount = input.evidence.filter(
+          (item) => item.authorMemberId === "MEDBUDDY",
+        ).length;
+        return { output: { proposals: [] } };
+      }
       requireCondition(input.evidence.length === 1, "Passive worker received an unexpected source range.");
       return { output: { proposals: [{
         sourceRef: input.evidence[0]!.canonicalSourceRef,
@@ -203,7 +218,19 @@ export async function runSyntheticDeployedMemorySmoke(
   });
   requireCondition(await worker.run(dispatched[0]!) === "COMPLETED", "Passive worker did not complete.");
 
-  for (const step of [passiveRecall, explicitRemember, explicitRecall, isolationQuery]) await deliver(step);
+  for (const step of [passiveRecall, explicitRemember, explicitRecall, isolationQuery, medicationRefusal]) {
+    await deliver(step);
+  }
+  const finalWakeup = wakeups.at(-1);
+  if (finalWakeup === undefined) throw new Error("Post-reply formation has no quiet wake.");
+  if (finalWakeup.scheduleTime === undefined) throw new Error("Post-reply quiet wake has no schedule time.");
+  now = new Date(Date.parse(finalWakeup.scheduleTime) + 1).toISOString();
+  const { scheduleTime: _finalScheduleTime, ...finalWake } = finalWakeup;
+  void _finalScheduleTime;
+  await scheduler.wake(finalWake, now);
+  requireCondition(dispatched.length === 2, "Post-reply quiet wake did not dispatch one worker job.");
+  requireCondition(await worker.run(dispatched[1]!) === "COMPLETED", "Post-reply worker did not complete.");
+  requireCondition(postReplyEligibleMedBuddySourceCount === 0, "MedBuddy output became an eligible canonical source.");
   const primaryRecords = await dependencies.memory.listActive(primaryIds.workspaceId, 10);
   const isolatedRecords = await dependencies.memory.listActive(isolatedIds.workspaceId, 10);
   const humanCanonicalSourceCount = primaryRecords.filter((record) =>
@@ -228,6 +255,12 @@ export async function runSyntheticDeployedMemorySmoke(
     reply === "I remembered that for this chat as unreviewed evidence.").length;
   requireCondition(attributedRecallCount === 2, "Recall replies did not expose source and trust attribution.");
   requireCondition(explicitAcknowledgementCount === 1, "Explicit remember did not receive one truthful acknowledgment.");
+  const medicationRefusalCount = replies.filter((reply) => reply === MEDICATION_DECISION_REFUSAL_TEXT).length;
+  requireCondition(medicationRefusalCount === 1, "Medication decision did not receive the deterministic refusal.");
+  requireCondition(
+    !provider.requests.some((request) => request.focalMessage.id === medicationRefusalIds.messageId),
+    "Medication decision reached the model provider.",
+  );
   const forbiddenLogValues = [CHANNEL_SECRET, ...steps.flatMap((step) => [
     step.event.source.groupId,
     step.event.source.userId,
@@ -235,7 +268,16 @@ export async function runSyntheticDeployedMemorySmoke(
     step.event.webhookEventId,
     step.event.replyToken,
     step.event.message.text,
-  ]), ...cleanup.workspaceIds];
+  ]), ...cleanup.workspaceIds,
+  "Preserve workspace isolation and deterministic medical safety.",
+  "書架上。來源：human conversation。信任：UNREVIEWED_DERIVED。",
+  "虛構的預約資料夾是藍色的。",
+  "藍色。來源：human conversation。信任：UNREVIEWED_DERIVED。",
+  "這個聊天室沒有相關的可用記憶。",
+  "I remembered that for this chat as unreviewed evidence.",
+  "虛構的藍色資料夾放在書架上。",
+  MEDICATION_DECISION_REFUSAL_TEXT,
+  ];
   const serializedLogs = JSON.stringify(logs);
   requireCondition(forbiddenLogValues.every((value) => !serializedLogs.includes(value)), "Operational logs exposed smoke content or identifiers.");
 
@@ -249,6 +291,8 @@ export async function runSyntheticDeployedMemorySmoke(
       isolatedActiveMemoryCount: isolatedRecords.length,
       humanCanonicalSourceCount,
       operationalLogCount: logs.length,
+      medicationRefusalCount,
+      postReplyEligibleMedBuddySourceCount,
     },
   };
 }

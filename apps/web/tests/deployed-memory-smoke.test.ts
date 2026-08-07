@@ -38,14 +38,16 @@ describe("automated fictional LINE memory smoke", () => {
       primaryActiveMemoryCount: 2,
       isolatedActiveMemoryCount: 0,
       humanCanonicalSourceCount: 2,
-      operationalLogCount: 5,
+      operationalLogCount: 6,
+      medicationRefusalCount: 1,
+      postReplyEligibleMedBuddySourceCount: 0,
     });
     expect(result.cleanup).toMatchObject({
       version: 2,
       runNonce: "in-memory-contract",
     });
     expect(result.cleanup.workspaceIds).toHaveLength(2);
-    expect(result.cleanup.providerEventIds).toHaveLength(5);
-    expect(result.cleanup.receiptKeys).toHaveLength(5);
+    expect(result.cleanup.providerEventIds).toHaveLength(6);
+    expect(result.cleanup.receiptKeys).toHaveLength(6);
   });
 });

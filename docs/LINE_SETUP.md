@@ -234,18 +234,35 @@ MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802 \
 npm run verify:memory:target
 ```
 
-The runner loads five bounded Traditional Chinese LINE events from JSONL. It
-uses signed LINE requests, a fake reply transport, the production memory domain
-services, and the target Firestore adapters. It tests the ten-minute passive
-trigger, same-workspace recall, explicit remember, source and trust attribution,
-MedBuddy source exclusion, and a decoy workspace. It checks for target-scope
-collisions before the first write. It removes and verifies its exact nonce-based
-workspace and receipt scope in a `finally` block. It does not use a LINE channel
-secret or call the LINE API.
+The runner loads six bounded Traditional Chinese LINE events from JSONL. It
+uses these production paths:
+
+- signed LINE requests;
+- the memory domain services;
+- the target Firestore adapters.
+
+It uses a fake reply transport. It tests these behaviors:
+
+- the ten-minute passive trigger;
+- same-workspace recall and explicit memory;
+- source and trust attribution;
+- MedBuddy source exclusion after a later formation cycle;
+- decoy-workspace isolation;
+- deterministic medication-change refusal before model use.
+
+The runner checks for target collisions before the first write. It removes and
+verifies the exact nonce-based workspace and receipt scope in a `finally` block.
+It does not use a LINE channel secret or call the LINE API.
 
 If the process stops before cleanup, it leaves a mode-`0600` manifest in the
-system temporary directory. Use `npm run verify:continuity:cleanup` with the
-manifest path and the same target acknowledgement.
+system temporary directory. Run this command with the path from the failed run:
+
+```bash
+MEDBUDDY_RUN_CONTINUITY_TARGET_VERIFICATION=I_ACKNOWLEDGE_FICTIONAL_TARGET_WRITES \
+MEDBUDDY_GCP_PROJECT_ID=med-buddy-503802 \
+MEDBUDDY_CONTINUITY_CLEANUP_MANIFEST=/tmp/medbuddy-deployed-memory-smoke-<run-nonce>.json \
+npm run verify:continuity:cleanup
+```
 
 If a provider-boundary check is necessary:
 
@@ -294,8 +311,8 @@ replaced the planned human LINE group exercise:
 | Rendered-size policies | Production 30,000 UTF-16 units; verification-small 1,800 UTF-16 units |
 | Dynamic-memory live evaluation | Traditional Chinese semantic, episodic, and allow-listed procedural scenarios passed against the configured Vertex model |
 | Effort 1/2 regression evaluation | The first counterfactual family-map attempt declined the required sparse inference. An identical rerun passed all three assertions. This result matches the documented stochastic model variance. The failure did not occur in a compaction, persistence, or infrastructure assertion. |
-| Automated fictional LINE memory observations | Five signed JSONL events passed against target Firestore: zero passive replies, two attributed recalls, one explicit acknowledgment, two primary memories, zero isolated-workspace memories, two human canonical sources, and five content-free operational log entries |
-| Synthetic cleanup | The exact two-workspace and five-receipt nonce scope was removed and verified; no recovery manifest remained |
+| Automated fictional LINE memory observations | Six signed JSONL events passed against target Firestore: zero passive replies, two attributed recalls, one explicit acknowledgment, one medication refusal before model use, two primary memories, zero isolated-workspace memories, zero MedBuddy sources after later formation, two human canonical sources, and six content-free operational log entries |
+| Synthetic cleanup | The exact two-workspace and six-receipt nonce scope was removed and verified; no recovery manifest remained |
 
 The first infrastructure apply also exposed an invalid composite declaration for
 the outbox policy lookup. Firestore correctly rejected it as unnecessary. The
