@@ -148,6 +148,11 @@ resource "google_firestore_index" "memory_formation_due" {
   query_scope = "COLLECTION_GROUP"
 
   fields {
+    field_path = "policyVersion"
+    order      = "ASCENDING"
+  }
+
+  fields {
     field_path = "scheduledFor"
     order      = "ASCENDING"
   }

@@ -56,7 +56,8 @@ describeEmulator("Firestore passive memory", () => {
     await expect(continuity.compareAndSetState(null, state)).resolves.toBe(false);
     await expect(continuity.getState(workspaceId)).resolves.toEqual(state);
     await expect(continuity.listAcceptedEvents({ workspaceId, afterCursor: 0, limit: 100 })).resolves.toEqual([]);
-    await expect(continuity.listRecoveryCandidates({ now: state.scheduledFor, limit: 100 }))
+    await expect(continuity.listRecoveryCandidates({ now: state.scheduledFor, limit: 100,
+      policyVersion: "memory-formation-v1" }))
       .resolves.toContain(workspaceId);
   });
 

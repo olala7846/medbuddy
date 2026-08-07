@@ -199,14 +199,21 @@ export class MemoryFormationScheduler {
   }
 
   async recover(now = this.dependencies.now()): Promise<number> {
-    const candidates = await this.dependencies.repository.listRecoveryCandidates({ now, limit: MEMORY_FORMATION_RECOVERY_LIMIT });
+    const candidates = await this.dependencies.repository.listRecoveryCandidates({ now,
+      limit: MEMORY_FORMATION_RECOVERY_LIMIT, policyVersion: this.dependencies.policy.policyVersion });
     for (const workspaceId of candidates) {
-      const state = await this.dependencies.repository.getState(workspaceId);
-      if (state !== null && state.activeJobId === undefined && state.scheduledFor !== undefined &&
-          Date.parse(state.scheduledFor) <= Date.parse(now)) {
-        await this.wake({ workspaceId, generation: state.scheduleGeneration, policyVersion: state.policyVersion }, now);
-      } else {
-        await this.reconcileWorkspace(workspaceId);
+      try {
+        const state = await this.dependencies.repository.getState(workspaceId);
+        if (state !== null && state.policyVersion === this.dependencies.policy.policyVersion &&
+            state.activeJobId === undefined && state.scheduledFor !== undefined &&
+            Date.parse(state.scheduledFor) <= Date.parse(now)) {
+          await this.wake({ workspaceId, generation: state.scheduleGeneration, policyVersion: state.policyVersion }, now);
+        } else {
+          await this.reconcileWorkspace(workspaceId);
+        }
+      } catch {
+        // Preserve this workspace's outbox/cursor for the next bounded sweep;
+        // one poison workspace must not starve unrelated due work.
       }
     }
     return candidates.length;

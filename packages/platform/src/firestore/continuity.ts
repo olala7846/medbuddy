@@ -628,6 +628,7 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
     const [states, outbox] = await Promise.all([
       this.firestore.collectionGroup("memoryFormationState")
+        .where("policyVersion", "==", input.policyVersion)
         .where("scheduledFor", "<=", input.now).orderBy("scheduledFor").limit(input.limit).get(),
       this.firestore.collectionGroup("memoryFormationOutbox").limit(input.limit).get(),
     ]);
@@ -636,9 +637,18 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
       const state = MemoryFormationStateSchema.parse(record(document.data()));
       candidates.add(state.workspaceId);
     }
-    for (const document of outbox.docs) {
-      const event = AcceptedFormationEventSchema.parse(record(document.data()));
-      candidates.add(event.workspaceId);
+    const outboxEvents = outbox.docs.map((document) => AcceptedFormationEventSchema.parse(record(document.data())));
+    const outboxWorkspaces = [...new Set(outboxEvents.map((event) => event.workspaceId))];
+    const outboxStates = outboxWorkspaces.length === 0 ? [] : await this.firestore.getAll(
+      ...outboxWorkspaces.map((workspaceId) => this.formationStateRef(workspaceId)),
+    );
+    const outboxPolicies = new Map(outboxStates.map((snapshot, index) => {
+      const state = snapshot.exists ? MemoryFormationStateSchema.parse(record(snapshot.data())) : null;
+      return [outboxWorkspaces[index]!, state?.policyVersion] as const;
+    }));
+    for (const event of outboxEvents) {
+      const persistedPolicy = outboxPolicies.get(event.workspaceId);
+      if (persistedPolicy === undefined || persistedPolicy === input.policyVersion) candidates.add(event.workspaceId);
     }
     return [...candidates].sort().slice(0, input.limit);
   }

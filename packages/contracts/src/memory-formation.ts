@@ -108,7 +108,11 @@ export interface MemoryFormationRepository {
   listAcceptedEvents(input: { workspaceId: z.infer<typeof WorkspaceIdSchema>; afterCursor: number; limit: number }): Promise<readonly AcceptedFormationEvent[]>;
   getState(workspaceId: z.infer<typeof WorkspaceIdSchema>): Promise<MemoryFormationState | null>;
   compareAndSetState(expectedRevision: number | null, state: MemoryFormationState): Promise<boolean>;
-  listRecoveryCandidates(input: { now: string; limit: number }): Promise<readonly z.infer<typeof WorkspaceIdSchema>[]>;
+  listRecoveryCandidates(input: {
+    now: string;
+    limit: number;
+    policyVersion: MemoryFormationPolicy["policyVersion"];
+  }): Promise<readonly z.infer<typeof WorkspaceIdSchema>[]>;
 }
 
 export interface MemoryFormationTaskDispatcher {

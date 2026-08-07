@@ -449,9 +449,13 @@ export class InMemoryContinuityRepository implements ContinuityRepository, Memor
   async listRecoveryCandidates(input: Parameters<MemoryFormationRepository["listRecoveryCandidates"]>[0]) {
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
     const workspaces = new Set<WorkspaceId>();
-    for (const event of this.formationOutbox.values()) workspaces.add(event.workspaceId);
+    for (const event of this.formationOutbox.values()) {
+      const state = this.formationStates.get(event.workspaceId);
+      if (state === undefined || state.policyVersion === input.policyVersion) workspaces.add(event.workspaceId);
+    }
     for (const state of this.formationStates.values()) {
-      if (state.activeJobId !== undefined || (state.scheduledFor !== undefined && Date.parse(state.scheduledFor) <= Date.parse(input.now))) {
+      if (state.policyVersion === input.policyVersion &&
+          (state.activeJobId !== undefined || (state.scheduledFor !== undefined && Date.parse(state.scheduledFor) <= Date.parse(input.now)))) {
         workspaces.add(state.workspaceId);
       }
     }

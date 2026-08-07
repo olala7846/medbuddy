@@ -119,6 +119,20 @@ describe("first-threshold-wins memory formation", () => {
     expect(h.getState()?.dispatchReason).toBe("QUIET");
   });
 
+  it("isolates one failed recovery candidate so the next workspace still runs", async () => {
+    const h = harness([]);
+    const bad = "workspace:bad" as never;
+    const good = "workspace:good" as never;
+    h.repository.listRecoveryCandidates = async () => [bad, good];
+    const processed: string[] = [];
+    vi.spyOn(h.scheduler, "reconcileWorkspace").mockImplementation(async (workspace) => {
+      if (workspace === bad) throw new Error("poison workspace");
+      processed.push(workspace);
+    });
+    await expect(h.scheduler.recover(at(10))).resolves.toBe(2);
+    expect(processed).toEqual([good]);
+  });
+
   it("dispatches an exactly-at-ceiling singleton and terminally skips one above it", async () => {
     const exact = harness([event(1, 30_000, at(0))]);
     await exact.scheduler.reconcileWorkspace(workspaceId);
