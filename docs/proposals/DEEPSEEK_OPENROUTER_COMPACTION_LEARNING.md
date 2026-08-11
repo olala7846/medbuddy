@@ -61,6 +61,12 @@ compatibility gate because the summary changed languages. Earlier exploratory
 runs also routed across multiple eligible upstream providers, so latency,
 cost, caching, and output behavior may vary by provider.
 
+This result does **not** establish that DeepSeek V4 lacks Traditional Chinese
+support. It establishes only that this pinned OpenRouter request, prompt, and
+provider route did not preserve the required output language in this run. See
+[DeepSeek model-swap fact check](./DEEPSEEK_MODEL_SWAP_FACTCHECK.md) for the
+source-backed correction and the separate production-swap blockers.
+
 This was a smoke test, not a reliability benchmark. One request per row cannot
 establish schema failure rate, retry rate, provider variance, or quality
 superiority.
