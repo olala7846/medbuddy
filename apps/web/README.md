@@ -136,6 +136,29 @@ npm run verify:continuity:memory
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8787 npm run verify:continuity:emulator
 ```
 
+### DeepSeek V4 fictional evaluation
+
+The DeepSeek V4 evaluation uses the signed Traditional Chinese fixture with
+in-memory persistence. It is separate from the live Vertex composition. It
+does not support tools or attachments. It sends only fictional fixture data.
+
+Set the runtime values and run the evaluation from the repository root:
+
+```bash
+MEDBUDDY_DEEPSEEK_V4_MODEL=deepseek/deepseek-v4-flash-0731 \
+MEDBUDDY_DEEPSEEK_V4_FICTIONAL_ONLY=I_ACKNOWLEDGE_FICTIONAL_ONLY \
+MEDBUDDY_DEEPSEEK_V4_RUNS=3 \
+OPENROUTER_API_KEY=<runtime-only-key> \
+npm run eval:continuity:deepseek-v4
+```
+
+The command reports content-free aggregate data only: pass rate, latency,
+failure and retry rates, provider-routing counts, and charged cost. It rejects
+an unpinned model, media, tool traffic, malformed responses, and missing
+fictional-only acknowledgement before a provider request. Passing this command
+does not authorize a live model change. Gemini on Vertex remains the rollback
+configuration.
+
 The target-project variant is disabled unless all of the normal Firestore and
 Vertex ADC configuration is present and the exact acknowledgement below is
 set. It creates only nonce-scoped fictional workspaces and receipts, uses real

@@ -32,6 +32,7 @@
     "verify:memory:target": "MEDBUDDY_REQUIRE_CONTINUITY_TARGET_VERIFICATION=true vitest run --run --testTimeout=120000 deployed-memory-smoke-target",
     "eval:memory:acceptance": "MEDBUDDY_RUN_MEMORY_ACCEPTANCE_EVAL=true vitest run --run --testTimeout=240000 memory-acceptance-vertex",
     "eval:continuity-family": "MEDBUDDY_RUN_CONTINUITY_FAMILY_EVAL=true vitest run --run --testTimeout=240000 continuity-verification-vertex",
+    "eval:continuity:deepseek-v4": "MEDBUDDY_RUN_DEEPSEEK_V4_CONVERSATION_EVAL=true vitest run --run --testTimeout=240000 continuity-verification-deepseek-v4",
     "verify:continuity:target": "vitest run --run --testTimeout=120000 continuity-verification-target",
     "verify:continuity:cleanup": "node scripts/cleanup-continuity-verification.mjs",
     "test:e2e": "playwright test",
