@@ -45,7 +45,8 @@ describe.runIf(runEvaluation)("DeepSeek V4 fictional Traditional Chinese continu
     const configuration = loadDeepSeekV4ConversationEvaluationConfiguration();
     const metadata: DeepSeekV4EvaluationMetadata[] = [];
 
-    for (let run = 1; run <= configuration.runs; run += 1) {
+    try {
+      for (let run = 1; run <= configuration.runs; run += 1) {
       const persistence = new InMemoryPersistence();
       const fixture = await createCounterfactualFixture(run);
       const provider = new DeepSeekV4ConversationEvaluationProvider(configuration);
@@ -85,6 +86,14 @@ describe.runIf(runEvaluation)("DeepSeek V4 fictional Traditional Chinese continu
         metadata.push(...provider.metadata());
         await unlink(fixture.path);
       }
+      }
+    } catch (error) {
+      // This remains content-free when a provider rejects a request.
+      console.info(JSON.stringify({
+        evaluation: "deepseek-v4-fictional-continuity",
+        ...summarizeDeepSeekV4Evaluation(metadata),
+      }));
+      throw error;
     }
 
     const summary = summarizeDeepSeekV4Evaluation(metadata);

@@ -112,6 +112,27 @@ describe("DeepSeek V4 conversation evaluation adapter", () => {
     expect(JSON.stringify(provider.metadata())).not.toContain("這是繁體中文回覆。");
   });
 
+  it("converts the initial no-tool conversation step into a response-only provider request", async () => {
+    const requests: RequestInit[] = [];
+    const provider = new DeepSeekV4ConversationEvaluationProvider({
+      apiKey: "fictional-key",
+      model: "deepseek/deepseek-v4-flash-0731",
+      fetch: async (_url, request) => {
+        requests.push(request!);
+        return new Response(JSON.stringify({
+          model: "deepseek/deepseek-v4-flash-0731",
+          choices: [{ message: { content: "{\"kind\":\"REPLY\",\"text\":\"虛構回覆。\"}" } }],
+        }), { status: 200 });
+      },
+    });
+    await expect(provider.respond({
+      ...input,
+      toolExecutionAllowed: true,
+      responseOnly: false,
+    })).resolves.toMatchObject({ kind: "REPLY" });
+    expect(JSON.parse(String(requests[0]!.body))).toMatchObject({ tool_choice: "none" });
+  });
+
   it("fails closed before network access for tools, media, and unbounded contexts", async () => {
     let calls = 0;
     const provider = new DeepSeekV4ConversationEvaluationProvider({
@@ -132,8 +153,12 @@ describe("DeepSeek V4 conversation evaluation adapter", () => {
       model: "deepseek/deepseek-v4-flash-0731",
       fetch: async () => new Response(JSON.stringify(body), { status: 200 }),
     });
-    await expect(responseFor({ model: "other", choices: [{ message: { content: "{}" } }] }).respond(input)).rejects.toThrow("MALFORMED_TRANSPORT");
-    await expect(responseFor({ model: "deepseek/deepseek-v4-flash-0731", choices: [{ message: { content: null, tool_calls: [{ id: "x" }] } }] }).respond(input)).rejects.toThrow("MALFORMED_TRANSPORT");
+    const mismatched = responseFor({ model: "other", choices: [{ message: { content: "{}" } }] });
+    await expect(mismatched.respond(input)).rejects.toThrow("MALFORMED_TRANSPORT");
+    expect(mismatched.metadata()).toEqual([expect.objectContaining({ failureCode: "MODEL_MISMATCH" })]);
+    const toolResponse = responseFor({ model: "deepseek/deepseek-v4-flash-0731", choices: [{ message: { content: null, tool_calls: [{ id: "x" }] } }] });
+    await expect(toolResponse.respond(input)).rejects.toThrow("MALFORMED_TRANSPORT");
+    expect(toolResponse.metadata()).toEqual([expect.objectContaining({ failureCode: "UNSUPPORTED_TOOL_RESPONSE" })]);
   });
 
   it("records a bounded retry and a timeout without retaining provider content", async () => {
@@ -161,5 +186,20 @@ describe("DeepSeek V4 conversation evaluation adapter", () => {
     await expect(timeoutProvider.respond(input)).rejects.toThrow("PROVIDER_TIMEOUT");
     expect(timeoutProvider.metadata()).toEqual([expect.objectContaining({ retryCount: 1, status: "TIMED_OUT" })]);
     expect(summarizeDeepSeekV4Evaluation(timeoutProvider.metadata()).routing).toEqual({ OPENROUTER_UNREPORTED: 1 });
+  });
+
+  it("records a provider HTTP status without retaining its response body", async () => {
+    const provider = new DeepSeekV4ConversationEvaluationProvider({
+      apiKey: "fictional-key",
+      model: "deepseek/deepseek-v4-flash-0731",
+      fetch: async () => new Response("fictional upstream body", { status: 400 }),
+    });
+    await expect(provider.respond(input)).rejects.toThrow("PROVIDER_ERROR");
+    expect(provider.metadata()).toEqual([expect.objectContaining({
+      providerStatus: 400,
+      retryCount: 0,
+      status: "FAILED",
+    })]);
+    expect(JSON.stringify(provider.metadata())).not.toContain("fictional upstream body");
   });
 });

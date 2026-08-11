@@ -67,6 +67,7 @@ export type DeepSeekV4EvaluationMetadata = {
   requestedModelId: string;
   returnedModelId?: string;
   providerRoute?: string;
+  providerStatus?: number;
   endpoint: "openrouter";
   latencyMs: number;
   inputTokens?: number;
@@ -75,6 +76,7 @@ export type DeepSeekV4EvaluationMetadata = {
   chargedCost?: number;
   retryCount: number;
   status: "SUCCEEDED" | "FAILED" | "TIMED_OUT";
+  failureCode?: "MALFORMED_RESPONSE" | "MODEL_MISMATCH" | "UNSUPPORTED_TOOL_RESPONSE" | "INVALID_REPLY";
 };
 
 type EvaluationProviderOptions = {
@@ -86,10 +88,10 @@ type EvaluationProviderOptions = {
 
 function evaluationPrompt(input: Parameters<ConversationProvider["respond"]>[0]): string {
   const { context } = input;
-  if (input.toolResult !== undefined || input.toolHistory !== undefined || (input.toolDeclarations?.length ?? 0) > 0) {
+  if (input.toolResult !== undefined || (input.toolHistory?.length ?? 0) > 0 || (input.toolDeclarations?.length ?? 0) > 0) {
     throw new ConversationProviderError("MALFORMED_TRANSPORT");
   }
-  if (input.toolExecutionAllowed !== false || input.familyMapUpdatesAllowed === true || input.familyMapUpdateRequired === true || input.responseOnly !== true) {
+  if (input.familyMapUpdatesAllowed === true || input.familyMapUpdateRequired === true) {
     throw new ConversationProviderError("MALFORMED_TRANSPORT");
   }
   if (context.messages.some((message) => message.attachmentIds.length > 0)) {
@@ -135,6 +137,8 @@ export class DeepSeekV4ConversationEvaluationProvider implements ConversationPro
     const startedAt = Date.now();
     let retryCount = 0;
     let lastError: unknown;
+    let providerStatus: number | undefined;
+    let failureCode: DeepSeekV4EvaluationMetadata["failureCode"];
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.#timeoutMs);
@@ -155,20 +159,34 @@ export class DeepSeekV4ConversationEvaluationProvider implements ConversationPro
           }),
           signal: controller.signal,
         });
-        if (!response.ok) throw new Error(`Provider returned HTTP ${response.status}.`);
+        if (!response.ok) {
+          providerStatus = response.status;
+          throw new Error(`Provider returned HTTP ${response.status}.`);
+        }
         const transport = OpenRouterResponseSchema.safeParse(await response.json());
-        if (!transport.success) throw new ConversationProviderError("MALFORMED_TRANSPORT");
+        if (!transport.success) {
+          failureCode = "MALFORMED_RESPONSE";
+          throw new ConversationProviderError("MALFORMED_TRANSPORT");
+        }
         const message = transport.data.choices[0]!.message;
-        if (transport.data.model !== this.options.model) throw new ConversationProviderError("MALFORMED_TRANSPORT");
-        if (message.tool_calls !== undefined || message.content === null) throw new ConversationProviderError("MALFORMED_TRANSPORT");
+        if (transport.data.model !== this.options.model) {
+          failureCode = "MODEL_MISMATCH";
+          throw new ConversationProviderError("MALFORMED_TRANSPORT");
+        }
+        if (message.tool_calls !== undefined || message.content === null) {
+          failureCode = "UNSUPPORTED_TOOL_RESPONSE";
+          throw new ConversationProviderError("MALFORMED_TRANSPORT");
+        }
         let decoded: unknown;
         try {
           decoded = JSON.parse(message.content);
         } catch {
+          failureCode = "INVALID_REPLY";
           throw new ConversationProviderError("MALFORMED_TRANSPORT");
         }
         const instruction = ConversationInstructionSchema.safeParse(decoded);
         if (!instruction.success || instruction.data.kind !== "REPLY") {
+          failureCode = "INVALID_REPLY";
           throw new ConversationProviderError("MALFORMED_TRANSPORT");
         }
         this.#metadata.push({
@@ -190,7 +208,7 @@ export class DeepSeekV4ConversationEvaluationProvider implements ConversationPro
       } catch (error) {
         lastError = error;
         if (error instanceof ConversationProviderError) break;
-        if (attempt < MAX_ATTEMPTS) {
+        if (attempt < MAX_ATTEMPTS && (providerStatus === undefined || providerStatus >= 500 || providerStatus === 429)) {
           retryCount += 1;
           continue;
         }
@@ -201,9 +219,11 @@ export class DeepSeekV4ConversationEvaluationProvider implements ConversationPro
     this.#metadata.push({
       requestedModelId: this.options.model,
       endpoint: "openrouter",
+      ...(providerStatus === undefined ? {} : { providerStatus }),
       latencyMs: Date.now() - startedAt,
       retryCount,
       status: lastError instanceof Error && lastError.name === "AbortError" ? "TIMED_OUT" : "FAILED",
+      ...(failureCode === undefined ? {} : { failureCode }),
     });
     if (lastError instanceof ConversationProviderError) throw lastError;
     if (lastError instanceof Error && lastError.name === "AbortError") throw new ConversationProviderError("PROVIDER_TIMEOUT");
@@ -226,6 +246,8 @@ export function summarizeDeepSeekV4Evaluation(metadata: readonly DeepSeekV4Evalu
     failureRate: metadata.length === 0 ? 0 : metadata.filter((entry) => entry.status !== "SUCCEEDED").length / metadata.length,
     retryRate: metadata.length === 0 ? 0 : metadata.filter((entry) => entry.retryCount > 0).length / metadata.length,
     routing: routeCounts,
+    failureCodes: Object.fromEntries([...new Set(metadata.map((entry) => entry.failureCode).filter(Boolean))]
+      .map((code) => [code!, metadata.filter((entry) => entry.failureCode === code).length])),
     totalChargedCost: metadata.reduce((total, entry) => total + (entry.chargedCost ?? 0), 0),
   };
 }
