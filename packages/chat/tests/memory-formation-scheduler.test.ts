@@ -303,11 +303,28 @@ describe("first-threshold-wins memory formation", () => {
     await expect(h.scheduler.reconcileWorkspace(workspaceId)).rejects.toThrow("temporary");
     h.jobs.clear(); // crash/orphan after state CAS, before durable job creation is recoverable
     dispatch.mockResolvedValue(undefined);
-    await h.scheduler.reconcileWorkspace(workspaceId);
+    await h.scheduler.reconcileWorkspace(workspaceId, at(5));
     expect(dispatch).toHaveBeenCalledTimes(2);
     expect(h.jobs).toHaveLength(1);
     await expect(h.scheduler.wake({ workspaceId, generation: h.getState()!.scheduleGeneration,
       policyVersion: "memory-formation-v1-verification-small" }, at(1))).resolves.toBe("POLICY_MISMATCH");
+  });
+
+  it("fences passive recovery delivery generations until the durable recovery deadline", async () => {
+    const h = harness([event(1, 30_000, at(0))]);
+    await h.scheduler.reconcileWorkspace(workspaceId, at(0));
+    expect(h.dispatches).toEqual([{
+      workspaceId, jobId: expect.any(String), dispatchGeneration: 1,
+    }]);
+
+    await h.scheduler.recover(at(1));
+    expect(h.dispatches).toHaveLength(1);
+
+    await h.scheduler.recover(at(5));
+    await h.scheduler.recover(at(5));
+    expect(h.dispatches).toHaveLength(2);
+    expect(h.dispatches[1]).toMatchObject({ dispatchGeneration: 2 });
+    expect(h.getState()).toMatchObject({ workerDispatchGeneration: 2, workerRecoveryAt: at(10) });
   });
 
   it("fails closed when crash recovery encounters an outbox entry from another whole profile", async () => {

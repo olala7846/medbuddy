@@ -165,13 +165,20 @@ export class CloudTasksPassiveMemoryDispatcher implements PassiveMemoryJobDispat
   ) {}
 
   async dispatch(inputValue: Parameters<PassiveMemoryJobDispatcher["dispatch"]>[0]): Promise<void> {
-    const input = PassiveMemoryTaskInputSchema.parse(inputValue);
+    const { dispatchGeneration, ...taskInput } = inputValue;
+    const input = PassiveMemoryTaskInputSchema.parse(taskInput);
+    if (!Number.isSafeInteger(dispatchGeneration) || dispatchGeneration < 1) {
+      throw new Error("Passive-memory dispatch generation must be positive.");
+    }
     const parent = this.client.queuePath(this.options.projectId, this.options.location, this.options.queue);
-    // Recovery needs a new delivery even when a previous task for this durable job has completed.
-    await this.client.createTask({ parent, task: {
+    const identity = createHash("sha256").update(`${input.workspaceId}:${input.jobId}:${dispatchGeneration}`).digest("hex");
+    try { await this.client.createTask({ parent, task: {
+      name: this.client.taskPath(this.options.projectId, this.options.location, this.options.queue, `passive-memory-${identity}`),
       httpRequest: { httpMethod: "POST", url: this.options.callbackUrl,
         headers: { "Content-Type": "application/json" }, body: Buffer.from(JSON.stringify(input)).toString("base64"),
         oidcToken: { serviceAccountEmail: this.options.serviceAccountEmail, audience: this.options.callbackUrl } },
-    } });
+    } }); } catch (error) {
+      if ((error as { code?: unknown }).code !== 6 && (error as { code?: unknown }).code !== "ALREADY_EXISTS") throw error;
+    }
   }
 }

@@ -22,6 +22,7 @@ import {
 } from "@medbuddy/contracts";
 
 type WakeOutcome = "DISPATCHED" | "RESCHEDULED" | "STALE" | "EMPTY" | "POLICY_MISMATCH";
+const PASSIVE_MEMORY_RECOVERY_DELAY_MS = 5 * 60_000;
 
 /** Domain projection supplied to the trusted transactional source adapter. */
 export function createAcceptedFormationEventProjector(
@@ -94,7 +95,7 @@ export class MemoryFormationScheduler {
       }
       if (stored?.activeJobId !== undefined) {
         const job = await this.dependencies.jobs.get(workspaceId, stored.activeJobId);
-        if (job === null || job.status === "PENDING" || job.status === "RUNNING") return this.resumeActive(stored, job);
+        if (job === null || job.status === "PENDING" || job.status === "RUNNING") return this.resumeActive(stored, job, observedNow);
         const reset = clearBatch(stored, await this.dependencies.jobs.getCursor(workspaceId, this.dependencies.policy.policyVersion));
         if (!await this.dependencies.repository.compareAndSetState(stored.revision, reset)) continue;
         stored = reset;
@@ -103,10 +104,11 @@ export class MemoryFormationScheduler {
         const generation = stored.scheduleGeneration + 1;
         const job = this.jobFor({ ...stored, dispatchReason: "SIZE" }, generation);
         const fenced = MemoryFormationStateSchema.parse({ ...stored, revision: stored.revision + 1,
-          scheduleGeneration: generation, scheduledFor: observedNow, activeJobId: job.id, dispatchReason: "SIZE" });
+          scheduleGeneration: generation, scheduledFor: observedNow, activeJobId: job.id, dispatchReason: "SIZE",
+          workerDispatchGeneration: 1, workerRecoveryAt: this.workerRecoveryAt(observedNow) });
         if (!await this.dependencies.repository.compareAndSetState(stored.revision, fenced)) continue;
         await this.dependencies.jobs.createOrGet(job);
-        await this.dependencies.workerDispatcher.dispatch({ workspaceId: job.workspaceId, jobId: job.id });
+        await this.dependencies.workerDispatcher.dispatch({ workspaceId: job.workspaceId, jobId: job.id, dispatchGeneration: 1 });
         return;
       }
       let base = stored ?? freshState(workspaceId, this.dependencies.policy);
@@ -202,11 +204,12 @@ export class MemoryFormationScheduler {
         const job = this.jobFor(next, generation);
         next = MemoryFormationStateSchema.parse({ ...next, revision: base.revision + 1,
           scheduleGeneration: generation, scheduledFor: this.dependencies.now(), activeJobId: job.id,
-          dispatchReason: next.dispatchReason ?? "SIZE" });
+          dispatchReason: next.dispatchReason ?? "SIZE", workerDispatchGeneration: 1,
+          workerRecoveryAt: this.workerRecoveryAt(observedNow) });
         if (!await this.dependencies.repository.compareAndSetState(stored?.revision ?? null, next)) continue;
         await this.dependencies.jobs.createOrGet(job);
         if (terminalSkip) return this.finishTerminalSkip(job);
-        await this.dependencies.workerDispatcher.dispatch({ workspaceId: job.workspaceId, jobId: job.id });
+        await this.dependencies.workerDispatcher.dispatch({ workspaceId: job.workspaceId, jobId: job.id, dispatchGeneration: 1 });
         return;
       }
       const scheduled = this.withSchedule(next, base.revision + 1);
@@ -238,10 +241,11 @@ export class MemoryFormationScheduler {
       ? "QUIET" : "MAX_AGE";
     const job = this.jobFor({ ...state, dispatchReason: reason }, state.scheduleGeneration + 1);
     const claimedState = MemoryFormationStateSchema.parse({ ...state, revision: state.revision + 1,
-      scheduleGeneration: state.scheduleGeneration + 1, scheduledFor: now, activeJobId: job.id, dispatchReason: reason });
+      scheduleGeneration: state.scheduleGeneration + 1, scheduledFor: now, activeJobId: job.id, dispatchReason: reason,
+      workerDispatchGeneration: 1, workerRecoveryAt: this.workerRecoveryAt(now) });
     if (!await this.dependencies.repository.compareAndSetState(state.revision, claimedState)) return "STALE";
     await this.dependencies.jobs.createOrGet(job);
-    await this.dependencies.workerDispatcher.dispatch({ workspaceId: job.workspaceId, jobId: job.id });
+    await this.dependencies.workerDispatcher.dispatch({ workspaceId: job.workspaceId, jobId: job.id, dispatchGeneration: 1 });
     return "DISPATCHED";
   }
 
@@ -302,14 +306,24 @@ export class MemoryFormationScheduler {
     });
   }
 
-  private async resumeActive(state: MemoryFormationState, stored: PassiveMemoryJob | null): Promise<void> {
+  private async resumeActive(state: MemoryFormationState, stored: PassiveMemoryJob | null, observedNow: string): Promise<void> {
     if (state.activeJobId === undefined) return;
-    const job = stored ?? await this.dependencies.jobs.createOrGet(this.jobFor(state, state.scheduleGeneration));
+    if (state.workerRecoveryAt !== undefined && Date.parse(observedNow) < Date.parse(state.workerRecoveryAt)) return;
+    const generation = (state.workerDispatchGeneration ?? 0) + 1;
+    const recovered = MemoryFormationStateSchema.parse({ ...state, revision: state.revision + 1,
+      workerDispatchGeneration: generation, workerRecoveryAt: this.workerRecoveryAt(observedNow) });
+    if (!await this.dependencies.repository.compareAndSetState(state.revision, recovered)) return;
+    const job = stored ?? await this.dependencies.jobs.createOrGet(this.jobFor(recovered, recovered.scheduleGeneration));
     if (state.renderedUtf16 > this.dependencies.policy.renderedSizeCeilingUtf16) {
       await this.finishTerminalSkip(job);
       return;
     }
-    await this.dependencies.workerDispatcher.dispatch({ workspaceId: state.workspaceId, jobId: state.activeJobId });
+    await this.dependencies.workerDispatcher.dispatch({ workspaceId: state.workspaceId, jobId: state.activeJobId,
+      dispatchGeneration: generation });
+  }
+
+  private workerRecoveryAt(now: string): string {
+    return addMilliseconds(now, PASSIVE_MEMORY_RECOVERY_DELAY_MS);
   }
 
   private async finishTerminalSkip(job: PassiveMemoryJob): Promise<void> {
