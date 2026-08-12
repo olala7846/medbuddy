@@ -633,16 +633,14 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
     const stateCursorPath = cursorSnapshot.data()?.[`${input.policyVersion}:state`];
     const baseOutboxQuery = this.firestore.collectionGroup("memoryFormationOutbox")
       .where("policyVersion", "==", input.policyVersion).orderBy("__name__").limit(input.limit);
-    let outbox = await (typeof cursorPath === "string"
-      ? baseOutboxQuery.startAfter(this.firestore.doc(cursorPath)).get()
-      : baseOutboxQuery.get());
+    const outboxCursor = typeof cursorPath === "string" ? await this.firestore.doc(cursorPath).get() : null;
+    let outbox = await (outboxCursor?.exists ? baseOutboxQuery.startAfter(outboxCursor).get() : baseOutboxQuery.get());
     if (outbox.empty && typeof cursorPath === "string") outbox = await baseOutboxQuery.get();
     const baseStateQuery = this.firestore.collectionGroup("memoryFormationState")
       .where("policyVersion", "==", input.policyVersion)
       .where("scheduledFor", "<=", input.now).orderBy("scheduledFor").orderBy("__name__").limit(input.limit);
-    let states = await (typeof stateCursorPath === "string"
-      ? baseStateQuery.startAfter(this.firestore.doc(stateCursorPath)).get()
-      : baseStateQuery.get());
+    const stateCursor = typeof stateCursorPath === "string" ? await this.firestore.doc(stateCursorPath).get() : null;
+    let states = await (stateCursor?.exists ? baseStateQuery.startAfter(stateCursor).get() : baseStateQuery.get());
     if (states.empty && typeof stateCursorPath === "string") states = await baseStateQuery.get();
     await this.formationRecoveryCursorRef().set({
       [input.policyVersion]: outbox.size === input.limit ? outbox.docs.at(-1)!.ref.path : null,

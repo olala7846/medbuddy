@@ -45,6 +45,12 @@ function harness(
   const jobRepository: PassiveMemoryJobRepository = {
     async createOrGet(job) { jobs.set(job.id, structuredClone(job)); return job; },
     async get(_workspace, id) { return jobs.get(id) ?? null; },
+    async setDispatchGeneration(_workspace, id, generation) {
+      const job = jobs.get(id)!;
+      const next = { ...job, dispatchGeneration: generation };
+      jobs.set(id, next);
+      return next;
+    },
     async claimAttempt(_workspace, id, claimedAt) {
       const job = jobs.get(id)!;
       const claimed = { ...job, status: "RUNNING" as const, attempts: job.attempts + 1,

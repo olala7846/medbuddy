@@ -196,12 +196,12 @@ describe("Cloud Tasks memory formation dispatchers", () => {
       jobId: "passive-memory-job:formation-1-1-g1" as never, dispatchGeneration: 2 });
     expect(requests).toHaveLength(2);
     const names: string[] = [];
-    for (const request of requests) {
+    for (const [index, request] of requests.entries()) {
       const task = (request as { task: { name?: string; httpRequest: { body: string; oidcToken: unknown } } }).task;
       expect(task.name).toMatch(/^passive-memory-[a-f0-9]{64}$/);
       names.push(task.name!);
       expect(JSON.parse(Buffer.from(task.httpRequest.body, "base64").toString("utf8"))).toEqual({
-        workspaceId: "workspace:fictional", jobId: "passive-memory-job:formation-1-1-g1",
+        workspaceId: "workspace:fictional", jobId: "passive-memory-job:formation-1-1-g1", dispatchGeneration: index + 1,
       });
       expect(task.httpRequest.oidcToken).toMatchObject({ audience: "https://fictional.example.test/api/internal/passive-memory" });
     }
