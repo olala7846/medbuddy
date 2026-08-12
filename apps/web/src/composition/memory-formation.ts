@@ -74,6 +74,7 @@ export function createMemoryFormationTaskComposition(environment: Record<string,
         await new DynamicMemoryService(platform.memory, undefined, platform.continuity)
           .applySourceMutation(workspaceId, source);
         },
+        onRecoveryFailure: (entry) => console.warn(JSON.stringify(entry)),
       })])),
   });
 }

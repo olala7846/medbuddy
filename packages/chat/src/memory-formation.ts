@@ -83,6 +83,7 @@ export class MemoryFormationScheduler {
     workerDispatcher: PassiveMemoryJobDispatcher;
     policy: MemoryFormationPolicy;
     now: () => string;
+    onRecoveryFailure?: (input: { policyVersion: string; reason: "RECONCILE_FAILED" }) => void;
     lifecycleCleanup?: (workspaceId: WorkspaceId, sourceEventId: SourceEventId) => Promise<void>;
   }) {}
 
@@ -256,6 +257,7 @@ export class MemoryFormationScheduler {
       try {
         await this.reconcileWorkspace(workspaceId, now);
       } catch {
+        this.dependencies.onRecoveryFailure?.({ policyVersion: this.dependencies.policy.policyVersion, reason: "RECONCILE_FAILED" });
         // Preserve this workspace's outbox/cursor for the next bounded sweep;
         // one poison workspace must not starve unrelated due work.
       }
