@@ -165,8 +165,8 @@ export class CloudTasksPassiveMemoryDispatcher implements PassiveMemoryJobDispat
   ) {}
 
   async dispatch(inputValue: Parameters<PassiveMemoryJobDispatcher["dispatch"]>[0]): Promise<void> {
-    const { dispatchGeneration, ...taskInput } = inputValue;
-    const input = PassiveMemoryTaskInputSchema.parse(taskInput);
+    const input = PassiveMemoryTaskInputSchema.parse(inputValue);
+    const dispatchGeneration = input.dispatchGeneration ?? 1;
     if (!Number.isSafeInteger(dispatchGeneration) || dispatchGeneration < 1) {
       throw new Error("Passive-memory dispatch generation must be positive.");
     }

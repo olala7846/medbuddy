@@ -104,6 +104,7 @@ export const PassiveMemoryJobSchema = z.object({
   status: z.enum(["PENDING", "RUNNING", "COMPLETED", "FAILED"]),
   attempts: z.number().int().min(0).max(PASSIVE_MEMORY_MAX_ATTEMPTS),
   claimGeneration: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
+  dispatchGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).default(1),
   attemptClaimedAt: TimestampSchema.optional(),
   attemptLeaseExpiresAt: TimestampSchema.optional(),
   createdAt: TimestampSchema,
@@ -153,6 +154,7 @@ export const PassiveMemoryAttemptClaimSchema = z.discriminatedUnion("kind", [
 export const PassiveMemoryTaskInputSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   jobId: PassiveMemoryJobIdSchema,
+  dispatchGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 }).strict();
 
 export type PassiveMemoryEvidence = z.infer<typeof PassiveMemoryEvidenceSchema>;
@@ -193,7 +195,9 @@ export interface PassiveMemorySourceLedger {
 export interface PassiveMemoryJobRepository {
   createOrGet(job: PassiveMemoryJob): Promise<PassiveMemoryJob>;
   get(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof PassiveMemoryJobIdSchema>): Promise<PassiveMemoryJob | null>;
-  claimAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof PassiveMemoryJobIdSchema>, claimedAt: string): Promise<PassiveMemoryAttemptClaim>;
+  setDispatchGeneration?(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof PassiveMemoryJobIdSchema>, generation: number): Promise<PassiveMemoryJob>;
+  claimAttempt(workspaceId: z.infer<typeof WorkspaceIdSchema>, jobId: z.infer<typeof PassiveMemoryJobIdSchema>, claimedAt: string,
+    dispatchGeneration?: number): Promise<PassiveMemoryAttemptClaim>;
   releaseAttempt(job: PassiveMemoryJob, fence: PassiveMemoryAttemptFence): Promise<PassiveMemoryJob>;
   finish(
     job: PassiveMemoryJob,

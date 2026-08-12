@@ -313,7 +313,8 @@ export class MemoryFormationScheduler {
     const recovered = MemoryFormationStateSchema.parse({ ...state, revision: state.revision + 1,
       workerDispatchGeneration: generation, workerRecoveryAt: this.workerRecoveryAt(observedNow) });
     if (!await this.dependencies.repository.compareAndSetState(state.revision, recovered)) return;
-    const job = stored ?? await this.dependencies.jobs.createOrGet(this.jobFor(recovered, recovered.scheduleGeneration));
+    if (stored === null) await this.dependencies.jobs.createOrGet(this.jobFor(recovered, recovered.scheduleGeneration));
+    const job = await this.dependencies.jobs.setDispatchGeneration!(state.workspaceId, state.activeJobId, generation);
     if (state.renderedUtf16 > this.dependencies.policy.renderedSizeCeilingUtf16) {
       await this.finishTerminalSkip(job);
       return;

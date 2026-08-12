@@ -88,10 +88,23 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
     return job;
   }
 
+  async setDispatchGeneration(workspaceId: Parameters<PassiveMemoryJobRepository["get"]>[0], jobId: Parameters<PassiveMemoryJobRepository["get"]>[1], generation: number) {
+    return this.firestore.runTransaction(async (transaction) => {
+      const ref = this.jobRef(workspaceId, jobId);
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw new Error("Passive-memory dispatch does not match its job.");
+      const job = PassiveMemoryJobSchema.parse(record(snapshot.data()));
+      if (job.workspaceId !== workspaceId || job.id !== jobId) throw new Error("Passive-memory dispatch does not match its job.");
+      const next = PassiveMemoryJobSchema.parse({ ...job, dispatchGeneration: generation });
+      transaction.set(ref, next);
+      return next;
+    });
+  }
+
   async claimAttempt(
     workspaceId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[0],
     jobId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[1],
-    claimedAt: string,
+    claimedAt: string, dispatchGeneration?: number,
   ) {
     return this.firestore.runTransaction(async (transaction) => {
       const jobRef = this.jobRef(workspaceId, jobId);
@@ -104,6 +117,9 @@ export class FirestorePassiveMemoryJobRepository implements PassiveMemoryJobRepo
       const state = await transaction.get(stateRef);
       if (job.workspaceId !== workspaceId || job.id !== jobId) {
         throw new Error("Stored passive-memory job does not match its workspace path.");
+      }
+      if (dispatchGeneration !== undefined && job.dispatchGeneration !== dispatchGeneration) {
+        return PassiveMemoryAttemptClaimSchema.parse({ kind: "BUSY", job });
       }
       if (job.status === "COMPLETED" || job.status === "FAILED" || job.attempts >= PASSIVE_MEMORY_MAX_ATTEMPTS) {
         return PassiveMemoryAttemptClaimSchema.parse({ kind: "TERMINAL", job });
