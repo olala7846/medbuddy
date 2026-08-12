@@ -49,6 +49,7 @@ Do **not** load full `docs/PRD.md` or `docs/TDD.md` by default. Open specific se
 
 - Start every change from an up-to-date `origin/main` in a clean Git worktree and dedicated feature branch.
 - Never implement or merge changes directly on local `main` or `master`.
+- Assign AI code review and final AI verification to two dedicated fresh-context subagent sessions. Keep both separate from the implementer session and, by default, separate from each other. The implementer may fill either role only when a human explicitly requests or approves the exception; human review and verification remain unrestricted.
 - Make small, logical commits as work progresses and preserve their full history. Do not rewrite published commits.
 - Finish every change through a pull request and merge it into `origin/main` with a merge commit. Never squash or rebase PR commits, and do not merge feature branches into a local default branch.
 - After a merge, fetch `origin/main` before creating the next worktree.
