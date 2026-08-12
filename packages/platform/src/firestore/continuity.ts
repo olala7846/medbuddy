@@ -630,17 +630,21 @@ export class FirestoreContinuityRepository implements ContinuityRepository, Memo
     if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) throw new Error("Formation recovery is capped at 100.");
     const cursorSnapshot = await this.formationRecoveryCursorRef().get();
     const cursorPath = cursorSnapshot.data()?.[input.policyVersion];
+    const stateCursorPath = cursorSnapshot.data()?.[`${input.policyVersion}:state`];
     const baseOutboxQuery = this.firestore.collectionGroup("memoryFormationOutbox")
       .where("policyVersion", "==", input.policyVersion).orderBy("__name__").limit(input.limit);
-    let outbox = await (typeof cursorPath === "string"
-      ? baseOutboxQuery.startAfter(this.firestore.doc(cursorPath)).get()
-      : baseOutboxQuery.get());
+    const outboxCursor = typeof cursorPath === "string" ? await this.firestore.doc(cursorPath).get() : null;
+    let outbox = await (outboxCursor?.exists ? baseOutboxQuery.startAfter(outboxCursor).get() : baseOutboxQuery.get());
     if (outbox.empty && typeof cursorPath === "string") outbox = await baseOutboxQuery.get();
-    const states = await this.firestore.collectionGroup("memoryFormationState")
+    const baseStateQuery = this.firestore.collectionGroup("memoryFormationState")
       .where("policyVersion", "==", input.policyVersion)
-      .where("scheduledFor", "<=", input.now).orderBy("scheduledFor").limit(input.limit).get();
+      .where("scheduledFor", "<=", input.now).orderBy("scheduledFor").orderBy("__name__").limit(input.limit);
+    const stateCursor = typeof stateCursorPath === "string" ? await this.firestore.doc(stateCursorPath).get() : null;
+    let states = await (stateCursor?.exists ? baseStateQuery.startAfter(stateCursor).get() : baseStateQuery.get());
+    if (states.empty && typeof stateCursorPath === "string") states = await baseStateQuery.get();
     await this.formationRecoveryCursorRef().set({
       [input.policyVersion]: outbox.size === input.limit ? outbox.docs.at(-1)!.ref.path : null,
+      [`${input.policyVersion}:state`]: states.size === input.limit ? states.docs.at(-1)!.ref.path : null,
     }, { merge: true });
     const candidates = new Set<WorkspaceId>();
     for (const document of states.docs) {

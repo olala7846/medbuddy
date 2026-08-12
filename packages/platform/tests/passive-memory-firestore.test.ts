@@ -74,6 +74,14 @@ describeEmulator("Firestore passive memory", () => {
         acceptedAt: "2026-08-06T12:00:00.000Z", policyVersion: "memory-formation-v1",
         kind: "ELIGIBLE_HUMAN_TEXT", renderedUtf16: 100,
       });
+      batch.set(firestore.doc(`workspaces/workspace:state-${String(index).padStart(3, "0")}/memoryFormationState/memory-formation-v1`), {
+        workspaceId: `workspace:state-${String(index).padStart(3, "0")}`, policyVersion: "memory-formation-v1",
+        continuityPolicyVersion: "continuity-v1", cursor: 1, revision: 0, humanTextCount: 1, renderedUtf16: 100,
+        firstSourceSequence: 1, lastSourceSequence: 1, firstAcceptedAt: "2026-08-06T11:00:00.000Z",
+        newestAcceptedAt: "2026-08-06T11:00:00.000Z", quietDeadline: "2026-08-06T11:10:00.000Z",
+        maximumAgeDeadline: "2026-08-07T11:00:00.000Z", scheduleGeneration: 1,
+        scheduledFor: "2026-08-06T11:10:00.000Z", activeJobId: `passive-memory-job:state-${index}`,
+      });
     }
     const goodWorkspace = WorkspaceIdSchema.parse("workspace:z-good");
     batch.set(firestore.doc(`workspaces/${goodWorkspace}/memoryFormationState/memory-formation-v1`), {
@@ -86,10 +94,10 @@ describeEmulator("Firestore passive memory", () => {
     });
     await batch.commit();
     const continuity = new FirestoreContinuityRepository(firestore);
-    for (let sweep = 0; sweep < 2; sweep += 1) {
-      await expect(continuity.listRecoveryCandidates({ now: "2026-08-06T12:00:00.000Z", limit: 100,
-        policyVersion: "memory-formation-v1" })).resolves.toContain(goodWorkspace);
-    }
+    await expect(continuity.listRecoveryCandidates({ now: "2026-08-06T12:00:00.000Z", limit: 100,
+      policyVersion: "memory-formation-v1" })).resolves.not.toContain(goodWorkspace);
+    await expect(continuity.listRecoveryCandidates({ now: "2026-08-06T12:00:00.000Z", limit: 100,
+      policyVersion: "memory-formation-v1" })).resolves.toContain(goodWorkspace);
   });
 
   it("atomically rejects a passive batch after its source is unsent", async () => {

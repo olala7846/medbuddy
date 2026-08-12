@@ -166,8 +166,12 @@ export class CloudTasksPassiveMemoryDispatcher implements PassiveMemoryJobDispat
 
   async dispatch(inputValue: Parameters<PassiveMemoryJobDispatcher["dispatch"]>[0]): Promise<void> {
     const input = PassiveMemoryTaskInputSchema.parse(inputValue);
+    const dispatchGeneration = input.dispatchGeneration ?? 1;
+    if (!Number.isSafeInteger(dispatchGeneration) || dispatchGeneration < 1) {
+      throw new Error("Passive-memory dispatch generation must be positive.");
+    }
     const parent = this.client.queuePath(this.options.projectId, this.options.location, this.options.queue);
-    const identity = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    const identity = createHash("sha256").update(`${input.workspaceId}:${input.jobId}:${dispatchGeneration}`).digest("hex");
     try { await this.client.createTask({ parent, task: {
       name: this.client.taskPath(this.options.projectId, this.options.location, this.options.queue, `passive-memory-${identity}`),
       httpRequest: { httpMethod: "POST", url: this.options.callbackUrl,

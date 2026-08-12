@@ -92,6 +92,8 @@ export const MemoryFormationStateSchema = z.object({
   scheduleGeneration: z.number().int().nonnegative(),
   scheduledFor: TimestampSchema.optional(),
   activeJobId: PassiveMemoryJobIdSchema.optional(),
+  workerDispatchGeneration: z.number().int().nonnegative().optional(),
+  workerRecoveryAt: TimestampSchema.optional(),
   dispatchReason: FormationDispatchReasonSchema.optional(),
 }).strict();
 
@@ -128,5 +130,6 @@ export interface MemoryFormationTaskDispatcher {
 }
 
 export interface PassiveMemoryJobDispatcher {
-  dispatch(input: { workspaceId: z.infer<typeof WorkspaceIdSchema>; jobId: z.infer<typeof PassiveMemoryJobIdSchema> }): Promise<void>;
+  dispatch(input: { workspaceId: z.infer<typeof WorkspaceIdSchema>; jobId: z.infer<typeof PassiveMemoryJobIdSchema>;
+    dispatchGeneration: number }): Promise<void>;
 }

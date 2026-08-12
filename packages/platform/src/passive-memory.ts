@@ -173,15 +173,28 @@ export class InMemoryPassiveMemoryJobRepository implements PassiveMemoryJobRepos
 
   constructor(private readonly memoryFreshness = new InMemoryMemorySourceFreshnessStore()) {}
 
+  async setDispatchGeneration(workspaceId: Parameters<PassiveMemoryJobRepository["get"]>[0], jobId: Parameters<PassiveMemoryJobRepository["get"]>[1], generation: number) {
+    return this.#transactions.run(async () => {
+      const job = this.#jobs.get(this.key(workspaceId, jobId));
+      if (job === undefined || job.workspaceId !== workspaceId) throw new Error("Passive-memory dispatch does not match its job.");
+      const next = PassiveMemoryJobSchema.parse({ ...job, dispatchGeneration: generation });
+      this.#jobs.set(this.key(workspaceId, jobId), clone(next));
+      return clone(next);
+    });
+  }
+
   async claimAttempt(
     workspaceId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[0],
     jobId: Parameters<PassiveMemoryJobRepository["claimAttempt"]>[1],
-    claimedAt: string,
+    claimedAt: string, dispatchGeneration?: number,
   ) {
     return this.memoryFreshness.run(() => this.#transactions.run(async () => {
       const job = this.#jobs.get(this.key(workspaceId, jobId));
       if (job === undefined || job.workspaceId !== workspaceId) {
         throw new Error("Passive-memory attempt does not match the active persisted workspace job.");
+      }
+      if (dispatchGeneration !== undefined && job.dispatchGeneration !== dispatchGeneration) {
+        return PassiveMemoryAttemptClaimSchema.parse({ kind: "BUSY", job: clone(job) });
       }
       if (job.status === "COMPLETED" || job.status === "FAILED" || job.attempts >= PASSIVE_MEMORY_MAX_ATTEMPTS) {
         return PassiveMemoryAttemptClaimSchema.parse({ kind: "TERMINAL", job: clone(job) });

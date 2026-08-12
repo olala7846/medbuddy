@@ -118,7 +118,7 @@ export class PassiveMemoryWorker {
     if (persisted === null || persisted.workspaceId !== input.workspaceId || persisted.id !== input.jobId) {
       throw new Error("Passive-memory task does not match a persisted workspace job.");
     }
-    const claim = await this.dependencies.jobs.claimAttempt(input.workspaceId, input.jobId, this.dependencies.now());
+    const claim = await this.dependencies.jobs.claimAttempt(input.workspaceId, input.jobId, this.dependencies.now(), input.dispatchGeneration ?? 1);
     if (claim.kind === "BUSY") {
       this.dependencies.logger.write({ event: "passive_memory_job_reused", attempt: claim.job.attempts });
       return "REUSED";
