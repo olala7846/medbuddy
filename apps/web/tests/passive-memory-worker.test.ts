@@ -135,6 +135,14 @@ describe("silent passive-memory worker", () => {
     expect(logs.every((entry) => !JSON.stringify(entry).includes(workspaceId))).toBe(true);
   });
 
+  it("does not claim an attempt from a stale delivery generation", async () => {
+    const { calls, jobs, worker } = await harness();
+    await jobs.setDispatchGeneration!(workspaceId, jobId, 2);
+    await expect(worker.run({ workspaceId, jobId, dispatchGeneration: 1 })).resolves.toBe("REUSED");
+    expect(calls).toHaveLength(0);
+    await expect(jobs.get(workspaceId, jobId)).resolves.toMatchObject({ attempts: 0, dispatchGeneration: 2 });
+  });
+
   it("terminally skips a small original replaced by an above-ceiling edit before generation", async () => {
     const { calls, jobs, worker } = await harness({
       bodies: ["small"], editBody: "字".repeat(100_000),
