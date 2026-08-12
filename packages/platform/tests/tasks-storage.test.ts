@@ -183,7 +183,7 @@ describe("Cloud Tasks memory formation dispatchers", () => {
     expect(request.task.httpRequest.oidcToken).toMatchObject({ audience: options.callbackUrl });
   });
 
-  it("dispatches the persisted passive job with a deterministic private identity", async () => {
+  it("creates a fresh private task for each recovery dispatch of the persisted job", async () => {
     const requests: unknown[] = [];
     const client = { queuePath: () => "queue", taskPath: (_p: string, _l: string, _q: string, id: string) => id,
       createTask: async (input: never) => { requests.push(input); return [{} as never, input, {}] as never; } };
@@ -192,7 +192,29 @@ describe("Cloud Tasks memory formation dispatchers", () => {
       serviceAccountEmail: "tasks@fictional.iam.gserviceaccount.com" });
     await dispatcher.dispatch({ workspaceId: "workspace:fictional" as never,
       jobId: "passive-memory-job:formation-1-1-g1" as never });
-    expect((requests[0] as { task: { name: string } }).task.name).toMatch(/^passive-memory-[a-f0-9]{64}$/);
+    await dispatcher.dispatch({ workspaceId: "workspace:fictional" as never,
+      jobId: "passive-memory-job:formation-1-1-g1" as never });
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      const task = (request as { task: { name?: string; httpRequest: { body: string; oidcToken: unknown } } }).task;
+      expect(task.name).toBeUndefined();
+      expect(JSON.parse(Buffer.from(task.httpRequest.body, "base64").toString("utf8"))).toEqual({
+        workspaceId: "workspace:fictional", jobId: "passive-memory-job:formation-1-1-g1",
+      });
+      expect(task.httpRequest.oidcToken).toMatchObject({ audience: "https://fictional.example.test/api/internal/passive-memory" });
+    }
+  });
+
+  it("surfaces a passive task enqueue failure so durable recovery can retry it", async () => {
+    const dispatcher = new CloudTasksPassiveMemoryDispatcher({
+      queuePath: () => "queue", taskPath: () => "unused",
+      createTask: async () => { throw { code: "ALREADY_EXISTS" }; },
+    }, { projectId: "fictional", location: "us", queue: "memory",
+      callbackUrl: "https://fictional.example.test/api/internal/passive-memory",
+      serviceAccountEmail: "tasks@fictional.iam.gserviceaccount.com" });
+
+    await expect(dispatcher.dispatch({ workspaceId: "workspace:fictional" as never,
+      jobId: "passive-memory-job:formation-1-1-g1" as never })).rejects.toMatchObject({ code: "ALREADY_EXISTS" });
   });
 });
 

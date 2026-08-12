@@ -167,14 +167,11 @@ export class CloudTasksPassiveMemoryDispatcher implements PassiveMemoryJobDispat
   async dispatch(inputValue: Parameters<PassiveMemoryJobDispatcher["dispatch"]>[0]): Promise<void> {
     const input = PassiveMemoryTaskInputSchema.parse(inputValue);
     const parent = this.client.queuePath(this.options.projectId, this.options.location, this.options.queue);
-    const identity = createHash("sha256").update(JSON.stringify(input)).digest("hex");
-    try { await this.client.createTask({ parent, task: {
-      name: this.client.taskPath(this.options.projectId, this.options.location, this.options.queue, `passive-memory-${identity}`),
+    // Recovery needs a new delivery even when a previous task for this durable job has completed.
+    await this.client.createTask({ parent, task: {
       httpRequest: { httpMethod: "POST", url: this.options.callbackUrl,
         headers: { "Content-Type": "application/json" }, body: Buffer.from(JSON.stringify(input)).toString("base64"),
         oidcToken: { serviceAccountEmail: this.options.serviceAccountEmail, audience: this.options.callbackUrl } },
-    } }); } catch (error) {
-      if ((error as { code?: unknown }).code !== 6 && (error as { code?: unknown }).code !== "ALREADY_EXISTS") throw error;
-    }
+    } });
   }
 }
