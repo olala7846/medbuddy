@@ -47,8 +47,9 @@ Do **not** load full `docs/PRD.md` or `docs/TDD.md` by default. Open specific se
 
 ## Development Workflow
 
-- Start every change from an up-to-date `origin/main` in a clean Git worktree and dedicated feature branch.
-- Never implement or merge changes directly on local `main` or `master`.
+- Before any development, switch to the local `main` checkout and run `git pull --ff-only origin main` so local `main` matches the remote base.
+- Implement every change, including every feature, in its own clean, isolated Git worktree and dedicated branch created from the updated `origin/main`. Use separate worktrees for concurrent agent sessions and tools so their changes do not interfere.
+- Use local `main` or `master` only to synchronize the remote base. Never implement or merge changes directly there.
 - Assign AI code review and final AI verification to two dedicated fresh-context subagent sessions. Keep both separate from the implementer session and, by default, separate from each other. The implementer may fill either role only when a human explicitly requests or approves the exception; human review and verification remain unrestricted.
 - Make small, logical commits as work progresses and preserve their full history. Do not rewrite published commits.
 - Finish every change through a pull request and merge it into `origin/main` with a merge commit. Never squash or rebase PR commits, and do not merge feature branches into a local default branch.
