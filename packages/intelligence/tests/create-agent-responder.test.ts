@@ -369,6 +369,24 @@ describe("createAgent conversation responder", () => {
     expect(model.callCount).toBe(1);
   });
 
+  it("fails closed when the model hallucinates an unregistered tool name", async () => {
+    const model = fakeModel()
+      .respondWithTools([{ name: "read_private_history", args: {}, id: "call:unknown" }])
+      .respond(new AIMessage("This recovery answer must not publish."));
+    const responder = new CreateAgentConversationResponder(
+      createFixtureMedicationGrounding(),
+      new LangChainMedBuddyAgentRunner(model),
+    );
+
+    await expect(responder.respond(request("A fictional question."))).resolves.toEqual({
+      kind: "TECHNICAL_FAILURE",
+      retryable: true,
+      toolCalls: 1,
+    });
+    expect(model.callCount).toBe(1);
+    expect(JSON.stringify(model.calls)).not.toContain("read_private_history is not a valid tool");
+  });
+
   it("shares one responder deadline with a hanging initial model call", async () => {
     const model = new FakeListChatModel({ responses: ["Late answer."], sleep: 100 });
     const responder = new CreateAgentConversationResponder(

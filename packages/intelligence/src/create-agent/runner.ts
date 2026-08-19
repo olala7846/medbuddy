@@ -153,7 +153,15 @@ export class LangChainMedBuddyAgentRunner {
         wrapToolCall: async (request, handler) => {
           toolCalls += 1;
           try {
-            return await handler(request);
+            if (
+              request.tool === undefined
+              || !tools.some((registered) => registered.name === request.toolCall.name)
+            ) throw new Error("Unregistered MedBuddy application tool.");
+            const result = await handler(request);
+            if (result instanceof ToolMessage && result.status === "error") {
+              throw new Error("MedBuddy application tool returned an error.");
+            }
+            return result;
           } catch {
             // Do not let LangChain turn tool validation or execution details
             // into model-visible ToolMessages that invite self-correction.
