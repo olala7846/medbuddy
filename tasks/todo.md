@@ -26,12 +26,12 @@
 - [x] Fresh-context architecture and external-behavior review is clean.
 - [x] Separate risk-register audit is clean.
 - [x] All review findings are fixed and affected checks pass.
-- [ ] Separate final verification proves every specification requirement.
-- [ ] `npm run check` passes.
-- [ ] `npm test` passes.
-- [ ] `npm run build --workspace @medbuddy/web` passes.
-- [ ] `npm audit --omit=dev` has no unmitigated newly reachable finding.
-- [ ] Staged changes contain no PII, health data, credentials, or secrets.
+- [x] Separate final verification proves every specification requirement.
+- [x] `npm run check` passes.
+- [x] `npm test` passes.
+- [x] `npm run build --workspace @medbuddy/web` passes.
+- [x] `npm audit --omit=dev` has no unmitigated newly reachable finding.
+- [x] Staged changes contain no PII, health data, credentials, or secrets.
 - [ ] Pull request is merged into `origin/main` with a merge commit.
 - [ ] Temporary worktree is safely removed.
 
