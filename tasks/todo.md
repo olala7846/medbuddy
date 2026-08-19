@@ -14,7 +14,7 @@
 - [x] Independent Piece 1 review completed and all findings resolved.
 - [x] Piece 2: Bounded `createAgent()` framework and Vertex model foundation.
 - [x] Independent Piece 2 review completed and all findings resolved.
-- [ ] Piece 3: Family-map, memory, medication-grounding, and safety parity.
+- [x] Piece 3: Family-map, memory, medication-grounding, and safety parity.
 - [ ] Independent Piece 3 review completed and all findings resolved.
 - [ ] Piece 4: Production replacement and isolated fictional LangSmith tracing.
 - [ ] Independent Piece 4 review completed and all findings resolved.

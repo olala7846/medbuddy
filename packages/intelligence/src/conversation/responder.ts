@@ -128,9 +128,10 @@ type BoundSafeParse = (
   value: unknown,
 ) => z.ZodSafeParseResult<ConversationToolJsonObject>;
 
-type BoundConversationToolCapability = Readonly<{
+export type BoundConversationToolCapability = Readonly<{
   declaration: ConversationToolDeclaration;
   requiredBeforeReply: boolean;
+  inputSchema: z.ZodType<ConversationToolJsonObject>;
   parseInput: BoundSafeParse;
   parseOutput: BoundSafeParse;
   classifyResult(output: ConversationToolJsonObject): ConversationToolResultDisposition;
@@ -220,7 +221,7 @@ function hasBoundedPlainJsonDeclaration(value: unknown): boolean {
   });
 }
 
-function bindModelTools(
+export function bindModelTools(
   tools: ConversationTurnTools | undefined,
 ): Map<string, BoundConversationToolCapability> | null {
   try {
@@ -254,6 +255,7 @@ function bindModelTools(
       bound.set(declaration.data.name, Object.freeze({
         declaration: declaration.data,
         requiredBeforeReply: capability.requiredBeforeReply === true,
+        inputSchema: capability.inputSchema as z.ZodType<ConversationToolJsonObject>,
         parseInput,
         parseOutput,
         classifyResult,
@@ -319,7 +321,7 @@ type CanonicalJsonObjectSnapshot = {
   readonly value: ConversationToolJsonObject;
 };
 
-function canonicalJsonObjectSnapshot(
+export function canonicalJsonObjectSnapshot(
   value: unknown,
   maxUtf16: number,
 ): CanonicalJsonObjectSnapshot | null {
@@ -340,11 +342,11 @@ function canonicalJsonObjectSnapshot(
   }
 }
 
-function cloneCanonicalSnapshot(snapshot: CanonicalJsonObjectSnapshot): ConversationToolJsonObject {
+export function cloneCanonicalSnapshot(snapshot: CanonicalJsonObjectSnapshot): ConversationToolJsonObject {
   return JSON.parse(snapshot.serialized) as ConversationToolJsonObject;
 }
 
-function remainsValidAfterCallback(
+export function remainsValidAfterCallback(
   snapshot: CanonicalJsonObjectSnapshot,
   parse: BoundSafeParse,
   maxUtf16: number,
@@ -359,7 +361,7 @@ function remainsValidAfterCallback(
   }
 }
 
-function needsRelationshipTargetClarification(
+export function needsRelationshipTargetClarification(
   focalMessage: Message,
   context: ConversationContext,
 ): boolean {
@@ -455,14 +457,14 @@ export function focalAuthorizesFamilyMapUpdate(body: string): boolean {
   });
 }
 
-function focalRequiresFamilyMapUpdate(body: string): boolean {
+export function focalRequiresFamilyMapUpdate(body: string): boolean {
   const normalized = body.normalize("NFKC").replace(/^\s*@\S+\s*/u, "").trim();
   return /^(?:please\s+)?(?:forget|remove|delete|clear|correct|update)\b/iu.test(normalized)
     || /^correction\s*:/iu.test(normalized)
     || /^(?:請)?(?:忘記|清除|刪除|更正)/u.test(normalized);
 }
 
-function renderLookup(result: MedicationLookupRenderResult): string {
+export function renderLookup(result: MedicationLookupRenderResult): string {
   if (result.kind === "UNSUPPORTED") {
     return result.text;
   }

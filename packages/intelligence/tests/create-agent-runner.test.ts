@@ -41,7 +41,7 @@ describe("bounded MedBuddy createAgent runner", () => {
     const model = fakeModel().respond(new AIMessage("Fictional final answer."));
     const result = await new LangChainMedBuddyAgentRunner(model).invoke(context());
 
-    expect(result).toEqual({ responseText: "Fictional final answer.", toolCalls: 0 });
+    expect(result).toEqual({ responseText: "Fictional final answer.", toolCalls: 0, modelCalls: 1 });
     expect(model.calls).toHaveLength(1);
     const messages = normalizedMessages(model.calls[0]!.messages);
     expect(messages[0]).toMatchObject({ type: "system" });
@@ -76,7 +76,7 @@ describe("bounded MedBuddy createAgent runner", () => {
     const result = await new LangChainMedBuddyAgentRunner(model).invoke(context(), [readContext]);
 
     expect(reads).toEqual(["read"]);
-    expect(result).toEqual({ responseText: "Fictional tool-grounded answer.", toolCalls: 1 });
+    expect(result).toEqual({ responseText: "Fictional tool-grounded answer.", toolCalls: 1, modelCalls: 2 });
     expect(model.callCount).toBe(2);
   });
 
