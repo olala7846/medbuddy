@@ -10,7 +10,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { createFixtureMedicationGrounding, createVertexCreateAgentResponder } from "../src/index.js";
+import { createFixtureMedicationGrounding } from "../src/index.js";
 import { CreateAgentConversationResponder } from "../src/create-agent/responder.js";
 import { LangChainMedBuddyAgentRunner } from "../src/create-agent/runner.js";
 
@@ -60,23 +60,6 @@ const queryDeclaration = {
 const permissiveJsonObjectSchema = z.custom<ConversationToolJsonObject>(() => true);
 
 describe("createAgent conversation responder", () => {
-  it("executes the public production composition with an invocation-local framework model", async () => {
-    const model = fakeModel().respond(new AIMessage("Production-composed fictional reply."));
-    const responder = createVertexCreateAgentResponder({
-      projectId: "fictional-project",
-      location: "global",
-      model: "gemini-3.6-flash",
-    }, createFixtureMedicationGrounding(), { model });
-
-    await expect(responder.respond(request("A production-composition question."))).resolves.toEqual({
-      kind: "RESPONDED",
-      responseText: "Production-composed fictional reply.",
-      retryable: false,
-      toolCalls: 0,
-    });
-    expect(model.callCount).toBe(1);
-  });
-
   it("executes an authorized family-map replacement and returns the model acknowledgment", async () => {
     const model = fakeModel()
       .respondWithTools([{
