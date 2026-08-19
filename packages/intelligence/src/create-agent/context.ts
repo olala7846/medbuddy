@@ -68,7 +68,7 @@ export function createMedBuddyAgentContext(input: {
     content: message.content,
   }));
   const legacyRecentConversation = assembled.recentMessagesBeforeFocal === undefined
-    ? assembled.recentConversationBeforeFocal ?? assembled.recentConversation
+    ? assembled.recentConversationBeforeFocal ?? null
     : null;
   const provisional = {
     applicationInstructions: assembled.system,

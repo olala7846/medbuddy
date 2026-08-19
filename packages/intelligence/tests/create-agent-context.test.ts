@@ -66,17 +66,17 @@ describe("MedBuddy createAgent context", () => {
     );
   });
 
-  it("keeps legacy flattened history as untrusted recap data without inventing roles", () => {
+  it("omits inseparable legacy flattened history instead of duplicating the focal message", () => {
     const legacyAssembledContext = { ...assembledContext };
     delete legacyAssembledContext.recentMessagesBeforeFocal;
+    delete legacyAssembledContext.recentConversationBeforeFocal;
     const context = createMedBuddyAgentContext({
       assembledContext: legacyAssembledContext,
       focalMessageBody: "Current fictional question.",
     });
 
     expect(context.recentMessages).toEqual([]);
-    expect(JSON.parse(renderMedBuddyAgentRecap(context))).toMatchObject({
-      legacyRecentConversation: assembledContext.recentConversationBeforeFocal,
-    });
+    expect(JSON.parse(renderMedBuddyAgentRecap(context))).not.toHaveProperty("legacyRecentConversation");
+    expect(renderMedBuddyAgentRecap(context)).not.toContain("Current fictional question.");
   });
 });
