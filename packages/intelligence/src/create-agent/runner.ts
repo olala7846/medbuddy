@@ -1,6 +1,6 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { Callbacks } from "@langchain/core/callbacks/manager";
-import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import {
   createAgent,
@@ -230,12 +230,18 @@ export class LangChainMedBuddyAgentRunner {
       ...applicationMiddleware,
       requestBudgetMiddleware(this.requestMaxUtf16),
     ] as unknown as AnyAgentMiddleware[];
-    const agent = createAgent({
+    // Pinned LangChain models disabled checkpointing as `false`, but its exact-
+    // optional Store type cannot express an explicit disabled value. Keep the
+    // runtime `undefined` explicit at this private framework seam.
+    const agentParameters = {
       model: this.model,
       tools: [...tools],
       systemPrompt: renderMedBuddyAgentSystemPrompt(context),
       middleware,
-    });
+      checkpointer: false,
+      store: undefined,
+    } as unknown as Parameters<typeof createAgent>[0];
+    const agent = createAgent(agentParameters);
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -271,7 +277,9 @@ export class LangChainMedBuddyAgentRunner {
       }
       const responseText = TerminalTextSchema.safeParse(terminal.text);
       if (!responseText.success) throw new Error("Malformed MedBuddy agent terminal output.");
-      const completedToolCalls = result.messages.filter((message) => message instanceof ToolMessage).length;
+      const completedToolCalls = result.messages.filter(
+        (message: BaseMessage) => message instanceof ToolMessage,
+      ).length;
       if (toolCalls !== completedToolCalls || toolCalls > this.budgets.totalToolCalls) {
         throw new Error("MedBuddy agent tool budget exhausted.");
       }

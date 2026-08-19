@@ -65,7 +65,9 @@ ConversationResponder
 - The first user message is versioned JSON with `type: "medbuddy_context"`, a
   trust label, family-map content, compacted recap, omission metadata, and
   legacy flattened history only when typed history is unavailable.
-- Later messages preserve chronological `user` and `assistant` roles.
+- Later messages preserve chronological `user` and `assistant` roles. Human
+  messages include the application-supplied opaque author ID without changing
+  the verbatim body.
 - The focal message appears exactly once as the final user message.
 - Request-size accounting covers the rendered system prompt, recap envelope,
   role-preserving messages, focal message, and current tool transcript.
@@ -187,4 +189,3 @@ A third fresh-context subagent must run final verification after remediation.
 - Independent piece reviews and final risk reviews have no unresolved actionable
   findings.
 - Full check, test, build, privacy review, and dependency audit gates pass.
-

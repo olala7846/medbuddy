@@ -35,6 +35,7 @@ export * from "./capture/validate.js";
 export * from "./conversation/compaction.js";
 export * from "./conversation/passive-memory.js";
 export * from "./conversation/tools.js";
+export * from "./conversation/policy.js";
 export * from "./create-agent/context.js";
 export * from "./create-agent/composition.js";
 export * from "./adapters/fixed-model.js";

@@ -35,6 +35,12 @@ describe("MedBuddy createAgent framework foundation", () => {
       "https://aiplatform.googleapis.com/v1/projects/fictional-medbuddy-project/locations/global/publishers/google/models/gemini-3.6-flash:generateContent",
     );
     expect(requests[0]?.signal.aborted).toBe(true);
+    await expect(requests[0]!.clone().json()).resolves.toMatchObject({
+      generationConfig: {
+        maxOutputTokens: 2_048,
+        thinkingConfig: { thinkingLevel: "LOW" },
+      },
+    });
   });
 
   it("runs one real invocation-local createAgent tool exchange without network access", async () => {

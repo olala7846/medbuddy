@@ -92,9 +92,10 @@ Platform. Chat binds workspace, actor, and source-message scope before it
 exposes the family-map capability. Provider and channel types end at adapters.
 The conversation interface stays channel-neutral. The only production LINE
 implementation is `createVertexCreateAgentResponder()`: it sends a trusted
-system prompt, a versioned untrusted recap, attributed recent messages, and one
-focal user message to an invocation-local LangChain agent. It configures no
-checkpointer or Store. The old custom loop is available only from the explicit
+system prompt, a versioned untrusted recap, role-preserving recent messages with
+application-supplied human author IDs, and one attributed focal user message to
+an invocation-local LangChain agent. It explicitly disables checkpointing and
+supplies no Store. The old custom loop is available only from the explicit
 `@medbuddy/intelligence/legacy-testing` subpath for parity and opt-in evaluation
 fixtures.
 

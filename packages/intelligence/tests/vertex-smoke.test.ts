@@ -1,20 +1,17 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 
-import { AttachmentSchema, MemberIdSchema, MessageSchema, WorkspaceIdSchema, type MemberId, type Message } from "@medbuddy/contracts";
+import { AssembledContextSchema, AttachmentSchema, MemberIdSchema, MessageSchema, WorkspaceIdSchema, type MemberId, type Message } from "@medbuddy/contracts";
 
 import {
   CompactionSummaryGenerator,
+  FAMILY_MAP_UPDATE_FAILURE_TEXT,
   VertexReadableLabelExtractor,
   VertexRestClient,
   VertexTextCaptureExtractor,
+  createVertexCreateAgentResponder,
   loadVertexConfiguration,
 } from "../src/index.js";
-import {
-  ConversationResponder,
-  FAMILY_MAP_UPDATE_FAILURE_TEXT,
-  VertexConversationProvider,
-} from "../src/legacy-testing.js";
 
 const runSmoke = process.env.MEDBUDDY_RUN_VERTEX_SMOKE === "true";
 const configuration = runSmoke ? loadVertexConfiguration() : null;
@@ -70,10 +67,11 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
       processingAttempts: 0,
     });
     const updates: { expectedRevision: number; content: string }[] = [];
-    const responder = new ConversationResponder(
+    if (configuration === null) throw new Error("Vertex configuration is required.");
+    const responder = createVertexCreateAgentResponder(
+      configuration,
       { async lookup() { return []; } },
-      new VertexConversationProvider(createConfiguredClient()),
-      50_000,
+      { budgets: { turnTimeoutMs: 50_000 } },
     );
     const result = await responder.respond({
       messageId: focalMessage.id,
@@ -81,6 +79,17 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
         workspaceId: focalMessage.workspaceId,
         messages: [focalMessage],
         familyMap: { workspaceId: focalMessage.workspaceId, ...familyMap },
+        assembledContext: AssembledContextSchema.parse({
+          workspaceId: focalMessage.workspaceId,
+          focalSourceEventId: `source-event:vertex-family-${suffix}`,
+          system: "Preserve workspace isolation and deterministic medical safety.",
+          familyMap: familyMap.content,
+          history: "",
+          recentConversation: `[${focalMessage.authorMemberId}]\n${body}`,
+          recentConversationBeforeFocal: "",
+          recentMessagesBeforeFocal: [],
+          omittedSourceEventCount: 0,
+        }),
       },
     }, {
       updateWorkspaceFamilyMap: {
@@ -270,10 +279,11 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
     const messages: Message[] = [];
     const updates: Array<{ turn: number; expectedRevision: number; content: string }> = [];
     let familyMap = { workspaceId, content: "", revision: 0 };
-    const responder = new ConversationResponder(
+    if (configuration === null) throw new Error("Vertex configuration is required.");
+    const responder = createVertexCreateAgentResponder(
+      configuration,
       { async lookup() { return []; } },
-      new VertexConversationProvider(createConfiguredClient()),
-      60_000,
+      { budgets: { turnTimeoutMs: 60_000 } },
     );
 
     const turns = [
@@ -300,7 +310,27 @@ describe.runIf(runSmoke)("Vertex live smoke (fictional inputs only)", () => {
       messages.push(focalMessage);
       const result = await responder.respond({
         messageId: focalMessage.id,
-        context: { workspaceId, messages: messages.slice(-20), familyMap },
+        context: {
+          workspaceId,
+          messages: messages.slice(-20),
+          familyMap,
+          assembledContext: AssembledContextSchema.parse({
+            workspaceId,
+            focalSourceEventId: `source-event:vertex-fictional-zh-family-${turnIndex + 1}`,
+            system: "Preserve workspace isolation and deterministic medical safety.",
+            familyMap: familyMap.content,
+            history: "",
+            recentConversation: messages.map((message) => `[${message.authorMemberId}]\n${message.body}`).join("\n\n"),
+            recentConversationBeforeFocal: messages.slice(0, -1)
+              .map((message) => `[${message.authorMemberId}]\n${message.body}`).join("\n\n"),
+            recentMessagesBeforeFocal: messages.slice(0, -1).map((message) => ({
+              role: message.authorMemberId === "MEDBUDDY" ? "AGENT" as const : "HUMAN" as const,
+              authorMemberId: message.authorMemberId,
+              content: message.body,
+            })),
+            omittedSourceEventCount: 0,
+          }),
+        },
       }, {
         updateWorkspaceFamilyMap: {
           async update(input) {

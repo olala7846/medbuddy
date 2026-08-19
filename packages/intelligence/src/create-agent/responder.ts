@@ -64,6 +64,7 @@ export class CreateAgentConversationResponder implements ConversationResponder {
     if (assembledContext === undefined) return { kind: "TECHNICAL_FAILURE", retryable: true };
     const agentContext = createMedBuddyAgentContext({
       assembledContext,
+      focalAuthorMemberId: focalMessage.authorMemberId,
       focalMessageBody: focalMessage.body,
     });
     const startedAt = Date.now();

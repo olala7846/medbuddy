@@ -26,11 +26,12 @@ function context(body = "Current fictional question.") {
       recentConversation: `[member:fictional | source 3]\n${body}`,
       recentConversationBeforeFocal: "Earlier flattened conversation.",
       recentMessagesBeforeFocal: [
-        { role: "HUMAN", content: "Earlier fictional question." },
-        { role: "AGENT", content: "Earlier fictional answer." },
+        { role: "HUMAN", authorMemberId: "member:earlier", content: "Earlier fictional question." },
+        { role: "AGENT", authorMemberId: "MEDBUDDY", content: "Earlier fictional answer." },
       ],
       omittedSourceEventCount: 1,
     }),
+    focalAuthorMemberId: "member:focal",
     focalMessageBody: body,
   });
 }
@@ -56,10 +57,26 @@ describe("bounded MedBuddy createAgent runner", () => {
       familyMap: "Fictional family map.",
     });
     expect(messages.slice(2)).toEqual([
-      { type: "human", text: "Earlier fictional question." },
+      { type: "human", text: "[author:member:earlier]\nEarlier fictional question." },
       { type: "ai", text: "Earlier fictional answer." },
-      { type: "human", text: "Current fictional question." },
+      { type: "human", text: "[author:member:focal]\nCurrent fictional question." },
     ]);
+  });
+
+  it("starts every invocation only from application-supplied context", async () => {
+    const model = fakeModel()
+      .respond(new AIMessage("First fictional answer."))
+      .respond(new AIMessage("Second fictional answer."));
+    const runner = new LangChainMedBuddyAgentRunner(model);
+
+    await runner.invoke(context("First isolated focal message."));
+    await runner.invoke(context("Second isolated focal message."));
+
+    expect(model.calls).toHaveLength(2);
+    expect(normalizedMessages(model.calls[1]!.messages).map((message) => message.text))
+      .not.toContain("First isolated focal message.");
+    expect(normalizedMessages(model.calls[1]!.messages).at(-1)?.text)
+      .toBe("[author:member:focal]\nSecond isolated focal message.");
   });
 
   it("executes a supplied bounded tool through the runner and records its call", async () => {

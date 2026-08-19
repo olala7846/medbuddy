@@ -117,8 +117,8 @@ describe("deterministic conversation context", () => {
     });
 
     expect(assembled.recentMessagesBeforeFocal).toEqual([
-      { role: "HUMAN", content: "Earlier caregiver question." },
-      { role: "AGENT", content: "Earlier MedBuddy answer." },
+      { role: "HUMAN", authorMemberId: sources[0]!.authorMemberId, content: "Earlier caregiver question." },
+      { role: "AGENT", authorMemberId: "MEDBUDDY", content: "Earlier MedBuddy answer." },
     ]);
     expect(assembled.recentConversationBeforeFocal).toContain("Earlier caregiver question.");
     expect(assembled.recentConversationBeforeFocal).toContain("Earlier MedBuddy answer.");

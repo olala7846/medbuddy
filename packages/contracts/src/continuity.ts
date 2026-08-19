@@ -271,6 +271,7 @@ export const AssembledContextSchema = z.object({
   recentConversationBeforeFocal: z.string().max(RECENT_HARD_CEILING_UTF16).optional(),
   recentMessagesBeforeFocal: z.array(z.object({
     role: z.enum(["HUMAN", "AGENT"]),
+    authorMemberId: z.union([MemberIdSchema, z.literal("MEDBUDDY")]),
     content: z.string().min(1).max(SOURCE_TEXT_MAX_UTF16),
   }).strict()).max(100).optional(),
   omittedSourceEventCount: z.number().int().nonnegative(),
@@ -282,7 +283,7 @@ export const AssembledContextSchema = z.object({
     issueContext.addIssue({ code: "custom", message: "Fully rendered context exceeds its global character budget." });
   }
   const recentMessageCharacters = context.recentMessagesBeforeFocal
-    ?.reduce((total, message) => total + message.content.length, 0) ?? 0;
+    ?.reduce((total, message) => total + message.authorMemberId.length + message.content.length, 0) ?? 0;
   if (recentMessageCharacters > RECENT_HARD_CEILING_UTF16) {
     issueContext.addIssue({ code: "custom", message: "Structured recent messages exceed their character budget." });
   }

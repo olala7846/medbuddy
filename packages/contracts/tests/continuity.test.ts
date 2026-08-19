@@ -37,18 +37,18 @@ describe("continuity contracts", () => {
     expect(AssembledContextSchema.parse({
       ...base,
       recentMessagesBeforeFocal: [
-        { role: "HUMAN", content: "Earlier question." },
-        { role: "AGENT", content: "Earlier answer." },
+        { role: "HUMAN", authorMemberId: "member:caregiver", content: "Earlier question." },
+        { role: "AGENT", authorMemberId: "MEDBUDDY", content: "Earlier answer." },
       ],
     }).recentMessagesBeforeFocal).toEqual([
-      { role: "HUMAN", content: "Earlier question." },
-      { role: "AGENT", content: "Earlier answer." },
+      { role: "HUMAN", authorMemberId: "member:caregiver", content: "Earlier question." },
+      { role: "AGENT", authorMemberId: "MEDBUDDY", content: "Earlier answer." },
     ]);
     expect(AssembledContextSchema.safeParse({
       ...base,
       recentMessagesBeforeFocal: [
-        { role: "HUMAN", content: "x".repeat(30_000) },
-        { role: "AGENT", content: "y" },
+        { role: "HUMAN", authorMemberId: "member:caregiver", content: "x".repeat(30_000) },
+        { role: "AGENT", authorMemberId: "MEDBUDDY", content: "y" },
       ],
     }).success).toBe(false);
   });

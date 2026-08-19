@@ -281,6 +281,7 @@ export function assembleConversationContext(input: AssembleConversationContextIn
     .filter((entry) => entry.turn.sourceEventId !== focal.sourceEventId)
     .map((entry) => ({
       role: entry.turn.authorMemberId === "MEDBUDDY" ? "AGENT" as const : "HUMAN" as const,
+      authorMemberId: entry.turn.authorMemberId,
       content: entry.turn.body,
     }));
 

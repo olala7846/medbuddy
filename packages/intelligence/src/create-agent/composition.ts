@@ -3,6 +3,7 @@ import type {
   ConversationTelemetryLogger,
   MedicationGrounding,
 } from "@medbuddy/contracts";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
 import {
   LangSmithMedBuddyAgentTraceRuntime,
@@ -23,6 +24,8 @@ export interface CreateAgentResponderOptions {
   readonly telemetry?: ConversationTelemetryLogger;
   readonly environment?: Record<string, string | undefined>;
   readonly tracing?: Omit<LangSmithMedBuddyAgentTraceConfiguration, "modelId">;
+  /** Injectable only for deterministic composition and end-to-end tests. */
+  readonly model?: BaseChatModel;
 }
 
 /** Public composition factory that keeps LangChain types inside Intelligence. */
@@ -43,7 +46,7 @@ export function createVertexCreateAgentResponder(
         modelId: configuration.model,
       }, environment);
   const runner = new LangChainMedBuddyAgentRunner(
-    createVertexAgentModel(configuration),
+    options.model ?? createVertexAgentModel(configuration),
     budgets,
     options.requestMaxUtf16 ?? MEDBUDDY_AGENT_REQUEST_MAX_UTF16,
     environment,

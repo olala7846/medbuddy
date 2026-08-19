@@ -50,10 +50,11 @@ MEDBUDDY_VERTEX_PROJECT=<project-id> npm run eval:compaction
 
 The LINE responder builds one invocation-local agent. Stable application rules
 are in the system prompt. The first user message is a versioned JSON recap;
-later user and assistant messages preserve their original roles; the focal turn
-appears once. Deterministic medical refusals and application-owned tool
+later user and assistant messages preserve their original roles, and each human
+message carries its application-supplied opaque author ID; the attributed focal
+turn appears once. Deterministic medical refusals and application-owned tool
 authorization run outside the framework. The runner configures no LangGraph
-checkpointer or Store.
+checkpointer or Store and starts each invocation only from application context.
 
 Agent-level LangSmith tracing is default-off. It requires an exact isolated
 Cloud Run revision, an exact fictional application workspace, and the matching

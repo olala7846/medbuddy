@@ -22,6 +22,8 @@ export function createVertexAgentModel(
     platformType: "gcp",
     location: parsed.location,
     maxRetries: 0,
+    maxOutputTokens: 2_048,
+    thinkingLevel: "low",
     googleAuthOptions: { projectId: parsed.projectId },
     ...(apiClient === undefined ? {} : { apiClient }),
   });

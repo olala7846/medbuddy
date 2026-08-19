@@ -42,6 +42,7 @@ function context(body: string) {
       recentMessagesBeforeFocal: [],
       omittedSourceEventCount: 0,
     }),
+    focalAuthorMemberId: "member:fictional-tracer",
     focalMessageBody: body,
   });
 }
