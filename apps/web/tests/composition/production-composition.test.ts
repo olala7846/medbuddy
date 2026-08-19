@@ -71,7 +71,8 @@ describe("production composition configuration", () => {
       apiUrl: "https://api.smith.langchain.com",
       allowedAppWorkspaceId: "workspace:fictional-tracing",
       verificationId: "create-agent-fictional-verification",
-      revision: "medbuddy-fictional-agent-trace",
+      actualRevision: "medbuddy-fictional-agent-trace",
+      allowedIsolatedRevision: "medbuddy-fictional-agent-trace",
     });
     expect(() => loadCreateAgentTracingConfiguration({
       ...environment,

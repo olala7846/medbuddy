@@ -116,7 +116,8 @@ export type CreateAgentTracingConfiguration = {
   apiUrl: z.infer<typeof LangSmithTracingConfigSchema>["MEDBUDDY_LANGSMITH_API_URL"];
   allowedAppWorkspaceId: string;
   verificationId: string;
-  revision: string;
+  actualRevision: string;
+  allowedIsolatedRevision: string;
 };
 
 export type LineConfiguration = {
@@ -192,7 +193,8 @@ export function loadCreateAgentTracingConfiguration(
     apiUrl: value.MEDBUDDY_LANGSMITH_API_URL,
     allowedAppWorkspaceId: value.MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID,
     verificationId: value.MEDBUDDY_LANGSMITH_VERIFICATION_ID,
-    revision: value.K_REVISION,
+    actualRevision: value.K_REVISION,
+    allowedIsolatedRevision: value.MEDBUDDY_CREATE_AGENT_TRACE_ISOLATED_REVISION,
   };
 }
 

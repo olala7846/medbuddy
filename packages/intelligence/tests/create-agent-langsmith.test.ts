@@ -1,9 +1,21 @@
+import { AIMessage } from "@langchain/core/messages";
+import { fakeModel } from "@langchain/core/testing";
+import { AssembledContextSchema } from "@medbuddy/contracts";
+import { tool } from "langchain";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
+import { createMedBuddyAgentContext } from "../src/create-agent/context.js";
+import { createVertexCreateAgentResponder } from "../src/create-agent/composition.js";
 import {
   LangSmithMedBuddyAgentTraceRuntime,
   createMedBuddyAgentFictionalTraceMarker,
 } from "../src/create-agent/langsmith-tracing.js";
+import {
+  MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+  LangChainMedBuddyAgentRunner,
+} from "../src/create-agent/runner.js";
+import { CommittedSourceCardGrounding } from "../src/grounding/lookup.js";
 
 const configuration = {
   serviceKey: "fictional-service-key",
@@ -13,8 +25,26 @@ const configuration = {
   allowedAppWorkspaceId: "workspace:fictional-tracing",
   verificationId: "create-agent-fictional-review",
   modelId: "gemini-3.6-flash",
-  revision: "medbuddy-fictional-agent-trace",
+  actualRevision: "medbuddy-fictional-agent-trace",
+  allowedIsolatedRevision: "medbuddy-fictional-agent-trace",
 } as const;
+
+function context(body: string) {
+  return createMedBuddyAgentContext({
+    assembledContext: AssembledContextSchema.parse({
+      workspaceId: configuration.allowedAppWorkspaceId,
+      focalSourceEventId: "source-event:fictional-langsmith",
+      system: "Preserve fictional workspace isolation.",
+      familyMap: "Fictional family map.",
+      history: "Fictional compacted history.",
+      recentConversation: body,
+      recentConversationBeforeFocal: "",
+      recentMessagesBeforeFocal: [],
+      omittedSourceEventCount: 0,
+    }),
+    focalMessageBody: body,
+  });
+}
 
 describe("MedBuddy createAgent LangSmith boundary", () => {
   it("constructs a callback only for the exact workspace and fictional marker", () => {
@@ -50,6 +80,24 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
       expect(() => new LangSmithMedBuddyAgentTraceRuntime(configuration, environment))
         .toThrow(/tracing configuration/i);
     }
+  });
+
+  it("rejects tracing when the actual and allowed isolated revisions differ", () => {
+    expect(() => new LangSmithMedBuddyAgentTraceRuntime({
+      ...configuration,
+      actualRevision: "ordinary-production-revision",
+    }, {})).toThrow(/isolated revision/i);
+    expect(() => createVertexCreateAgentResponder(
+      { projectId: "fictional-project", location: "global", model: "gemini-3.6-flash" },
+      new CommittedSourceCardGrounding([]),
+      {
+        environment: {},
+        tracing: {
+          ...configuration,
+          actualRevision: "ordinary-production-revision",
+        },
+      },
+    )).toThrow(/isolated revision/i);
   });
 
   it("sanitizes a swallowed LangSmith transport failure", async () => {
@@ -91,6 +139,57 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
       errors.mockRestore();
       warnings.mockRestore();
     }
+  });
+
+  it("runs a real agent trace tree and aborts hanging export before returning", async () => {
+    let activeRequests = 0;
+    let requestCount = 0;
+    let abortedRequests = 0;
+    const hangingFetch: typeof fetch = async (_input, init) => {
+      requestCount += 1;
+      activeRequests += 1;
+      return new Promise<Response>((_resolve, reject) => {
+        const abort = () => {
+          activeRequests -= 1;
+          abortedRequests += 1;
+          reject(new DOMException("Trace transport aborted.", "AbortError"));
+        };
+        if (init?.signal?.aborted) abort();
+        else init?.signal?.addEventListener("abort", abort, { once: true });
+      });
+    };
+    const marker = createMedBuddyAgentFictionalTraceMarker(configuration.verificationId);
+    const body = `${marker}\nA fictional traced tool question.`;
+    const model = fakeModel()
+      .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:real-trace" }])
+      .respond(new AIMessage("Fictional traced answer."));
+    const readContext = tool(() => "Fictional bounded context.", {
+      name: "read_fictional_context",
+      description: "Read fictional bounded context.",
+      schema: z.object({}).strict(),
+    });
+    const tracing = new LangSmithMedBuddyAgentTraceRuntime(configuration, {}, hangingFetch);
+    const runner = new LangChainMedBuddyAgentRunner(
+      model,
+      MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+      60_000,
+      {},
+      tracing,
+    );
+    const startedAt = Date.now();
+
+    await expect(runner.invoke(context(body), [readContext], [], {
+      deadlineMs: Date.now() + 60,
+      traceScope: { workspaceId: configuration.allowedAppWorkspaceId, focalMessageBody: body },
+    })).resolves.toEqual({
+      responseText: "Fictional traced answer.",
+      toolCalls: 1,
+      modelCalls: 2,
+    });
+    expect(requestCount).toBeGreaterThan(0);
+    expect(abortedRequests).toBe(requestCount);
+    expect(activeRequests).toBe(0);
+    expect(Date.now() - startedAt).toBeLessThan(150);
   });
 
   it("builds a stable marker from a validated verification identifier", () => {

@@ -92,7 +92,11 @@ describe("bounded MedBuddy createAgent runner", () => {
       handleToolStart() { events.push("tool:start"); }
     }
     const tracing: MedBuddyAgentTraceRuntime = {
-      open: () => ({ callbacks: [new RecordingHandler()], async flush() { events.push("flush"); } }),
+      open: () => ({
+        callbacks: [new RecordingHandler()],
+        async flush() { events.push("flush"); },
+        abort() { events.push("abort"); },
+      }),
     };
     const model = fakeModel()
       .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:traced" }])
@@ -121,7 +125,11 @@ describe("bounded MedBuddy createAgent runner", () => {
 
   it("preserves a successful response when trace flush fails", async () => {
     const tracing: MedBuddyAgentTraceRuntime = {
-      open: () => ({ callbacks: [], async flush() { throw new Error("private trace failure"); } }),
+      open: () => ({
+        callbacks: [],
+        async flush() { throw new Error("private trace failure"); },
+        abort() {},
+      }),
     };
     const model = fakeModel().respond(new AIMessage("Unchanged fictional answer."));
     const runner = new LangChainMedBuddyAgentRunner(
@@ -154,7 +162,7 @@ describe("bounded MedBuddy createAgent runner", () => {
       }
       const tracing: MedBuddyAgentTraceRuntime = failure === "open"
         ? { open() { throw new Error("private trace setup failure"); } }
-        : { open: () => ({ callbacks: [new ThrowingHandler()], async flush() {} }) };
+        : { open: () => ({ callbacks: [new ThrowingHandler()], async flush() {}, abort() {} }) };
       const model = fakeModel().respond(new AIMessage("Unchanged fictional answer."));
       const runner = new LangChainMedBuddyAgentRunner(
         model,

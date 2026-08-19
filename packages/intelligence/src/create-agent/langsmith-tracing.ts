@@ -25,7 +25,8 @@ export const LangSmithMedBuddyAgentTraceConfigurationSchema = z.object({
   allowedAppWorkspaceId: z.string().regex(/^workspace:[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/),
   verificationId: VerificationIdSchema,
   modelId: z.string().trim().min(1).max(128),
-  revision: z.string().trim().min(1).max(128),
+  actualRevision: z.string().trim().min(1).max(128),
+  allowedIsolatedRevision: z.string().trim().min(1).max(128),
 }).strict();
 
 export type LangSmithMedBuddyAgentTraceConfiguration = z.infer<
@@ -63,6 +64,9 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
     private readonly request: typeof fetch = fetch,
   ) {
     this.configuration = LangSmithMedBuddyAgentTraceConfigurationSchema.parse(configuration);
+    if (this.configuration.actualRevision !== this.configuration.allowedIsolatedRevision) {
+      throw new Error("MedBuddy agent tracing is not running on its isolated revision.");
+    }
     const automaticOrHidden = prohibitedTrueKeys.some((key) => {
       const value = environment[key];
       return value !== undefined && value !== "false";
@@ -81,11 +85,20 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
     ) return null;
 
     let transportFailed = false;
+    const transportController = new AbortController();
+    const sessionRequest: typeof fetch = (input, init) => {
+      const signal = init?.signal == null
+        ? transportController.signal
+        : AbortSignal.any([init.signal, transportController.signal]);
+      return this.request(input, { ...init, signal });
+    };
     const client = new Client({
       apiKey: this.configuration.serviceKey,
       apiUrl: this.configuration.apiUrl,
       workspaceId: this.configuration.langSmithWorkspaceId,
       manualFlushMode: true,
+      timeout_ms: 2_000,
+      callerOptions: { maxRetries: 0 },
       tracingSamplingRate: 1,
       tracingMode: "langsmith",
       hideInputs: false,
@@ -94,7 +107,7 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
       omitTracedRuntimeInfo: true,
       disablePromptCache: true,
       debug: false,
-      fetchImplementation: createContentSafeLangSmithFetch(this.request, () => {
+      fetchImplementation: createContentSafeLangSmithFetch(sessionRequest, () => {
         transportFailed = true;
       }),
     });
@@ -105,7 +118,7 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
       metadata: {
         verificationId: this.configuration.verificationId,
         modelId: this.configuration.modelId,
-        revision: this.configuration.revision,
+        revision: this.configuration.actualRevision,
         contentMode: "fictional-only",
         contextContract: "medbuddy-create-agent-message-sequence-v1",
       },
@@ -117,6 +130,7 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
         await client.flush();
         if (transportFailed) throw new Error("MedBuddy agent trace export failed.");
       },
+      abort: () => transportController.abort(),
     };
   }
 }

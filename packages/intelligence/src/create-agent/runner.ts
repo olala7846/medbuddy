@@ -42,6 +42,7 @@ export type MedBuddyAgentTraceScope = Readonly<{
 export interface MedBuddyAgentTraceSession {
   readonly callbacks: Callbacks;
   flush(): Promise<void>;
+  abort(): void;
 }
 
 export interface MedBuddyAgentTraceRuntime {
@@ -110,7 +111,10 @@ async function flushTraceFailOpen(
   deadlineMs: number,
 ): Promise<void> {
   const remainingMs = deadlineMs - Date.now();
-  if (remainingMs <= 0) return;
+  if (remainingMs <= 0) {
+    session.abort();
+    return;
+  }
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
@@ -124,8 +128,10 @@ async function flushTraceFailOpen(
     ]);
   } catch {
     // Trace export is observational. It must not alter the model outcome.
+    session.abort();
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
+    session.abort();
   }
 }
 
