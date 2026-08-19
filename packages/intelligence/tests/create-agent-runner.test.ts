@@ -1,4 +1,4 @@
-import { AIMessage } from "@langchain/core/messages";
+import { AIMessage, ToolMessage } from "@langchain/core/messages";
 import { fakeModel } from "@langchain/core/testing";
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { AssembledContextSchema } from "@medbuddy/contracts";
@@ -79,6 +79,31 @@ describe("bounded MedBuddy createAgent runner", () => {
     expect(reads).toEqual(["read"]);
     expect(result).toEqual({ responseText: "Fictional tool-grounded answer.", toolCalls: 1, modelCalls: 2 });
     expect(model.callCount).toBe(2);
+  });
+
+  it("fails closed when a registered tool returns an error-status ToolMessage", async () => {
+    const model = fakeModel()
+      .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:error-status" }])
+      .respond(new AIMessage("This recovery answer must not publish."));
+    const readContext = tool(() => new ToolMessage({
+      content: "private registered tool error",
+      name: "read_fictional_context",
+      tool_call_id: "call:error-status",
+      status: "error",
+    }), {
+      name: "read_fictional_context",
+      description: "Read bounded fictional context.",
+      schema: z.object({}).strict(),
+    });
+
+    await expect(new LangChainMedBuddyAgentRunner(model).invoke(context(), [readContext]))
+      .rejects.toMatchObject({
+        name: "MedBuddyAgentRunError",
+        modelCalls: 1,
+        toolCalls: 1,
+      } satisfies Partial<MedBuddyAgentRunError>);
+    expect(model.callCount).toBe(1);
+    expect(JSON.stringify(model.calls)).not.toContain("private registered tool error");
   });
 
   it("enforces the total tool-call limit inside the framework loop", async () => {
