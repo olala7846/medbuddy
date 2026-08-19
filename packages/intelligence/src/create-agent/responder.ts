@@ -83,7 +83,13 @@ export class CreateAgentConversationResponder implements ConversationResponder {
         agentContext,
         session.tools,
         session.middleware,
-        { deadlineMs },
+        {
+          deadlineMs,
+          traceScope: {
+            workspaceId: request.data.context.workspaceId,
+            focalMessageBody: focalMessage.body,
+          },
+        },
       );
       this.telemetry?.write({
         event: "conversation_tool_loop_completed",

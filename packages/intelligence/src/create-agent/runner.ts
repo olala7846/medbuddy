@@ -1,4 +1,5 @@
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { Callbacks } from "@langchain/core/callbacks/manager";
 import { AIMessage, HumanMessage, ToolMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import {
@@ -31,6 +32,21 @@ export const MEDBUDDY_AGENT_DEFAULT_BUDGETS: MedBuddyAgentBudgets = Object.freez
 });
 
 export const MEDBUDDY_AGENT_REQUEST_MAX_UTF16 = 60_000;
+export const MEDBUDDY_AGENT_TRACE_FLUSH_TIMEOUT_MS = 2_000;
+
+export type MedBuddyAgentTraceScope = Readonly<{
+  workspaceId: string;
+  focalMessageBody: string;
+}>;
+
+export interface MedBuddyAgentTraceSession {
+  readonly callbacks: Callbacks;
+  flush(): Promise<void>;
+}
+
+export interface MedBuddyAgentTraceRuntime {
+  open(scope: MedBuddyAgentTraceScope): MedBuddyAgentTraceSession | null;
+}
 
 /** Sanitized invocation failure with content-free execution counters. */
 export class MedBuddyAgentRunError extends Error {
@@ -89,7 +105,31 @@ function requestBudgetMiddleware(requestMaxUtf16: number) {
   });
 }
 
-/** Invocation-local framework runner. It configures no checkpointer, Store, or callback. */
+async function flushTraceFailOpen(
+  session: MedBuddyAgentTraceSession,
+  deadlineMs: number,
+): Promise<void> {
+  const remainingMs = deadlineMs - Date.now();
+  if (remainingMs <= 0) return;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      session.flush(),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("MedBuddy trace flush deadline exhausted.")),
+          Math.min(MEDBUDDY_AGENT_TRACE_FLUSH_TIMEOUT_MS, remainingMs),
+        );
+      }),
+    ]);
+  } catch {
+    // Trace export is observational. It must not alter the model outcome.
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+/** Invocation-local framework runner. It configures no checkpointer or Store. */
 export class LangChainMedBuddyAgentRunner {
   private readonly budgets: MedBuddyAgentBudgets;
 
@@ -98,6 +138,7 @@ export class LangChainMedBuddyAgentRunner {
     budgets: MedBuddyAgentBudgets = MEDBUDDY_AGENT_DEFAULT_BUDGETS,
     private readonly requestMaxUtf16 = MEDBUDDY_AGENT_REQUEST_MAX_UTF16,
     environment: Record<string, string | undefined> = process.env,
+    private readonly tracing?: MedBuddyAgentTraceRuntime,
   ) {
     this.budgets = BudgetsSchema.parse(budgets);
     if (!Number.isInteger(requestMaxUtf16) || requestMaxUtf16 <= 0) {
@@ -115,7 +156,10 @@ export class LangChainMedBuddyAgentRunner {
     context: MedBuddyAgentContext,
     tools: readonly StructuredToolInterface[] = [],
     applicationMiddleware: readonly AnyAgentMiddleware[] = [],
-    options: { readonly deadlineMs?: number } = {},
+    options: {
+      readonly deadlineMs?: number;
+      readonly traceScope?: MedBuddyAgentTraceScope;
+    } = {},
   ): Promise<{
     responseText: string;
     toolCalls: number;
@@ -124,6 +168,14 @@ export class LangChainMedBuddyAgentRunner {
     let modelCalls = 0;
     let toolCalls = 0;
     const deadlineMs = options.deadlineMs ?? Date.now() + this.budgets.turnTimeoutMs;
+    let traceSession: MedBuddyAgentTraceSession | null = null;
+    if (options.traceScope !== undefined) {
+      try {
+        traceSession = this.tracing?.open(options.traceScope) ?? null;
+      } catch {
+        // Trace setup is observational and cannot fail the conversation turn.
+      }
+    }
     // The pinned middleware declarations carry an internal Zod-v3 generic that
     // TypeScript 6 cannot reconcile with createAgent's interop overload. Keep
     // the compatibility cast private and execute each middleware in tests.
@@ -197,6 +249,7 @@ export class LangChainMedBuddyAgentRunner {
         }, {
           signal: controller.signal,
           recursionLimit: (this.budgets.modelCalls + this.budgets.totalToolCalls + 1) * 10,
+          ...(traceSession === null ? {} : { callbacks: traceSession.callbacks }),
         }),
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
@@ -222,6 +275,7 @@ export class LangChainMedBuddyAgentRunner {
     } finally {
       if (timeout !== undefined) clearTimeout(timeout);
       controller.abort();
+      if (traceSession !== null) await flushTraceFailOpen(traceSession, deadlineMs);
     }
   }
 }

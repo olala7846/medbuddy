@@ -2,9 +2,7 @@ import { createAcceptedFormationEventProjector, ContinuityThreadConversationServ
 import { MEMORY_FORMATION_POLICIES } from "@medbuddy/contracts";
 import {
   CommittedSourceCardGrounding,
-  ConversationResponder,
-  VertexConversationProvider,
-  VertexRestClient,
+  createVertexCreateAgentResponder,
   loadVertexConfiguration,
 } from "@medbuddy/intelligence";
 import { createConversationPlatform, createContinuityDispatcher, createLineAttachmentPlatform, createMemoryFormationDispatchers } from "@medbuddy/platform";
@@ -12,8 +10,7 @@ import { createConversationPlatform, createContinuityDispatcher, createLineAttac
 import { DurableLineAttachmentCoordinator } from "../line/attachment.js";
 import { LineMessagingReplyClient } from "../line/reply-client.js";
 import { LineWebhookHandler, type LineWebhookLogger } from "../line/webhook.js";
-import { LineConfigurationError, loadContinuityConfiguration, loadLineConfiguration } from "./config.js";
-import { applyLangSmithVertexTracing } from "./vertex-tracing.js";
+import { LineConfigurationError, loadContinuityConfiguration, loadCreateAgentTracingConfiguration, loadLineConfiguration } from "./config.js";
 
 export function createLineWebhookComposition(
   environment: Record<string, string | undefined>,
@@ -21,6 +18,7 @@ export function createLineWebhookComposition(
 ): LineWebhookHandler {
   const line = loadLineConfiguration(environment);
   const continuityConfig = loadContinuityConfiguration(environment);
+  const agentTracing = loadCreateAgentTracingConfiguration(environment);
   const vertex = loadVertexConfiguration(environment);
   if (vertex === null) {
     throw new LineConfigurationError(["MEDBUDDY_VERTEX_ENABLED", "MEDBUDDY_VERTEX_PROJECT"]);
@@ -33,16 +31,14 @@ export function createLineWebhookComposition(
     line.projectId,
     createAcceptedFormationEventProjector(formationPolicy),
   );
-  const conversationClient = applyLangSmithVertexTracing(environment, {
-    client: new VertexRestClient(vertex),
-    boundary: "conversation",
-    modelId: vertex.model,
-  });
-  const responder = new ConversationResponder(
+  const responder = createVertexCreateAgentResponder(
+    vertex,
     new CommittedSourceCardGrounding([]),
-    new VertexConversationProvider(conversationClient),
-    25_000,
-    options.logger,
+    {
+      telemetry: options.logger,
+      environment,
+      ...(agentTracing === null ? {} : { tracing: agentTracing }),
+    },
   );
   const continuityTask = createContinuityDispatcher({
     projectId: continuityConfig.projectId,

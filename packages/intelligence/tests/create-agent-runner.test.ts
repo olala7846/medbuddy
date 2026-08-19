@@ -1,4 +1,5 @@
 import { AIMessage, ToolMessage } from "@langchain/core/messages";
+import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { fakeModel } from "@langchain/core/testing";
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { AssembledContextSchema } from "@medbuddy/contracts";
@@ -11,6 +12,7 @@ import {
   MEDBUDDY_AGENT_DEFAULT_BUDGETS,
   LangChainMedBuddyAgentRunner,
   MedBuddyAgentRunError,
+  type MedBuddyAgentTraceRuntime,
 } from "../src/create-agent/runner.js";
 
 function context(body = "Current fictional question.") {
@@ -80,6 +82,97 @@ describe("bounded MedBuddy createAgent runner", () => {
     expect(result).toEqual({ responseText: "Fictional tool-grounded answer.", toolCalls: 1, modelCalls: 2 });
     expect(model.callCount).toBe(2);
   });
+
+  it("applies selective callbacks to the complete model and tool run tree", async () => {
+    const events: string[] = [];
+    class RecordingHandler extends BaseCallbackHandler {
+      name = "fictional-recording-handler";
+      handleChainStart() { events.push("chain:start"); }
+      handleLLMStart() { events.push("model:start"); }
+      handleToolStart() { events.push("tool:start"); }
+    }
+    const tracing: MedBuddyAgentTraceRuntime = {
+      open: () => ({ callbacks: [new RecordingHandler()], async flush() { events.push("flush"); } }),
+    };
+    const model = fakeModel()
+      .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:traced" }])
+      .respond(new AIMessage("Fictional traced answer."));
+    const readContext = tool(() => "Fictional tool result.", {
+      name: "read_fictional_context",
+      description: "Read fictional context.",
+      schema: z.object({}).strict(),
+    });
+    const runner = new LangChainMedBuddyAgentRunner(
+      model,
+      MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+      60_000,
+      {},
+      tracing,
+    );
+
+    await expect(runner.invoke(context(), [readContext], [], {
+      traceScope: {
+        workspaceId: "workspace:fictional-tracing",
+        focalMessageBody: "[fictional-langsmith:review]\nA fictional question.",
+      },
+    })).resolves.toMatchObject({ responseText: "Fictional traced answer.", toolCalls: 1 });
+    expect(events).toEqual(expect.arrayContaining(["chain:start", "model:start", "tool:start", "flush"]));
+  });
+
+  it("preserves a successful response when trace flush fails", async () => {
+    const tracing: MedBuddyAgentTraceRuntime = {
+      open: () => ({ callbacks: [], async flush() { throw new Error("private trace failure"); } }),
+    };
+    const model = fakeModel().respond(new AIMessage("Unchanged fictional answer."));
+    const runner = new LangChainMedBuddyAgentRunner(
+      model,
+      MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+      60_000,
+      {},
+      tracing,
+    );
+
+    await expect(runner.invoke(context(), [], [], {
+      traceScope: {
+        workspaceId: "workspace:fictional-tracing",
+        focalMessageBody: "[fictional-langsmith:review]\nA fictional question.",
+      },
+    })).resolves.toEqual({
+      responseText: "Unchanged fictional answer.",
+      toolCalls: 0,
+      modelCalls: 1,
+    });
+  });
+
+  it.each(["open", "callback"] as const)(
+    "preserves a successful response when trace %s fails",
+    async (failure) => {
+      class ThrowingHandler extends BaseCallbackHandler {
+        name = "fictional-throwing-handler";
+        raiseError = false;
+        handleLLMStart() { throw new Error("private callback failure"); }
+      }
+      const tracing: MedBuddyAgentTraceRuntime = failure === "open"
+        ? { open() { throw new Error("private trace setup failure"); } }
+        : { open: () => ({ callbacks: [new ThrowingHandler()], async flush() {} }) };
+      const model = fakeModel().respond(new AIMessage("Unchanged fictional answer."));
+      const runner = new LangChainMedBuddyAgentRunner(
+        model,
+        MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+        60_000,
+        {},
+        tracing,
+      );
+
+      await expect(runner.invoke(context(), [], [], {
+        traceScope: {
+          workspaceId: "workspace:fictional-tracing",
+          focalMessageBody: "[fictional-langsmith:review]\nA fictional question.",
+        },
+      })).resolves.toMatchObject({ responseText: "Unchanged fictional answer." });
+      expect(model.callCount).toBe(1);
+    },
+  );
 
   it("fails closed when a registered tool returns an error-status ToolMessage", async () => {
     const model = fakeModel()
