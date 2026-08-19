@@ -98,6 +98,81 @@ describe("bounded MedBuddy createAgent runner", () => {
     expect(model.callCount).toBe(2);
   });
 
+  it("enforces the model-call limit inside the framework loop", async () => {
+    const model = fakeModel()
+      .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:one" }])
+      .respond(new AIMessage("This second model call must not complete."));
+    const readContext = tool(() => "Bounded fictional context.", {
+      name: "read_fictional_context",
+      description: "Read bounded fictional context.",
+      schema: z.object({}).strict(),
+    });
+    const runner = new LangChainMedBuddyAgentRunner(model, {
+      ...MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+      modelCalls: 1,
+    });
+
+    await expect(runner.invoke(context(), [readContext])).rejects.toThrow();
+    expect(model.callCount).toBe(1);
+  });
+
+  it("enforces a per-tool limit before the total tool budget is exhausted", async () => {
+    const model = fakeModel()
+      .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:one" }])
+      .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:two" }]);
+    const readContext = tool(() => "Bounded fictional context.", {
+      name: "read_fictional_context",
+      description: "Read bounded fictional context.",
+      schema: z.object({}).strict(),
+    });
+    const runner = new LangChainMedBuddyAgentRunner(model, {
+      ...MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+      totalToolCalls: 4,
+      perToolCalls: 1,
+    });
+
+    await expect(runner.invoke(context(), [readContext])).rejects.toThrow();
+    expect(model.callCount).toBe(2);
+  });
+
+  it("checks the request ceiling again after tool results grow the transcript", async () => {
+    const model = fakeModel()
+      .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:large" }])
+      .respond(new AIMessage("This second model request must not run."));
+    const readContext = tool(() => "x".repeat(10_000), {
+      name: "read_fictional_context",
+      description: "Read bounded fictional context.",
+      schema: z.object({}).strict(),
+    });
+    const initial = context();
+    const runner = new LangChainMedBuddyAgentRunner(
+      model,
+      MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+      initial.renderedCharacterCount + 1_000,
+    );
+
+    await expect(runner.invoke(initial, [readContext])).rejects.toThrow("request budget");
+    expect(model.callCount).toBe(1);
+  });
+
+  it.each([
+    "LANGSMITH_TRACING",
+    "LANGSMITH_TRACING_V2",
+    "LANGCHAIN_TRACING",
+    "LANGCHAIN_TRACING_V2",
+    "LANGCHAIN_VERBOSE",
+  ])("rejects automatic framework tracing or verbosity from %s", (key) => {
+    const model = fakeModel().respond(new AIMessage("This must not run."));
+
+    expect(() => new LangChainMedBuddyAgentRunner(
+      model,
+      MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+      60_000,
+      { [key]: "true" },
+    )).toThrow("automatic tracing");
+    expect(model.callCount).toBe(0);
+  });
+
   it("fails before model access when the complete rendered request exceeds its bound", async () => {
     const model = fakeModel().respond(new AIMessage("This must not run."));
     const runner = new LangChainMedBuddyAgentRunner(model, MEDBUDDY_AGENT_DEFAULT_BUDGETS, 10);
