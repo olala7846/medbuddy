@@ -10,6 +10,7 @@ import { createMedBuddyAgentContext } from "../src/create-agent/context.js";
 import {
   MEDBUDDY_AGENT_DEFAULT_BUDGETS,
   LangChainMedBuddyAgentRunner,
+  MedBuddyAgentRunError,
 } from "../src/create-agent/runner.js";
 
 function context(body = "Current fictional question.") {
@@ -151,7 +152,11 @@ describe("bounded MedBuddy createAgent runner", () => {
       initial.renderedCharacterCount + 1_000,
     );
 
-    await expect(runner.invoke(initial, [readContext])).rejects.toThrow("request budget");
+    await expect(runner.invoke(initial, [readContext])).rejects.toMatchObject({
+      name: "MedBuddyAgentRunError",
+      modelCalls: 2,
+      toolCalls: 1,
+    } satisfies Partial<MedBuddyAgentRunError>);
     expect(model.callCount).toBe(1);
   });
 
@@ -177,7 +182,11 @@ describe("bounded MedBuddy createAgent runner", () => {
     const model = fakeModel().respond(new AIMessage("This must not run."));
     const runner = new LangChainMedBuddyAgentRunner(model, MEDBUDDY_AGENT_DEFAULT_BUDGETS, 10);
 
-    await expect(runner.invoke(context())).rejects.toThrow("request budget");
+    await expect(runner.invoke(context())).rejects.toMatchObject({
+      name: "MedBuddyAgentRunError",
+      modelCalls: 0,
+      toolCalls: 0,
+    } satisfies Partial<MedBuddyAgentRunError>);
     expect(model.callCount).toBe(0);
   });
 
@@ -188,14 +197,16 @@ describe("bounded MedBuddy createAgent runner", () => {
       turnTimeoutMs: 5,
     });
 
-    await expect(runner.invoke(context())).rejects.toThrow("deadline");
+    await expect(runner.invoke(context())).rejects.toBeInstanceOf(MedBuddyAgentRunError);
   });
 
   it("rejects an empty terminal model message", async () => {
     const model = fakeModel().respond(new AIMessage(""));
 
-    await expect(new LangChainMedBuddyAgentRunner(model).invoke(context())).rejects.toThrow(
-      "terminal output",
-    );
+    await expect(new LangChainMedBuddyAgentRunner(model).invoke(context())).rejects.toMatchObject({
+      name: "MedBuddyAgentRunError",
+      modelCalls: 1,
+      toolCalls: 0,
+    } satisfies Partial<MedBuddyAgentRunError>);
   });
 });

@@ -32,6 +32,17 @@ export const MEDBUDDY_AGENT_DEFAULT_BUDGETS: MedBuddyAgentBudgets = Object.freez
 
 export const MEDBUDDY_AGENT_REQUEST_MAX_UTF16 = 60_000;
 
+/** Sanitized invocation failure with content-free execution counters. */
+export class MedBuddyAgentRunError extends Error {
+  constructor(
+    readonly modelCalls: number,
+    readonly toolCalls: number,
+  ) {
+    super("MedBuddy agent invocation failed.");
+    this.name = "MedBuddyAgentRunError";
+  }
+}
+
 const BudgetsSchema = z.object({
   modelCalls: z.number().int().positive().max(20),
   totalToolCalls: z.number().int().positive().max(20),
@@ -104,18 +115,18 @@ export class LangChainMedBuddyAgentRunner {
     context: MedBuddyAgentContext,
     tools: readonly StructuredToolInterface[] = [],
     applicationMiddleware: readonly AnyAgentMiddleware[] = [],
+    options: { readonly deadlineMs?: number } = {},
   ): Promise<{
     responseText: string;
     toolCalls: number;
     modelCalls: number;
   }> {
-    if (context.renderedCharacterCount > this.requestMaxUtf16) {
-      throw new Error("MedBuddy agent request budget exhausted.");
-    }
+    let modelCalls = 0;
+    let toolCalls = 0;
+    const deadlineMs = options.deadlineMs ?? Date.now() + this.budgets.turnTimeoutMs;
     // The pinned middleware declarations carry an internal Zod-v3 generic that
     // TypeScript 6 cannot reconcile with createAgent's interop overload. Keep
     // the compatibility cast private and execute each middleware in tests.
-    let modelCalls = 0;
     const middleware = [
       modelCallLimitMiddleware({
         runLimit: this.budgets.modelCalls,
@@ -137,6 +148,19 @@ export class LangChainMedBuddyAgentRunner {
           return handler(request);
         },
       }),
+      createMiddleware({
+        name: "MedBuddyFailClosedToolAccounting",
+        wrapToolCall: async (request, handler) => {
+          toolCalls += 1;
+          try {
+            return await handler(request);
+          } catch {
+            // Do not let LangChain turn tool validation or execution details
+            // into model-visible ToolMessages that invite self-correction.
+            throw new Error("MedBuddy application tool failed closed.");
+          }
+        },
+      }),
       ...applicationMiddleware,
       requestBudgetMiddleware(this.requestMaxUtf16),
     ] as unknown as AnyAgentMiddleware[];
@@ -149,6 +173,10 @@ export class LangChainMedBuddyAgentRunner {
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
+      if (
+        context.renderedCharacterCount > this.requestMaxUtf16
+        || deadlineMs <= Date.now()
+      ) throw new Error("MedBuddy agent invocation cannot start.");
       const result = await Promise.race([
         agent.invoke({
           messages: [
@@ -167,7 +195,7 @@ export class LangChainMedBuddyAgentRunner {
             const error = new Error("MedBuddy agent turn deadline exhausted.");
             controller.abort(error);
             reject(error);
-          }, this.budgets.turnTimeoutMs);
+          }, Math.max(0, deadlineMs - Date.now()));
         }),
       ]);
       const terminal = result.messages.at(-1);
@@ -176,11 +204,13 @@ export class LangChainMedBuddyAgentRunner {
       }
       const responseText = TerminalTextSchema.safeParse(terminal.text);
       if (!responseText.success) throw new Error("Malformed MedBuddy agent terminal output.");
-      const toolCalls = result.messages.filter((message) => message instanceof ToolMessage).length;
-      if (toolCalls > this.budgets.totalToolCalls) {
+      const completedToolCalls = result.messages.filter((message) => message instanceof ToolMessage).length;
+      if (toolCalls !== completedToolCalls || toolCalls > this.budgets.totalToolCalls) {
         throw new Error("MedBuddy agent tool budget exhausted.");
       }
       return { responseText: responseText.data, toolCalls, modelCalls };
+    } catch {
+      throw new MedBuddyAgentRunError(modelCalls, toolCalls);
     } finally {
       if (timeout !== undefined) clearTimeout(timeout);
       controller.abort();

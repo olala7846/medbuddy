@@ -1,5 +1,6 @@
 import { AIMessage } from "@langchain/core/messages";
 import { fakeModel } from "@langchain/core/testing";
+import { FakeListChatModel } from "@langchain/core/utils/testing";
 import {
   AssembledContextSchema,
   ConversationTurnRequestSchema,
@@ -159,9 +160,12 @@ describe("createAgent conversation responder", () => {
     const model = fakeModel()
       .respondWithTools([{ name: "query_memory", args: { query: "preferences" }, id: "call:fresh" }])
       .respond(new AIMessage("A normal answer to the focal request."));
+    const telemetry: Array<{ event: string; outcome?: string }> = [];
     const responder = new CreateAgentConversationResponder(
       createFixtureMedicationGrounding(),
       new LangChainMedBuddyAgentRunner(model),
+      25_000,
+      { write: (entry) => telemetry.push(entry) },
     );
 
     await expect(responder.respond(request("What preferences have we recorded?"), {
@@ -178,6 +182,10 @@ describe("createAgent conversation responder", () => {
       toolCalls: 1,
     });
     expect(JSON.stringify(model.calls[1]?.messages)).not.toContain("Must not enter the fresh transcript.");
+    expect(telemetry).toContainEqual(expect.objectContaining({
+      event: "conversation_tool_loop_completed",
+      outcome: "SUCCEEDED",
+    }));
   });
 
   it("fences untrusted evidence and closes tools for the response step", async () => {
@@ -308,5 +316,72 @@ describe("createAgent conversation responder", () => {
     });
     expect(JSON.stringify(model.calls[1]?.messages)).toContain("general source-card information");
     expect(JSON.stringify(model.calls[1]?.messages)).toContain("Source:");
+  });
+
+  it("fails closed without a second model call when an application tool throws", async () => {
+    const model = fakeModel()
+      .respondWithTools([{ name: "query_memory", args: { query: "preferences" }, id: "call:throw" }])
+      .respond(new AIMessage("This recovery answer must not publish."));
+    const telemetry: Array<{ event: string; toolAttemptCount: number; modelStepCount: number }> = [];
+    const responder = new CreateAgentConversationResponder(
+      createFixtureMedicationGrounding(),
+      new LangChainMedBuddyAgentRunner(model),
+      25_000,
+      { write: (entry) => telemetry.push(entry) },
+    );
+
+    await expect(responder.respond(request("What preferences have we recorded?"), {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).strict(),
+        outputSchema: permissiveJsonObjectSchema,
+        classifyResult: () => ({ kind: "CONTINUE" as const }),
+        execute: async () => { throw new Error("private tool failure detail"); },
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+    expect(model.callCount).toBe(1);
+    expect(JSON.stringify(model.calls)).not.toContain("private tool failure detail");
+    expect(telemetry).toContainEqual(expect.objectContaining({
+      event: "conversation_tool_loop_exhausted",
+      toolAttemptCount: 1,
+      modelStepCount: 1,
+    }));
+  });
+
+  it("fails closed when the model supplies malformed application tool input", async () => {
+    const model = fakeModel()
+      .respondWithTools([{ name: "query_memory", args: { query: 42 }, id: "call:malformed" }])
+      .respond(new AIMessage("This recovery answer must not publish."));
+    const responder = new CreateAgentConversationResponder(
+      createFixtureMedicationGrounding(),
+      new LangChainMedBuddyAgentRunner(model),
+    );
+
+    await expect(responder.respond(request("What preferences have we recorded?"), {
+      modelTools: [{
+        declaration: queryDeclaration,
+        inputSchema: z.object({ query: z.string() }).strict(),
+        outputSchema: permissiveJsonObjectSchema,
+        classifyResult: () => ({ kind: "CONTINUE" as const }),
+        execute: async () => ({}),
+      }],
+    })).resolves.toEqual({ kind: "TECHNICAL_FAILURE", retryable: true, toolCalls: 1 });
+    expect(model.callCount).toBe(1);
+  });
+
+  it("shares one responder deadline with a hanging initial model call", async () => {
+    const model = new FakeListChatModel({ responses: ["Late answer."], sleep: 100 });
+    const responder = new CreateAgentConversationResponder(
+      createFixtureMedicationGrounding(),
+      new LangChainMedBuddyAgentRunner(model),
+      5,
+    );
+
+    const startedAt = Date.now();
+    await expect(responder.respond(request("A fictional question."))).resolves.toEqual({
+      kind: "TECHNICAL_FAILURE",
+      retryable: true,
+    });
+    expect(Date.now() - startedAt).toBeLessThan(80);
   });
 });

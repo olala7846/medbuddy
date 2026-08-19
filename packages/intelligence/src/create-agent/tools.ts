@@ -88,6 +88,7 @@ export class MedBuddyAgentToolSession {
   private readonly completedTools = new Set<string>();
   private mode: SessionMode = "NORMAL";
   private terminalResponse: string | null = null;
+  private outcome: "SUCCEEDED" | "FAILED" | undefined;
   private familyMapCalls = 0;
   private toolAttempts = 0;
   private modelSteps = 0;
@@ -161,6 +162,7 @@ export class MedBuddyAgentToolSession {
         } else if (disposition.data.kind === "CONTINUE_FRESH") {
           this.assertRequiredToolsCompleted();
           this.mode = "FRESH_RESPONSE";
+          this.outcome = disposition.data.outcome;
         } else if (disposition.data.kind === "CONTINUE_UNTRUSTED_EVIDENCE") {
           this.assertRequiredToolsCompleted();
           this.mode = "UNTRUSTED_EVIDENCE_RESPONSE";
@@ -270,5 +272,9 @@ export class MedBuddyAgentToolSession {
     if ([...this.requiredTools].some((name) => !this.completedTools.has(name))) {
       throw new Error("MedBuddy required tool did not complete.");
     }
+  }
+
+  get responseOutcome(): "SUCCEEDED" | "FAILED" | undefined {
+    return this.outcome;
   }
 }

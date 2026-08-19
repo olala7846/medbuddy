@@ -16,7 +16,7 @@ import {
 } from "../conversation/responder.js";
 import { routeDiagnosisOrPrescribingRequest, routeMedicationDecision } from "../safety/route.js";
 import { createMedBuddyAgentContext } from "./context.js";
-import { LangChainMedBuddyAgentRunner } from "./runner.js";
+import { LangChainMedBuddyAgentRunner, MedBuddyAgentRunError } from "./runner.js";
 import { MedBuddyAgentToolSession } from "./tools.js";
 
 /** Application-owned responder that exposes one bounded createAgent turn. */
@@ -67,19 +67,27 @@ export class CreateAgentConversationResponder implements ConversationResponder {
       focalMessageBody: focalMessage.body,
     });
     const startedAt = Date.now();
+    const deadlineMs = startedAt + this.turnTimeoutMs;
+    let session: MedBuddyAgentToolSession | undefined;
     try {
-      const session = new MedBuddyAgentToolSession({
+      session = new MedBuddyAgentToolSession({
         grounding: this.grounding,
         focalMessage,
         context: request.data.context,
         ...(tools === undefined ? {} : { turnTools: tools }),
-        deadlineMs: startedAt + this.turnTimeoutMs,
+        deadlineMs,
         baseMessageCount: 1 + agentContext.recentMessages.length + 1,
         ...(this.telemetry === undefined ? {} : { telemetry: this.telemetry }),
       });
-      const result = await this.runner.invoke(agentContext, session.tools, session.middleware);
+      const result = await this.runner.invoke(
+        agentContext,
+        session.tools,
+        session.middleware,
+        { deadlineMs },
+      );
       this.telemetry?.write({
         event: "conversation_tool_loop_completed",
+        ...(session.responseOutcome === undefined ? {} : { outcome: session.responseOutcome }),
         toolAttemptCount: result.toolCalls,
         modelStepCount: result.modelCalls,
       });
@@ -89,13 +97,21 @@ export class CreateAgentConversationResponder implements ConversationResponder {
         retryable: false,
         toolCalls: result.toolCalls,
       };
-    } catch {
+    } catch (error) {
+      const execution = error instanceof MedBuddyAgentRunError
+        ? error
+        : { toolCalls: 0, modelCalls: 0 };
       this.telemetry?.write({
         event: "conversation_tool_loop_exhausted",
-        toolAttemptCount: 0,
-        modelStepCount: 0,
+        ...(session?.responseOutcome === undefined ? {} : { outcome: session.responseOutcome }),
+        toolAttemptCount: execution.toolCalls,
+        modelStepCount: execution.modelCalls,
       });
-      return { kind: "TECHNICAL_FAILURE", retryable: true };
+      return {
+        kind: "TECHNICAL_FAILURE",
+        retryable: true,
+        ...(execution.toolCalls === 0 ? {} : { toolCalls: execution.toolCalls }),
+      };
     }
   }
 }
