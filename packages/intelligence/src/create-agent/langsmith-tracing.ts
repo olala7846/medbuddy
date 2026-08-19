@@ -90,14 +90,20 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
     ) return null;
 
     let transportFailed = false;
-    let networkAttempted = false;
+    const attemptedOperations = new Set<"INFO" | "INGEST">();
     const transportController = new AbortController();
     const sessionRequest: typeof fetch = (input, init) => {
-      if (networkAttempted) {
+      const url = String(input);
+      const operation = url.endsWith("/info")
+        ? "INFO" as const
+        : url.includes("/runs/multipart") || url.includes("/runs/batch")
+          ? "INGEST" as const
+          : null;
+      if (operation === null || attemptedOperations.has(operation)) {
         transportFailed = true;
-        throw new Error("AbortError: MedBuddy trace session permits one network attempt.");
+        throw new Error("AbortError: MedBuddy trace session rejected a transport retry.");
       }
-      networkAttempted = true;
+      attemptedOperations.add(operation);
       const signal = init?.signal == null
         ? transportController.signal
         : AbortSignal.any([init.signal, transportController.signal]);

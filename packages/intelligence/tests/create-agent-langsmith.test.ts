@@ -114,8 +114,10 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
     let activeRequests = 0;
     let requestCount = 0;
     let abortedRequests = 0;
-    const hangingFetch: typeof fetch = async (_input, init) => {
+    const requestedUrls: string[] = [];
+    const hangingFetch: typeof fetch = async (input, init) => {
       requestCount += 1;
+      requestedUrls.push(String(input));
       activeRequests += 1;
       return new Promise<Response>((_resolve, reject) => {
         const abort = () => {
@@ -156,12 +158,65 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
       modelCalls: 2,
     });
     expect(requestCount).toBeGreaterThan(0);
+    expect(requestedUrls).toEqual(["https://api.smith.langchain.com/info"]);
     expect(abortedRequests).toBe(requestCount);
     expect(activeRequests).toBe(0);
     expect(Date.now() - startedAt).toBeLessThan(150);
     const requestsAtReturn = requestCount;
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(requestCount).toBe(requestsAtReturn);
+  });
+
+  it("exports one real model and tool run tree after one discovery request", async () => {
+    const requestedUrls: string[] = [];
+    let ingestBody = "";
+    const successfulFetch: typeof fetch = async (input, init) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.endsWith("/info")) {
+        return new Response(JSON.stringify({
+          batch_ingest_config: {
+            use_multipart_endpoint: true,
+            size_limit_bytes: 5_000_000,
+            size_limit: 100,
+          },
+          instance_flags: { gzip_body_enabled: false },
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url.endsWith("/runs/multipart")) {
+        ingestBody = await new Response(init?.body as BodyInit | null).text();
+        return new Response(null, { status: 202 });
+      }
+      return new Response(null, { status: 404 });
+    };
+    const marker = createMedBuddyAgentFictionalTraceMarker(configuration.verificationId);
+    const body = `${marker}\nA fictional traced tool question.`;
+    const model = fakeModel()
+      .respondWithTools([{ name: "read_fictional_context", args: {}, id: "call:exported-trace" }])
+      .respond(new AIMessage("Fictional exported answer."));
+    const readContext = tool(() => "Fictional bounded context.", {
+      name: "read_fictional_context",
+      description: "Read fictional bounded context.",
+      schema: z.object({}).strict(),
+    });
+    const tracing = new LangSmithMedBuddyAgentTraceRuntime(configuration, {}, successfulFetch);
+    const runner = new LangChainMedBuddyAgentRunner(
+      model,
+      MEDBUDDY_AGENT_DEFAULT_BUDGETS,
+      60_000,
+      {},
+      tracing,
+    );
+
+    await expect(runner.invoke(context(body), [readContext], [], {
+      traceScope: { workspaceId: configuration.allowedAppWorkspaceId, focalMessageBody: body },
+    })).resolves.toMatchObject({ responseText: "Fictional exported answer.", toolCalls: 1 });
+    expect(requestedUrls).toEqual([
+      "https://api.smith.langchain.com/info",
+      "https://api.smith.langchain.com/runs/multipart",
+    ]);
+    expect(ingestBody).toContain("read_fictional_context");
+    expect(ingestBody).toContain("Fictional exported answer.");
   });
 
   it("builds a stable marker from a validated verification identifier", () => {
