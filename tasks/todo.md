@@ -23,9 +23,9 @@
 
 ## Final review and landing
 
-- [ ] Fresh-context architecture and external-behavior review is clean.
-- [ ] Separate risk-register audit is clean.
-- [ ] All review findings are fixed and affected checks pass.
+- [x] Fresh-context architecture and external-behavior review is clean.
+- [x] Separate risk-register audit is clean.
+- [x] All review findings are fixed and affected checks pass.
 - [ ] Separate final verification proves every specification requirement.
 - [ ] `npm run check` passes.
 - [ ] `npm test` passes.
