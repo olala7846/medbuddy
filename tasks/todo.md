@@ -16,8 +16,8 @@
 - [x] Independent Piece 2 review completed and all findings resolved.
 - [x] Piece 3: Family-map, memory, medication-grounding, and safety parity.
 - [x] Independent Piece 3 review completed and all findings resolved.
-- [ ] Piece 4: Production replacement and isolated fictional LangSmith tracing.
-- [ ] Independent Piece 4 review completed and all findings resolved.
+- [x] Piece 4: Production replacement and isolated fictional LangSmith tracing.
+- [x] Independent Piece 4 review completed and all findings resolved.
 - [ ] Piece 5: Superseded orchestration removed and documentation updated.
 - [ ] Independent Piece 5 review completed and all findings resolved.
 
