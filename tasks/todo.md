@@ -12,7 +12,7 @@
 
 - [x] Piece 1: Role-preserving context and trusted/untrusted prompt boundary.
 - [x] Independent Piece 1 review completed and all findings resolved.
-- [ ] Piece 2: Bounded `createAgent()` framework and Vertex model foundation.
+- [x] Piece 2: Bounded `createAgent()` framework and Vertex model foundation.
 - [ ] Independent Piece 2 review completed and all findings resolved.
 - [ ] Piece 3: Family-map, memory, medication-grounding, and safety parity.
 - [ ] Independent Piece 3 review completed and all findings resolved.
