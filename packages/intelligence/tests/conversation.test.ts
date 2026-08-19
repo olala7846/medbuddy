@@ -8,14 +8,16 @@ import {
 } from "@medbuddy/contracts";
 
 import {
+  createFixtureMedicationGrounding,
+} from "../src/index.js";
+import {
   AMBIGUOUS_RELATIONSHIP_CLARIFICATION_TEXT,
   ConversationProviderError,
   ConversationResponder,
   FAMILY_MAP_UPDATE_FAILURE_TEXT,
   FixedConversationProvider,
-  createFixtureMedicationGrounding,
   focalAuthorizesFamilyMapUpdate,
-} from "../src/index.js";
+} from "../src/legacy-testing.js";
 
 const focalMessage = MessageSchema.parse({
   id: "message:fictional-conversation",

@@ -32,12 +32,22 @@ export * from "./capture/fixed.js";
 export * from "./capture/processor.js";
 export * from "./capture/readable-label.js";
 export * from "./capture/validate.js";
-export * from "./conversation/responder.js";
 export * from "./conversation/compaction.js";
 export * from "./conversation/passive-memory.js";
 export * from "./conversation/tools.js";
 export * from "./create-agent/context.js";
 export * from "./create-agent/composition.js";
 export * from "./adapters/fixed-model.js";
-export * from "./adapters/vertex.js";
+export {
+  buildVertexGenerateContentBody,
+  loadVertexConfiguration,
+  VertexReadableLabelExtractor,
+  VertexRestClient,
+  VertexTextCaptureExtractor,
+  type VertexConfiguration,
+  type VertexGenerationRequest,
+  type VertexImageContentLoader,
+  type VertexInvocationContext,
+  type VertexModelClient,
+} from "./adapters/vertex.js";
 export * from "./adapters/langsmith-vertex.js";

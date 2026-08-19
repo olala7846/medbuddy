@@ -3,9 +3,11 @@ import type { ContinuityConversation, ConversationResponder } from "@medbuddy/co
 import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
 import {
   CommittedSourceCardGrounding,
+} from "@medbuddy/intelligence";
+import {
   ConversationResponder as IntelligenceConversationResponder,
   FixedConversationProvider,
-} from "@medbuddy/intelligence";
+} from "@medbuddy/intelligence/legacy-testing";
 import { describe, expect, it } from "vitest";
 
 import {

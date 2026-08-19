@@ -9,11 +9,10 @@ import {
   COMPACTION_MODEL_ID,
   CommittedSourceCardGrounding,
   CompactionSummaryGenerator,
-  ConversationResponder,
-  VertexConversationProvider,
   VertexRestClient,
   loadVertexConfiguration,
 } from "@medbuddy/intelligence";
+import { ConversationResponder, VertexConversationProvider } from "@medbuddy/intelligence/legacy-testing";
 import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
 
 import { runSyntheticContinuityVerification } from "./support/continuity-verification-harness.js";

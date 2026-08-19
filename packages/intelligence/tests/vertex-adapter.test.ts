@@ -5,10 +5,6 @@ import { AttachmentSchema, ConversationRequestSchema, MessageSchema } from "@med
 import {
   CommittedSourceCardGrounding,
   buildVertexGenerateContentBody,
-  CONVERSATION_MAX_OUTPUT_TOKENS,
-  CONVERSATION_PROVIDER_REQUEST_MAX_UTF16,
-  ConversationResponder,
-  VertexConversationProvider,
   type VertexGenerationRequest,
   type VertexInvocationContext,
   VertexRestClient,
@@ -17,6 +13,12 @@ import {
   VertexTextCaptureExtractor,
   loadVertexConfiguration,
 } from "../src/index.js";
+import {
+  CONVERSATION_MAX_OUTPUT_TOKENS,
+  CONVERSATION_PROVIDER_REQUEST_MAX_UTF16,
+  ConversationResponder,
+  VertexConversationProvider,
+} from "../src/legacy-testing.js";
 
 const client: VertexModelClient = {
   async generate() {

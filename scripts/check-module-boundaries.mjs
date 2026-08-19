@@ -195,6 +195,22 @@ function validateWorkspaceImport({
 }) {
   const violations = [];
 
+  const relativeSourcePath = toPosix(path.relative(sourceModule?.root ?? rootDir, filePath));
+  if (
+    location.specifier === "@medbuddy/intelligence/legacy-testing"
+    && !relativeSourcePath.startsWith("tests/")
+  ) {
+    violations.push(
+      violation(
+        rootDir,
+        filePath,
+        location,
+        "test-only-entry-point",
+        'Import "@medbuddy/intelligence/legacy-testing" only from a module tests/ directory.',
+      ),
+    );
+  }
+
   if (!isExportedSpecifier(targetModule, location.specifier)) {
     violations.push(
       violation(
@@ -208,7 +224,6 @@ function validateWorkspaceImport({
     return violations;
   }
 
-  const relativeSourcePath = toPosix(path.relative(sourceModule?.root ?? rootDir, filePath));
   if (relativeSourcePath.startsWith("tests/")) return violations;
 
   if (sourceModule?.kind === "package") {

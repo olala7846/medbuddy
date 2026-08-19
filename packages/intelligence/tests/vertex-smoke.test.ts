@@ -5,14 +5,16 @@ import { AttachmentSchema, MemberIdSchema, MessageSchema, WorkspaceIdSchema, typ
 
 import {
   CompactionSummaryGenerator,
-  ConversationResponder,
-  FAMILY_MAP_UPDATE_FAILURE_TEXT,
-  VertexConversationProvider,
   VertexReadableLabelExtractor,
   VertexRestClient,
   VertexTextCaptureExtractor,
   loadVertexConfiguration,
 } from "../src/index.js";
+import {
+  ConversationResponder,
+  FAMILY_MAP_UPDATE_FAILURE_TEXT,
+  VertexConversationProvider,
+} from "../src/legacy-testing.js";
 
 const runSmoke = process.env.MEDBUDDY_RUN_VERTEX_SMOKE === "true";
 const configuration = runSmoke ? loadVertexConfiguration() : null;

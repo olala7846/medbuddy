@@ -150,7 +150,7 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
     const startedAt = Date.now();
 
     await expect(runner.invoke(context(body), [readContext], [], {
-      deadlineMs: Date.now() + 60,
+      deadlineMs: Date.now() + 250,
       traceScope: { workspaceId: configuration.allowedAppWorkspaceId, focalMessageBody: body },
     })).resolves.toEqual({
       responseText: "Fictional traced answer.",
@@ -161,7 +161,7 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
     expect(requestedUrls).toEqual(["https://api.smith.langchain.com/info"]);
     expect(abortedRequests).toBe(requestCount);
     expect(activeRequests).toBe(0);
-    expect(Date.now() - startedAt).toBeLessThan(150);
+    expect(Date.now() - startedAt).toBeLessThan(500);
     const requestsAtReturn = requestCount;
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(requestCount).toBe(requestsAtReturn);

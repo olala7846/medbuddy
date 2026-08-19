@@ -17,11 +17,10 @@ import {
   type WorkspaceFamilyMapRepository,
 } from "@medbuddy/contracts";
 import {
-  ConversationResponder,
-  FixedConversationProvider,
   MEDICATION_DECISION_REFUSAL_TEXT,
   createFixtureMedicationGrounding,
 } from "@medbuddy/intelligence";
+import { ConversationResponder, FixedConversationProvider } from "@medbuddy/intelligence/legacy-testing";
 import { PassiveMemoryEvidenceReaderAdapter } from "@medbuddy/platform";
 
 import { PassiveMemoryWorker } from "../../src/composition/passive-memory.js";

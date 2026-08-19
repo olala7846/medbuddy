@@ -1,15 +1,21 @@
 # `@medbuddy/intelligence`
 
-Probabilistic and bounded-model surfaces: bounded model/tool/model conversation loop, Vertex family-map and dynamic-memory function transport, capture processing, safety routing, and committed medication grounding.
+Probabilistic and bounded-model surfaces: one bounded LangChain `createAgent()`
+conversation runtime, Vertex capture and compaction transport, safety routing,
+and committed medication grounding.
 
 ## Public entry
 
-- `.` → capture, conversation, safety, grounding, fixed/Vertex model adapters, fixture grounding helper
+- `.` → production `createAgent()` composition, capture, safety, grounding,
+  fixed/Vertex support adapters, and fixture grounding helper
+- `./legacy-testing` → pre-migration custom-loop parity and opt-in evaluation
+  harnesses only; production modules must not import this subpath
 - Passive memory uses a dedicated JSON-only generator with no tools or reply surface.
 
 ## Depends on
 
 - `@medbuddy/contracts`
+- `langchain`, `@langchain/core`, and `@langchain/google`
 - `google-auth-library` (Vertex adapter)
 - `langsmith` (default-off exact-content verification tracing)
 
@@ -42,13 +48,21 @@ behavior with deterministic assertions:
 MEDBUDDY_VERTEX_PROJECT=<project-id> npm run eval:compaction
 ```
 
-The optional LangSmith adapter wraps only explicitly composed conversation and
-compaction `VertexModelClient` instances. It requires an exact allowlisted
-fictional workspace match, refuses inline image data, attempts to flush before
-the serverless request finishes with a bounded two-second wait, and never changes or
-retries the underlying Vertex result when trace export fails. Text capture,
-image extraction, and attachment ingestion remain untraced. A flush timeout can
-therefore lose a verification trace without changing the model outcome.
+The LINE responder builds one invocation-local agent. Stable application rules
+are in the system prompt. The first user message is a versioned JSON recap;
+later user and assistant messages preserve their original roles; the focal turn
+appears once. Deterministic medical refusals and application-owned tool
+authorization run outside the framework. The runner configures no LangGraph
+checkpointer or Store.
+
+Agent-level LangSmith tracing is default-off. It requires an exact isolated
+Cloud Run revision, an exact fictional application workspace, and the matching
+fictional marker at the start of the focal message. The callback records the
+agent, model, and tool run tree. Each session permits one discovery and one
+ingest request, cancels transport at the turn deadline, refuses fallback-file
+persistence, and cannot change the model outcome. The older explicitly wrapped
+`VertexModelClient` tracer remains available for fictional compaction checks.
+Text capture, image extraction, and attachment ingestion remain untraced.
 
 The family-map prompt keeps one readable raw-text document with `Participants`,
 `Named relatives`, and `Direct relationships` sections. Explicitly named
@@ -57,8 +71,8 @@ response-time inferences rather than stored facts.
 
 ## Composition note
 
-`@medbuddy/web` composes the direct Vertex adapter for LINE. Chat supplies the
+`@medbuddy/web` composes `createVertexCreateAgentResponder()` as the only LINE
+conversation runtime. Chat supplies the
 server-bound family-map and current dynamic-memory capabilities; Intelligence
 never receives persistence or workspace selection authority.
-Deterministic medical refusals and the narrow ambiguous-pronoun relationship
-guard run before the model/tool loop.
+The historical custom loop is not exported from the production entry point.
