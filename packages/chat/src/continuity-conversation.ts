@@ -130,6 +130,8 @@ export class ContinuityThreadConversationService implements ContinuityConversati
       agentActions: assembled.agentActions,
       history: assembled.history,
       recentConversation: assembled.recentConversation,
+      recentConversationBeforeFocal: assembled.recentConversationBeforeFocal,
+      recentMessagesBeforeFocal: assembled.recentMessagesBeforeFocal,
       omittedSourceEventCount: assembled.omittedSourceEventCount,
     });
     const focalMessage = MessageSchema.parse({

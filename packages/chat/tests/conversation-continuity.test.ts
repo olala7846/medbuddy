@@ -101,6 +101,30 @@ describe("effective conversation projection", () => {
 });
 
 describe("deterministic conversation context", () => {
+  it("preserves chronological pre-focal roles and excludes the focal message", () => {
+    const sources = [
+      event(1, "Earlier caregiver question."),
+      event(2, "Earlier MedBuddy answer.", { authorMemberId: "MEDBUDDY" }),
+      event(3, "Current caregiver question."),
+    ];
+    const assembled = assembleConversationContext({
+      workspaceId: "workspace:orchard" as never,
+      focalSourceEventId: sources[2]!.id,
+      sourceEvents: sources,
+      readySegments: [],
+      system: "Trusted system instructions.",
+      compactionPending: false,
+    });
+
+    expect(assembled.recentMessagesBeforeFocal).toEqual([
+      { role: "HUMAN", content: "Earlier caregiver question." },
+      { role: "AGENT", content: "Earlier MedBuddy answer." },
+    ]);
+    expect(assembled.recentConversationBeforeFocal).toContain("Earlier caregiver question.");
+    expect(assembled.recentConversationBeforeFocal).toContain("Earlier MedBuddy answer.");
+    expect(assembled.recentConversationBeforeFocal).not.toContain("Current caregiver question.");
+  });
+
   it("uses the verification-small normal limit and only its eligible history before compaction is pending", () => {
     const sources = Array.from({ length: 4 }, (_, index) => event(index + 5, `${index}`.repeat(400)));
     const productionHistory = segment({

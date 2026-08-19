@@ -8,6 +8,7 @@ import {
   CompactionSegmentSchema,
   ContinuityAttachmentSchema,
   SourceEventSchema,
+  AssembledContextSchema,
 } from "../src/continuity.js";
 
 const baseEvent = {
@@ -22,6 +23,36 @@ const baseEvent = {
 } as const;
 
 describe("continuity contracts", () => {
+  it("accepts bounded role-preserving pre-focal messages and rejects their aggregate overflow", () => {
+    const base = {
+      workspaceId: "workspace:fictional" as const,
+      focalSourceEventId: "source-event:fictional-focal" as const,
+      system: "Trusted system instructions.",
+      history: "",
+      recentConversation: "[member:caregiver | source 3]\nCurrent question.",
+      recentConversationBeforeFocal: "[MEDBUDDY | source 2]\nEarlier answer.",
+      omittedSourceEventCount: 0,
+    };
+
+    expect(AssembledContextSchema.parse({
+      ...base,
+      recentMessagesBeforeFocal: [
+        { role: "HUMAN", content: "Earlier question." },
+        { role: "AGENT", content: "Earlier answer." },
+      ],
+    }).recentMessagesBeforeFocal).toEqual([
+      { role: "HUMAN", content: "Earlier question." },
+      { role: "AGENT", content: "Earlier answer." },
+    ]);
+    expect(AssembledContextSchema.safeParse({
+      ...base,
+      recentMessagesBeforeFocal: [
+        { role: "HUMAN", content: "x".repeat(30_000) },
+        { role: "AGENT", content: "y" },
+      ],
+    }).success).toBe(false);
+  });
+
   it("defines validated production and verification-small continuity policies", () => {
     expect(ContinuityPolicySchema.parse(CONTINUITY_POLICIES.production)).toEqual({
       profile: "production",
