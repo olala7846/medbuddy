@@ -95,6 +95,17 @@ describe("LangSmith Vertex tracing boundary", () => {
     )).rejects.toThrow("LANGSMITH_EXPORT_FAILED");
   });
 
+  it("preserves only the retry-stopping AbortError category", async () => {
+    const safeFetch = createContentSafeLangSmithFetch(async () => {
+      throw new Error("AbortError: private transport and prompt detail");
+    });
+
+    await expect(safeFetch("https://api.smith.langchain.com/runs/multipart"))
+      .rejects.toThrow("AbortError: LANGSMITH_EXPORT_FAILED");
+    await expect(safeFetch("https://api.smith.langchain.com/runs/multipart"))
+      .rejects.not.toThrow("private transport and prompt detail");
+  });
+
   it("rejects SDK fallback-file configuration before constructing a trace client", () => {
     expect(() => new LangSmithVertexTraceRuntime({
       serviceKey: "fictional-service-key",

@@ -54,11 +54,16 @@ export function createContentSafeLangSmithFetch(
     let response: Response;
     try {
       response = await request(input, init);
-    } catch {
+    } catch (error) {
       onFailure();
-      if (init?.signal?.aborted) {
+      if (
+        init?.signal?.aborted
+        || (error instanceof Error && error.message.startsWith("AbortError"))
+      ) {
+        // eslint-disable-next-line preserve-caught-error -- the cause may contain traced private content
         throw new Error("AbortError: LANGSMITH_EXPORT_FAILED");
       }
+      // eslint-disable-next-line preserve-caught-error -- the cause may contain traced private content
       throw new Error("LANGSMITH_EXPORT_FAILED");
     }
     if (response.ok) return response;
