@@ -14,6 +14,7 @@ import {
   LineConfigurationError,
   ProductionConfigurationError,
   loadContinuityConfiguration,
+  loadCreateAgentTracingConfiguration,
   loadLangSmithTracingConfiguration,
   loadLineConfiguration,
   loadProductionConfig,
@@ -44,6 +45,39 @@ describe("production composition configuration", () => {
       LANGSMITH_TRACING: "true",
       LANGSMITH_API_KEY: "must-not-enable",
     })).toBeNull();
+    expect(loadCreateAgentTracingConfiguration({
+      LANGSMITH_TRACING: "true",
+      LANGSMITH_API_KEY: "must-not-enable",
+    })).toBeNull();
+  });
+
+  it("requires an exact isolated revision for fictional createAgent tracing", () => {
+    const environment = {
+      MEDBUDDY_CREATE_AGENT_TRACING_ENABLED: "true",
+      MEDBUDDY_CREATE_AGENT_TRACE_ISOLATED_REVISION: "medbuddy-fictional-agent-trace",
+      K_REVISION: "medbuddy-fictional-agent-trace",
+      MEDBUDDY_LANGSMITH_SERVICE_KEY: "fictional-service-key",
+      MEDBUDDY_LANGSMITH_PROJECT: "medbuddy-create-agent-fictional",
+      MEDBUDDY_LANGSMITH_WORKSPACE_ID: "langsmith-workspace-fictional",
+      MEDBUDDY_LANGSMITH_API_URL: "https://api.smith.langchain.com",
+      MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID: "workspace:fictional-tracing",
+      MEDBUDDY_LANGSMITH_VERIFICATION_ID: "create-agent-fictional-verification",
+    };
+
+    expect(loadCreateAgentTracingConfiguration(environment)).toEqual({
+      serviceKey: "fictional-service-key",
+      project: "medbuddy-create-agent-fictional",
+      langSmithWorkspaceId: "langsmith-workspace-fictional",
+      apiUrl: "https://api.smith.langchain.com",
+      allowedAppWorkspaceId: "workspace:fictional-tracing",
+      verificationId: "create-agent-fictional-verification",
+      actualRevision: "medbuddy-fictional-agent-trace",
+      allowedIsolatedRevision: "medbuddy-fictional-agent-trace",
+    });
+    expect(() => loadCreateAgentTracingConfiguration({
+      ...environment,
+      K_REVISION: "ordinary-production-revision",
+    })).toThrow("MEDBUDDY_CREATE_AGENT_TRACE_ISOLATED_REVISION");
   });
 
   it("requires the complete dedicated fictional LangSmith configuration when enabled", () => {

@@ -46,15 +46,28 @@ export type LangSmithRuntimeConfiguration = {
   metadata: VertexTraceRecord["metadata"];
 };
 
-export function createContentSafeLangSmithFetch(request: typeof fetch = fetch): typeof fetch {
+export function createContentSafeLangSmithFetch(
+  request: typeof fetch = fetch,
+  onFailure: () => void = () => {},
+): typeof fetch {
   return async (input, init) => {
     let response: Response;
     try {
       response = await request(input, init);
-    } catch {
+    } catch (error) {
+      onFailure();
+      if (
+        init?.signal?.aborted
+        || (error instanceof Error && error.message.startsWith("AbortError"))
+      ) {
+        // eslint-disable-next-line preserve-caught-error -- the cause may contain traced private content
+        throw new Error("AbortError: LANGSMITH_EXPORT_FAILED");
+      }
+      // eslint-disable-next-line preserve-caught-error -- the cause may contain traced private content
       throw new Error("LANGSMITH_EXPORT_FAILED");
     }
     if (response.ok) return response;
+    onFailure();
     return new Response(null, {
       status: response.status,
       statusText: "LangSmith export failed",

@@ -195,6 +195,22 @@ function validateWorkspaceImport({
 }) {
   const violations = [];
 
+  const relativeSourcePath = toPosix(path.relative(sourceModule?.root ?? rootDir, filePath));
+  if (
+    location.specifier === "@medbuddy/intelligence/legacy-testing"
+    && !relativeSourcePath.startsWith("tests/")
+  ) {
+    violations.push(
+      violation(
+        rootDir,
+        filePath,
+        location,
+        "test-only-entry-point",
+        'Import "@medbuddy/intelligence/legacy-testing" only from a module tests/ directory.',
+      ),
+    );
+  }
+
   if (!isExportedSpecifier(targetModule, location.specifier)) {
     violations.push(
       violation(
@@ -208,7 +224,6 @@ function validateWorkspaceImport({
     return violations;
   }
 
-  const relativeSourcePath = toPosix(path.relative(sourceModule?.root ?? rootDir, filePath));
   if (relativeSourcePath.startsWith("tests/")) return violations;
 
   if (sourceModule?.kind === "package") {
@@ -300,6 +315,27 @@ export function checkModuleBoundaries(rootDir = process.cwd()) {
       if (location.specifier.startsWith(".")) {
         const targetPath = path.resolve(path.dirname(filePath), location.specifier);
         const targetModule = moduleForPath(targetPath, modules);
+        const relativeSourcePath = toPosix(path.relative(sourceModule?.root ?? absoluteRoot, filePath));
+        const importsLegacyRuntime = location.specifier.endsWith("/conversation/responder.js")
+          || location.specifier.endsWith("/adapters/legacy-vertex-conversation.js");
+        const isLegacyHarness = relativeSourcePath === "src/legacy-testing.ts"
+          || relativeSourcePath === "src/adapters/legacy-vertex-conversation.ts";
+
+        if (
+          importsLegacyRuntime
+          && !relativeSourcePath.startsWith("tests/")
+          && !isLegacyHarness
+        ) {
+          violations.push(
+            violation(
+              absoluteRoot,
+              filePath,
+              location,
+              "legacy-runtime-isolation",
+              "Production modules cannot import the legacy conversation runtime.",
+            ),
+          );
+        }
 
         if (targetModule && targetModule !== sourceModule) {
           violations.push(

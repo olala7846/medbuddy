@@ -89,6 +89,17 @@ const LangSmithTracingConfigSchema = z.object({
   MEDBUDDY_LANGSMITH_VERIFICATION_ID: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/),
 });
 
+const CreateAgentTracingConfigSchema = LangSmithTracingConfigSchema.omit({
+  MEDBUDDY_LANGSMITH_TRACING_ENABLED: true,
+}).extend({
+  MEDBUDDY_CREATE_AGENT_TRACING_ENABLED: z.literal("true"),
+  MEDBUDDY_CREATE_AGENT_TRACE_ISOLATED_REVISION: z.string().trim().min(1),
+  K_REVISION: z.string().trim().min(1),
+}).refine(
+  (value) => value.MEDBUDDY_CREATE_AGENT_TRACE_ISOLATED_REVISION === value.K_REVISION,
+  { path: ["MEDBUDDY_CREATE_AGENT_TRACE_ISOLATED_REVISION"] },
+);
+
 export type LangSmithTracingConfiguration = {
   serviceKey: string;
   project: string;
@@ -96,6 +107,17 @@ export type LangSmithTracingConfiguration = {
   apiUrl: z.infer<typeof LangSmithTracingConfigSchema>["MEDBUDDY_LANGSMITH_API_URL"];
   allowedMedBuddyWorkspaceId: string;
   verificationId: string;
+};
+
+export type CreateAgentTracingConfiguration = {
+  serviceKey: string;
+  project: string;
+  langSmithWorkspaceId: string;
+  apiUrl: z.infer<typeof LangSmithTracingConfigSchema>["MEDBUDDY_LANGSMITH_API_URL"];
+  allowedAppWorkspaceId: string;
+  verificationId: string;
+  actualRevision: string;
+  allowedIsolatedRevision: string;
 };
 
 export type LineConfiguration = {
@@ -150,6 +172,29 @@ export function loadLangSmithTracingConfiguration(
     apiUrl: value.MEDBUDDY_LANGSMITH_API_URL,
     allowedMedBuddyWorkspaceId: value.MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID,
     verificationId: value.MEDBUDDY_LANGSMITH_VERIFICATION_ID,
+  };
+}
+
+/** Loads agent-level tracing only for one exact isolated fictional revision. */
+export function loadCreateAgentTracingConfiguration(
+  environment: Record<string, string | undefined>,
+): CreateAgentTracingConfiguration | null {
+  if (environment.MEDBUDDY_CREATE_AGENT_TRACING_ENABLED !== "true") return null;
+  const parsed = CreateAgentTracingConfigSchema.safeParse(environment);
+  if (!parsed.success) {
+    const missingKeys = [...new Set(parsed.error.issues.map((issue) => String(issue.path[0])))].sort();
+    throw new ProductionConfigurationError(missingKeys);
+  }
+  const value = parsed.data;
+  return {
+    serviceKey: value.MEDBUDDY_LANGSMITH_SERVICE_KEY,
+    project: value.MEDBUDDY_LANGSMITH_PROJECT,
+    langSmithWorkspaceId: value.MEDBUDDY_LANGSMITH_WORKSPACE_ID,
+    apiUrl: value.MEDBUDDY_LANGSMITH_API_URL,
+    allowedAppWorkspaceId: value.MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID,
+    verificationId: value.MEDBUDDY_LANGSMITH_VERIFICATION_ID,
+    actualRevision: value.K_REVISION,
+    allowedIsolatedRevision: value.MEDBUDDY_CREATE_AGENT_TRACE_ISOLATED_REVISION,
   };
 }
 

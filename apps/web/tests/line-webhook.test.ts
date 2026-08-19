@@ -1,11 +1,14 @@
 import { ContinuityThreadConversationService, ThreadConversationService } from "@medbuddy/chat";
-import type { ContinuityConversation, ConversationResponder } from "@medbuddy/contracts";
+import { AssembledContextSchema, type ContinuityConversation, type ConversationResponder } from "@medbuddy/contracts";
 import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
 import {
   CommittedSourceCardGrounding,
+} from "@medbuddy/intelligence";
+import {
   ConversationResponder as IntelligenceConversationResponder,
   FixedConversationProvider,
-} from "@medbuddy/intelligence";
+  createFixedCreateAgentResponder,
+} from "@medbuddy/intelligence/legacy-testing";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -110,19 +113,37 @@ describe("LINE webhook", () => {
       messageId: "fictional-message-a",
       eventId: "fictional-event-a",
     });
-    const responder = new IntelligenceConversationResponder(
-      new CommittedSourceCardGrounding([]),
-      new FixedConversationProvider(new Map([[ids.messageId, [
-        {
-          kind: "UPDATE_WORKSPACE_FAMILY_MAP",
-          input: {
-            expectedRevision: 0,
-            content: `Members\n- ${ids.memberId}: Mei`,
+    const content = `Participants\n- Mei (${ids.memberId})\n\nNamed relatives\n\nDirect relationships`;
+    const fixedAgent = createFixedCreateAgentResponder([
+      { toolCalls: [{
+        name: "update_workspace_family_map",
+        args: { expectedRevision: 0, content },
+        id: "call:line-family-map",
+      }] },
+      { text: "Okay—I’ll remember that you are Mei in this chat." },
+    ]);
+    const responder: ConversationResponder = {
+      respond(request, tools) {
+        const focal = request.context.messages.find((message) => message.id === request.messageId)!;
+        return fixedAgent.respond({
+          ...request,
+          context: {
+            ...request.context,
+            assembledContext: AssembledContextSchema.parse({
+              workspaceId: request.context.workspaceId,
+              focalSourceEventId: "source-event:fictional-line-create-agent",
+              system: "Preserve workspace isolation and deterministic medical safety.",
+              familyMap: request.context.familyMap.content,
+              history: "",
+              recentConversation: `[${focal.authorMemberId}]\n${focal.body}`,
+              recentConversationBeforeFocal: "",
+              recentMessagesBeforeFocal: [],
+              omittedSourceEventCount: 0,
+            }),
           },
-        },
-        { kind: "REPLY", text: "Okay—I’ll remember that you are Mei in this chat." },
-      ]]])),
-    );
+        }, tools);
+      },
+    };
     const replies: { replyToken: string; text: string }[] = [];
     const handler = new LineWebhookHandler({
       channelSecret,
@@ -143,7 +164,7 @@ describe("LINE webhook", () => {
     await handler.handle({ ...request, correlationId: "request:fictional-family-map-replay" });
 
     await expect(persistence.familyMaps.get(ids.workspaceId)).resolves.toMatchObject({
-      content: `Members\n- ${ids.memberId}: Mei`,
+      content,
       revision: 1,
     });
     expect(replies).toEqual([{

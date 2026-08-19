@@ -4,7 +4,7 @@ import {
   ConversationInstructionSchema,
   ConversationProviderError,
   type ConversationProvider,
-} from "@medbuddy/intelligence";
+} from "@medbuddy/intelligence/legacy-testing";
 
 const OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_CONTEXT_UTF16 = 60_000;

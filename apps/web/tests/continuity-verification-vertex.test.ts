@@ -9,9 +9,8 @@ import {
   COMPACTION_MODEL_ID,
   CommittedSourceCardGrounding,
   CompactionSummaryGenerator,
-  ConversationResponder,
-  VertexConversationProvider,
   VertexRestClient,
+  createVertexCreateAgentResponder,
   loadVertexConfiguration,
 } from "@medbuddy/intelligence";
 import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
@@ -140,10 +139,10 @@ describe.runIf(runEvaluation)("Traditional Chinese continuity Vertex evaluation"
     const persistence = new InMemoryPersistence();
     const responses: string[] = [];
     const counterfactualFixture = await createCounterfactualFixture();
-    const liveResponder = new ConversationResponder(
+    const liveResponder = createVertexCreateAgentResponder(
+      configuration,
       new CommittedSourceCardGrounding([]),
-      new VertexConversationProvider(new VertexRestClient(configuration)),
-      60_000,
+      { budgets: { turnTimeoutMs: 60_000 } },
     );
 
     try {

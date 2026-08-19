@@ -268,6 +268,12 @@ export const AssembledContextSchema = z.object({
   agentActions: z.string().max(AGENT_ACTION_MAX_UTF16).optional(),
   history: z.string().max(ASSEMBLED_CONTEXT_MAX_UTF16),
   recentConversation: z.string().max(RECENT_HARD_CEILING_UTF16),
+  recentConversationBeforeFocal: z.string().max(RECENT_HARD_CEILING_UTF16).optional(),
+  recentMessagesBeforeFocal: z.array(z.object({
+    role: z.enum(["HUMAN", "AGENT"]),
+    authorMemberId: z.union([MemberIdSchema, z.literal("MEDBUDDY")]),
+    content: z.string().min(1).max(SOURCE_TEXT_MAX_UTF16),
+  }).strict()).max(100).optional(),
   omittedSourceEventCount: z.number().int().nonnegative(),
 }).strict().superRefine((context, issueContext) => {
   const rendered = [context.system, context.familyMap, context.agentActions, context.history, context.recentConversation]
@@ -275,6 +281,11 @@ export const AssembledContextSchema = z.object({
     .join("\n\n");
   if (rendered.length > ASSEMBLED_CONTEXT_MAX_UTF16) {
     issueContext.addIssue({ code: "custom", message: "Fully rendered context exceeds its global character budget." });
+  }
+  const recentMessageCharacters = context.recentMessagesBeforeFocal
+    ?.reduce((total, message) => total + message.authorMemberId.length + message.content.length, 0) ?? 0;
+  if (recentMessageCharacters > RECENT_HARD_CEILING_UTF16) {
+    issueContext.addIssue({ code: "custom", message: "Structured recent messages exceed their character budget." });
   }
 });
 

@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { CommittedSourceCardGrounding, ConversationResponder } from "@medbuddy/intelligence";
+import { CommittedSourceCardGrounding } from "@medbuddy/intelligence";
+import { ConversationResponder } from "@medbuddy/intelligence/legacy-testing";
 import { WorkspaceIdSchema } from "@medbuddy/contracts";
 import { InMemoryContinuityRepository, InMemoryPersistence } from "@medbuddy/platform";
 import { describe, expect, it } from "vitest";

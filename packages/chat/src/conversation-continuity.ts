@@ -271,6 +271,19 @@ export function assembleConversationContext(input: AssembleConversationContextIn
   }
   const recentConversation = recentParts.join("\n\n");
   if (recentConversation.length > recentLimit) throw new Error("Recent conversation exceeded its hard character ceiling.");
+  const recentConversationBeforeFocal = [
+    ...(omittedSourceEventCount > 0 ? [PENDING_HISTORY_MARKER] : []),
+    ...selectedNewestFirst
+      .filter((entry) => entry.turn.sourceEventId !== focal.sourceEventId)
+      .map((entry) => entry.rendered),
+  ].join("\n\n");
+  const recentMessagesBeforeFocal = selectedNewestFirst
+    .filter((entry) => entry.turn.sourceEventId !== focal.sourceEventId)
+    .map((entry) => ({
+      role: entry.turn.authorMemberId === "MEDBUDDY" ? "AGENT" as const : "HUMAN" as const,
+      authorMemberId: entry.turn.authorMemberId,
+      content: entry.turn.body,
+    }));
 
   const firstRecentSequence = Math.min(...selectedNewestFirst.map((entry) => entry.turn.sourceSequence));
   const frontier = validateAndSelectFrontier(
@@ -305,6 +318,8 @@ export function assembleConversationContext(input: AssembleConversationContextIn
     agentActions,
     history,
     recentConversation,
+    recentConversationBeforeFocal,
+    recentMessagesBeforeFocal,
     omittedSourceEventCount,
   });
   const rendered = joinBlocks([context.system, context.familyMap, context.agentActions, context.history, context.recentConversation]);

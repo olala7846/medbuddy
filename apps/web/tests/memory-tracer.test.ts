@@ -7,10 +7,9 @@ import {
 } from "@medbuddy/chat";
 import type { ConversationTelemetryEntry } from "@medbuddy/contracts";
 import {
-  ConversationResponder,
-  FixedConversationProvider,
   createFixtureMedicationGrounding,
 } from "@medbuddy/intelligence";
+import { ConversationResponder, FixedConversationProvider } from "@medbuddy/intelligence/legacy-testing";
 import {
   InMemoryContinuityRepository,
   InMemoryDynamicMemoryRepository,

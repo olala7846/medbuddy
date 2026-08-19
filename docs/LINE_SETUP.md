@@ -63,7 +63,11 @@ Synthetic tests cover the adapter-private provider locator and attachment callba
 
 ## Optional Effort 2 exact tracing (off by default)
 
-LangSmith tracing can inspect the exact structured Vertex request and parsed response for fictional conversation and compaction verification. It does not trace the full LINE webhook, text capture, image extraction, attachment ingestion, Google authentication, headers, or access tokens.
+The older Vertex wrapper can inspect fictional compaction requests. LINE
+conversation tracing now uses the selective `createAgent()` callback described
+below so model and tool spans stay in one run tree. Neither mode traces the full
+LINE webhook, text capture, image extraction, attachment ingestion, Google
+authentication, headers, or access tokens.
 
 Tracing is disabled unless every value is present and the flag is exactly `true`:
 
@@ -76,6 +80,19 @@ MEDBUDDY_LANGSMITH_API_URL=<approved regional LangSmith API URL>
 MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID=<one fictional internal workspace ID>
 MEDBUDDY_LANGSMITH_VERIFICATION_ID=<content-free verification label>
 ```
+
+For full `createAgent()` model/tool run-tree review, use a dedicated fictional
+Cloud Run revision and add:
+
+```bash
+MEDBUDDY_CREATE_AGENT_TRACING_ENABLED=true
+MEDBUDDY_CREATE_AGENT_TRACE_ISOLATED_REVISION=<exact K_REVISION of the dedicated revision>
+```
+
+The agent callback is created only when that revision matches, the application
+workspace equals `MEDBUDDY_LANGSMITH_ALLOWED_WORKSPACE_ID`, and the focal text
+starts with `[fictional-langsmith:<verification label>]`. Do not enable this
+mode on an ordinary LINE revision.
 
 Only US GCP, EU GCP, APAC GCP, and AWS US LangSmith SaaS API URLs are allowed. Generic `LANGSMITH_*` variables do not enable tracing. The local MedBuddy workspace allowlist is never sent as trace metadata. Do not trace a request with a missing scope, a different workspace, or inline image data.
 

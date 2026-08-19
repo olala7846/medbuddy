@@ -19,7 +19,7 @@ and a runnable local Next.js host. Design for 100 users or fewer. No microservic
 | `@medbuddy/contracts` | Zod schemas, branded IDs, errors, public ports, golden-scenario fixtures | Runtime I/O, policy decisions |
 | `@medbuddy/chat` | Chat workflows, isolated external turns, family-map context, deterministic source-backed dynamic-memory policy | Storage vendor, channel details |
 | `@medbuddy/care-record` | Eligibility, facts, review, handoff, authorization helpers | Model prompts, HTTP |
-| `@medbuddy/intelligence` | Bounded model/tool/model loop, Vertex function transport, capture, safety, medication grounding | Repositories, canonical fact mutation authority, consent grants |
+| `@medbuddy/intelligence` | Bounded LangChain `createAgent()` runtime, role-preserving context, invocation-bound tools, Vertex models, capture, safety, medication grounding, selective fictional tracing | Repositories, LangGraph persistence, canonical fact mutation authority, consent grants |
 | `@medbuddy/platform` | Firestore and in-memory family-map adapters, Cloud Tasks, Storage, demo persistence | Consent, safety, review, handoff policy |
 | `@medbuddy/web` | Auth/actor resolution, LINE and browser HTTP adapters, composition root | Canonical business policy (target; some orchestration remains here) |
 
@@ -90,7 +90,14 @@ Tests: `packages/*/tests` and `apps/web/tests`.
 `@medbuddy/web` composes the LINE boundary with Chat, Intelligence, and
 Platform. Chat binds workspace, actor, and source-message scope before it
 exposes the family-map capability. Provider and channel types end at adapters.
-The conversation interface stays channel-neutral.
+The conversation interface stays channel-neutral. The only production LINE
+implementation is `createVertexCreateAgentResponder()`: it sends a trusted
+system prompt, a versioned untrusted recap, role-preserving recent messages with
+application-supplied human author IDs, and one attributed focal user message to
+an invocation-local LangChain agent. It explicitly disables checkpointing and
+supplies no Store. The old custom loop is available only from the explicit
+`@medbuddy/intelligence/legacy-testing` subpath for parity and opt-in evaluation
+fixtures.
 
 ## Related documents
 

@@ -8,14 +8,16 @@ import {
 } from "@medbuddy/contracts";
 
 import {
-  ConversationResponder,
-  FAMILY_MAP_UPDATE_FAILURE_TEXT,
-  FixedConversationProvider,
-  VertexConversationProvider,
   type VertexGenerationRequest,
   type VertexModelClient,
   createFixtureMedicationGrounding,
 } from "../src/index.js";
+import {
+  ConversationResponder,
+  FAMILY_MAP_UPDATE_FAILURE_TEXT,
+  FixedConversationProvider,
+  VertexConversationProvider,
+} from "../src/legacy-testing.js";
 
 const focalMessage = MessageSchema.parse({
   id: "message:fictional-tool-dispatch",

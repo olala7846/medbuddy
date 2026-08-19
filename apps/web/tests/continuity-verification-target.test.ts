@@ -8,11 +8,10 @@ import {
   COMPACTION_MODEL_ID,
   CommittedSourceCardGrounding,
   CompactionSummaryGenerator,
-  ConversationResponder,
   loadVertexConfiguration,
-  VertexConversationProvider,
   VertexRestClient,
 } from "@medbuddy/intelligence";
+import { ConversationResponder, VertexConversationProvider } from "@medbuddy/intelligence/legacy-testing";
 import { FirestoreContinuityRepository, FirestorePersistence } from "@medbuddy/platform";
 
 import {
