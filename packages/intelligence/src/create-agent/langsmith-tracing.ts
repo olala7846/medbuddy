@@ -67,11 +67,16 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
     if (this.configuration.actualRevision !== this.configuration.allowedIsolatedRevision) {
       throw new Error("MedBuddy agent tracing is not running on its isolated revision.");
     }
-    const automaticOrHidden = prohibitedTrueKeys.some((key) => {
-      const value = environment[key];
+    const environments = environment === process.env
+      ? [environment]
+      : [environment, process.env];
+    const automaticOrHidden = environments.some((source) => prohibitedTrueKeys.some((key) => {
+      const value = source[key];
       return value !== undefined && value !== "false";
-    });
-    const fallbackPersistence = prohibitedNonEmptyKeys.some((key) => Boolean(environment[key]?.trim()));
+    }));
+    const fallbackPersistence = environments.some((source) =>
+      prohibitedNonEmptyKeys.some((key) => Boolean(source[key]?.trim()))
+    );
     if (automaticOrHidden || fallbackPersistence) {
       throw new Error("MedBuddy exact-content agent tracing configuration is unsafe.");
     }
@@ -85,8 +90,14 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
     ) return null;
 
     let transportFailed = false;
+    let networkAttempted = false;
     const transportController = new AbortController();
     const sessionRequest: typeof fetch = (input, init) => {
+      if (networkAttempted) {
+        transportFailed = true;
+        throw new Error("AbortError: MedBuddy trace session permits one network attempt.");
+      }
+      networkAttempted = true;
       const signal = init?.signal == null
         ? transportController.signal
         : AbortSignal.any([init.signal, transportController.signal]);
@@ -99,6 +110,8 @@ export class LangSmithMedBuddyAgentTraceRuntime implements MedBuddyAgentTraceRun
       manualFlushMode: true,
       timeout_ms: 2_000,
       callerOptions: { maxRetries: 0 },
+      batchSizeBytesLimit: 5_000_000,
+      batchSizeLimit: 100,
       tracingSamplingRate: 1,
       tracingMode: "langsmith",
       hideInputs: false,

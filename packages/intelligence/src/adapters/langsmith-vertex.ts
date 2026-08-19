@@ -56,6 +56,9 @@ export function createContentSafeLangSmithFetch(
       response = await request(input, init);
     } catch {
       onFailure();
+      if (init?.signal?.aborted) {
+        throw new Error("AbortError: LANGSMITH_EXPORT_FAILED");
+      }
       throw new Error("LANGSMITH_EXPORT_FAILED");
     }
     if (response.ok) return response;

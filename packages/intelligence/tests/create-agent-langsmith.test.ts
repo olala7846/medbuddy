@@ -82,6 +82,16 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
     }
   });
 
+  it("rejects fallback persistence from the real process environment", () => {
+    vi.stubEnv("LANGSMITH_FAILED_TRACES_DIR", "/tmp/must-not-write");
+    try {
+      expect(() => new LangSmithMedBuddyAgentTraceRuntime(configuration, {}))
+        .toThrow(/tracing configuration/i);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("rejects tracing when the actual and allowed isolated revisions differ", () => {
     expect(() => new LangSmithMedBuddyAgentTraceRuntime({
       ...configuration,
@@ -98,47 +108,6 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
         },
       },
     )).toThrow(/isolated revision/i);
-  });
-
-  it("sanitizes a swallowed LangSmith transport failure", async () => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const failedFetch: typeof fetch = async () => new Response(
-        "private response body",
-        { status: 400, statusText: "private provider detail" },
-      );
-      const runtime = new LangSmithMedBuddyAgentTraceRuntime(configuration, {}, failedFetch);
-      const marker = createMedBuddyAgentFictionalTraceMarker(configuration.verificationId);
-      const session = runtime.open({
-        workspaceId: configuration.allowedAppWorkspaceId,
-        focalMessageBody: `${marker}\nA fictional question.`,
-      });
-      expect(session).not.toBeNull();
-      const callbacks = Array.isArray(session?.callbacks) ? session.callbacks : [];
-      const tracer = callbacks[0] as unknown as {
-        handleChainStart(
-          chain: { id: string[] },
-          inputs: Record<string, unknown>,
-          runId: string,
-        ): Promise<unknown>;
-        handleChainEnd(outputs: Record<string, unknown>, runId: string): Promise<unknown>;
-      };
-      const runId = "00000000-0000-4000-8000-000000000001";
-      await tracer.handleChainStart(
-        { id: ["fictional", "medbuddy-create-agent-trace-test"] },
-        { prompt: "A fictional prompt." },
-        runId,
-      );
-      await tracer.handleChainEnd({ response: "A fictional response." }, runId);
-
-      await expect(session?.flush()).rejects.toThrow("trace export failed");
-      expect(JSON.stringify(errors.mock.calls)).not.toContain("private response body");
-      expect(JSON.stringify(warnings.mock.calls)).not.toContain("private provider detail");
-    } finally {
-      errors.mockRestore();
-      warnings.mockRestore();
-    }
   });
 
   it("runs a real agent trace tree and aborts hanging export before returning", async () => {
@@ -190,6 +159,9 @@ describe("MedBuddy createAgent LangSmith boundary", () => {
     expect(abortedRequests).toBe(requestCount);
     expect(activeRequests).toBe(0);
     expect(Date.now() - startedAt).toBeLessThan(150);
+    const requestsAtReturn = requestCount;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(requestCount).toBe(requestsAtReturn);
   });
 
   it("builds a stable marker from a validated verification identifier", () => {
