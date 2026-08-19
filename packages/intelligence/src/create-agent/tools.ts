@@ -25,7 +25,7 @@ import {
   focalRequiresFamilyMapUpdate,
   remainsValidAfterCallback,
   renderLookup,
-} from "../conversation/responder.js";
+} from "../conversation/policy.js";
 import { lookupMedication } from "../conversation/tools.js";
 
 const FAMILY_MAP_TOOL_NAME = "update_workspace_family_map";

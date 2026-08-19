@@ -10,4 +10,4 @@ export {
   CONVERSATION_MAX_OUTPUT_TOKENS,
   CONVERSATION_PROVIDER_REQUEST_MAX_UTF16,
   VertexConversationProvider,
-} from "./adapters/vertex.js";
+} from "./adapters/legacy-vertex-conversation.js";

@@ -13,7 +13,7 @@ import {
   FAMILY_MAP_UPDATE_FAILURE_TEXT,
   focalAuthorizesFamilyMapUpdate,
   needsRelationshipTargetClarification,
-} from "../conversation/responder.js";
+} from "../conversation/policy.js";
 import { routeDiagnosisOrPrescribingRequest, routeMedicationDecision } from "../safety/route.js";
 import { createMedBuddyAgentContext } from "./context.js";
 import { LangChainMedBuddyAgentRunner, MedBuddyAgentRunError } from "./runner.js";
