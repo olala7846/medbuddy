@@ -1,4 +1,94 @@
-# Implementation Plan: Long-Running Conversation Continuity
+# Implementation Plan: LangChain `createAgent` Migration
+
+**Status:** In progress
+
+**Requirements:** [`../docs/proposals/MEDBUDDY_CREATE_AGENT_MIGRATION.md`](../docs/proposals/MEDBUDDY_CREATE_AGENT_MIGRATION.md)
+
+## Outcome
+
+Replace the custom MedBuddy model/tool/model state machine with one bounded,
+observable LangChain `createAgent()` runtime. Preserve application-owned safety,
+authorization, persistence, and final behavior. Do not retain a production
+traffic split.
+
+## Delivery order
+
+### Piece 1: Role-preserving context and prompt boundary
+
+- Add optional pre-focal flattened and typed message fields to Contracts.
+- Populate them in Chat without duplicating the focal message.
+- Render trusted instructions separately from the versioned untrusted recap.
+- Verify legacy queued tasks remain readable.
+- Obtain and remediate an independent review.
+
+### Piece 2: Bounded framework and model foundation
+
+- Pin the proven LangChain packages.
+- Add the private ChatGoogle Vertex model seam.
+- Add an invocation-local `createAgent()` runner with explicit budgets,
+  cancellation, terminal validation, no persistence, and no automatic tracing.
+- Obtain and remediate an independent review.
+
+### Piece 3: MedBuddy tool parity
+
+- Adapt family-map, memory proposal/query, and medication grounding capabilities.
+- Preserve trusted-scope binding, canonical snapshots, result dispositions,
+  conflict retries, required-before-reply behavior, and technical failures.
+- Preserve deterministic medical refusals before model access.
+- Obtain and remediate an independent review.
+
+### Piece 4: Production replacement and agent tracing
+
+- Compose the new responder as the only LINE conversation runtime.
+- Add isolated fictional invocation-level LangSmith callbacks.
+- Prove deduplication, accepted publication, default-off tracing, privacy gates,
+  and outcome independence.
+- Obtain and remediate an independent review.
+
+### Piece 5: Remove superseded orchestration and document the result
+
+- Delete the custom provider protocol and raw conversation agent loop when no
+  callers remain.
+- Retain direct Vertex transport only for non-agent boundaries that still need
+  it, such as compaction and capture.
+- Update package and architecture documentation.
+- Run focused and full verification.
+- Obtain and remediate an independent review.
+
+## Final independent gates
+
+1. Fresh-context architecture and behavior review.
+2. Separate fresh-context audit of every migration risk and mitigation.
+3. Implement all findings and rerun affected checks.
+4. Separate final verification of the complete specification and Git diff.
+5. Open a pull request and merge it into `origin/main` with a merge commit.
+
+## Dependency graph
+
+```text
+typed context contract
+  -> prompt/message composition
+     -> bounded createAgent runner
+        -> MedBuddy tool adapters
+           -> production composition
+              -> legacy deletion
+                 -> final audits and merge
+```
+
+## Verification
+
+Each piece runs focused tests and `npm run check`. Final verification runs:
+
+```bash
+npm run check
+npm test
+npm run build --workspace @medbuddy/web
+npm audit --omit=dev
+```
+
+---
+
+# Historical Plan: Long-Running Conversation Continuity
 
 **Status:** Approved for implementation
 

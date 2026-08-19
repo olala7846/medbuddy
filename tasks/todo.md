@@ -1,4 +1,43 @@
-# Long-Running Conversation Continuity Checklist
+# LangChain `createAgent` Migration Checklist
+
+**Status:** In progress
+
+## Specification and setup
+
+- [x] Record the agreed benefits, behavioral invariants, risks, and mitigations.
+- [x] Update local `main` from `origin/main`.
+- [x] Create a clean isolated worktree and dedicated branch.
+
+## Delivery pieces
+
+- [ ] Piece 1: Role-preserving context and trusted/untrusted prompt boundary.
+- [ ] Independent Piece 1 review completed and all findings resolved.
+- [ ] Piece 2: Bounded `createAgent()` framework and Vertex model foundation.
+- [ ] Independent Piece 2 review completed and all findings resolved.
+- [ ] Piece 3: Family-map, memory, medication-grounding, and safety parity.
+- [ ] Independent Piece 3 review completed and all findings resolved.
+- [ ] Piece 4: Production replacement and isolated fictional LangSmith tracing.
+- [ ] Independent Piece 4 review completed and all findings resolved.
+- [ ] Piece 5: Superseded orchestration removed and documentation updated.
+- [ ] Independent Piece 5 review completed and all findings resolved.
+
+## Final review and landing
+
+- [ ] Fresh-context architecture and external-behavior review is clean.
+- [ ] Separate risk-register audit is clean.
+- [ ] All review findings are fixed and affected checks pass.
+- [ ] Separate final verification proves every specification requirement.
+- [ ] `npm run check` passes.
+- [ ] `npm test` passes.
+- [ ] `npm run build --workspace @medbuddy/web` passes.
+- [ ] `npm audit --omit=dev` has no unmitigated newly reachable finding.
+- [ ] Staged changes contain no PII, health data, credentials, or secrets.
+- [ ] Pull request is merged into `origin/main` with a merge commit.
+- [ ] Temporary worktree is safely removed.
+
+---
+
+# Historical Checklist: Long-Running Conversation Continuity
 
 **Status:** Approved for implementation
 
